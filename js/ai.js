@@ -409,7 +409,7 @@ if (!lsLoad('bazar_ai_seen', false)) {
 
 /* кроссинг брейкпоинта: на десктопе панель плавает (лок не нужен),
    на мобиле открытая панель — полноэкранный шит (лок обязателен) */
-matchMedia('(min-width: 921px)').addEventListener('change', e => {
+onMediaChange('(min-width: 921px)', e => {
   const open = !$('#aiPanel').hidden;
   if (e.matches) unlockScroll('ai');
   else if (open) lockScroll('ai');
