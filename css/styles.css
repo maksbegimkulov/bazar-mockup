@@ -1419,7 +1419,8 @@ main.container { padding-top: 20px; padding-bottom: 90px; min-height: 70vh; }
 
 @media (max-width: 920px) {
   /* двухрядная шапка: поиск переезжает на второй ряд */
-  .header-inner { gap: 10px; height: auto; flex-wrap: wrap; padding: 9px 0; }
+  /* longhand top/bottom — НЕ шорткат, иначе обнулятся горизонтальные отступы контейнера */
+  .header-inner { gap: 10px; height: auto; flex-wrap: wrap; padding-top: 9px; padding-bottom: 9px; }
   .searchbar { order: 4; flex-basis: 100%; }
   .header-actions { margin-left: auto; }
 
