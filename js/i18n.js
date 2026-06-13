@@ -482,5 +482,14 @@ function setTheme(mode) {
   applyTheme();
 }
 
-darkMQ.addEventListener('change', () => { if (THEME === 'system') applyTheme(); });
+/* кросс-браузерный слушатель media-query: iOS Safari <14 не знает
+   MediaQueryList.addEventListener — фолбэк на устаревший addListener */
+function onMediaChange(mqOrQuery, fn) {
+  const mq = typeof mqOrQuery === 'string' ? matchMedia(mqOrQuery) : mqOrQuery;
+  if (mq.addEventListener) mq.addEventListener('change', fn);
+  else if (mq.addListener) mq.addListener(fn);
+  return mq;
+}
+
+onMediaChange(darkMQ, () => { if (THEME === 'system') applyTheme(); });
 applyTheme(); // мгновенно, до отрисовки страницы (скрипт в конце body, но до рендера app.js)

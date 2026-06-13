@@ -1010,9 +1010,9 @@ function renderProfile() {
       <div class="setting-row">
         <span class="setting-label">${t('profile.theme')}</span>
         <div class="seg" id="themeSeg">
-          <button class="seg-btn ${THEME === 'light' ? 'active' : ''}" data-set-theme="light">☀️ ${t('theme.light')}</button>
-          <button class="seg-btn ${THEME === 'dark' ? 'active' : ''}" data-set-theme="dark">🌙 ${t('theme.dark')}</button>
-          <button class="seg-btn ${THEME === 'system' ? 'active' : ''}" data-set-theme="system">🌗 ${t('theme.system')}</button>
+          <button class="seg-btn ${THEME === 'light' ? 'active' : ''}" data-set-theme="light"><span class="seg-emoji">☀️</span> ${t('theme.light')}</button>
+          <button class="seg-btn ${THEME === 'dark' ? 'active' : ''}" data-set-theme="dark"><span class="seg-emoji">🌙</span> ${t('theme.dark')}</button>
+          <button class="seg-btn ${THEME === 'system' ? 'active' : ''}" data-set-theme="system"><span class="seg-emoji">🌗</span> ${t('theme.system')}</button>
         </div>
       </div>
     </div>`;
@@ -1675,7 +1675,7 @@ window.addEventListener('hashchange', e => {
 });
 
 // при выходе из мобильного диапазона шит фильтров и его скролл-лок не должны зависнуть
-matchMedia('(min-width: 921px)').addEventListener('change', e => {
+onMediaChange('(min-width: 921px)', e => {
   if (e.matches) closeFilterSheet();
 });
 
