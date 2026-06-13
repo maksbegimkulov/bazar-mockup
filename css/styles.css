@@ -1481,14 +1481,19 @@ main.container { padding-top: 20px; padding-bottom: 90px; min-height: 70vh; }
   .chat-window.hide-mobile { display: none; }
   .chat-head .back-btn { display: grid; }
 
-  /* панель Айки — bottom-sheet на мобиле */
+  /* панель Дианы — bottom-sheet на мобиле.
+     Высота привязана к VISUAL viewport (--vvh, выставляется из JS) — так панель
+     никогда не уходит под клавиатуру, инпут всегда на виду, и iOS не проматывает
+     страницу (шапка чата больше не «улетает»). Fallback — 100dvh. */
   .ai-panel {
-    right: 0; left: 0; bottom: 0;
+    right: 0; left: 0; bottom: auto;
     width: auto;
     top: max(20px, env(safe-area-inset-top));
-    height: auto;
+    height: calc(var(--vvh, 100dvh) - max(20px, env(safe-area-inset-top)));
+    transform: translateY(var(--vvtop, 0px));
     border-radius: 16px 16px 0 0;
   }
+  .ai-head, .ai-quick, .ai-inputrow { flex-shrink: 0; }
   .ai-inputrow { padding-bottom: calc(10px + env(safe-area-inset-bottom)); }
   .ai-inputrow input { font-size: 16px; }
   .ai-banner { flex-wrap: wrap; }

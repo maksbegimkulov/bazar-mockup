@@ -90,6 +90,7 @@ function openAI(prefill) {
       aiPush({ role: 'ai', text: t('ai.greeting') });
     }
     renderAIMessages();
+    syncAIViewport(); // зафиксировать высоту под текущий visual viewport
   }
   const input = $('#aiInput');
   if (prefill) {
@@ -106,6 +107,23 @@ function closeAI() {
     panel.hidden = true;
     unlockScroll('ai');
   }
+}
+
+/* высота панели = visual viewport (видимая область над клавиатурой).
+   Без этого на iOS при подъёме клавиатуры шапка чата уезжает за экран. */
+function syncAIViewport() {
+  const vv = window.visualViewport;
+  if (!vv) return;
+  const root = document.documentElement.style;
+  root.setProperty('--vvh', vv.height + 'px');
+  root.setProperty('--vvtop', vv.offsetTop + 'px');
+  // держим последнее сообщение видимым, когда клавиатура поджимает список
+  const panel = $('#aiPanel'), msgs = $('#aiMsgs');
+  if (panel && !panel.hidden && msgs) msgs.scrollTop = msgs.scrollHeight;
+}
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', syncAIViewport);
+  window.visualViewport.addEventListener('scroll', syncAIViewport);
 }
 
 /* ---------- логика ответов ---------- */
