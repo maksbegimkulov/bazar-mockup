@@ -99,11 +99,17 @@ a, button, .fchip, .fav-btn {
 :focus-visible { outline: 2px solid var(--accent-dark); outline-offset: 2px; }
 
 .container {
-  max-width: 1200px;
+  max-width: 1240px;
   margin: 0 auto;
-  padding: 0 16px;
   padding-left: max(16px, env(safe-area-inset-left));
   padding-right: max(16px, env(safe-area-inset-right));
+}
+/* на планшете/десктопе — заметные поля, чтобы контент не липнул к краям */
+@media (min-width: 768px) {
+  .container {
+    padding-left: max(32px, env(safe-area-inset-left));
+    padding-right: max(32px, env(safe-area-inset-right));
+  }
 }
 
 main.container { padding-top: 20px; padding-bottom: 90px; min-height: 70vh; }
