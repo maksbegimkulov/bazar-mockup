@@ -1,31 +1,79 @@
 /* ============================================================
    BAZAR — реальное распознавание товара по фото (on-device).
-   Камера (getUserMedia + file-capture fallback) + классификация
-   через TensorFlow.js MobileNet, загружаемый лениво с CDN.
-   Без бэкенда и без API-ключей — всё в браузере пользователя.
+   Камера (getUserMedia + file fallback) + CLIP zero-shot
+   через Transformers.js: модели даём НАШ список товаров,
+   и она выбирает, что реально на фото (точнее, чем ImageNet).
+   Без бэкенда и без API-ключей — всё в браузере.
    ============================================================ */
 
 const VISION = { model: null, loading: null, stream: null };
+
+/* промпт → категория/подкатегория BAZAR. Несколько промптов на одну
+   подкатегорию повышают точность; обратно мапим по объекту. */
+const CLIP_LABELS = [
+  ['a photo of a smartphone or mobile phone', 'electronics', 'Телефоны'],
+  ['a photo of a laptop computer', 'electronics', 'Ноутбуки'],
+  ['a photo of a tablet computer', 'electronics', 'Планшеты'],
+  ['a photo of a flat-screen television', 'electronics', 'ТВ и аудио'],
+  ['a photo of headphones or earbuds', 'electronics', 'ТВ и аудио'],
+  ['a photo of a bluetooth speaker', 'electronics', 'ТВ и аудио'],
+  ['a photo of a video game console', 'electronics', 'ТВ и аудио'],
+  ['a photo of a digital photo camera', 'electronics', 'Фото и видео'],
+  ['a photo of a refrigerator', 'electronics', 'Бытовая техника'],
+  ['a photo of a washing machine', 'electronics', 'Бытовая техника'],
+  ['a photo of a microwave oven or kitchen appliance', 'electronics', 'Бытовая техника'],
+  ['a photo of a vacuum cleaner', 'electronics', 'Бытовая техника'],
+  ['a photo of a car or automobile', 'transport', 'Легковые авто'],
+  ['a photo of a motorcycle', 'transport', 'Мото'],
+  ['a photo of a motor scooter', 'transport', 'Мото'],
+  ['a photo of car tires or wheels', 'transport', 'Запчасти и аксессуары'],
+  ['a photo of a bicycle', 'hobby', 'Велосипеды'],
+  ['a photo of a sofa or couch', 'home', 'Мебель'],
+  ['a photo of an armchair or office chair', 'home', 'Мебель'],
+  ['a photo of a table or desk', 'home', 'Мебель'],
+  ['a photo of a bed', 'home', 'Мебель'],
+  ['a photo of a wardrobe or cabinet', 'home', 'Мебель'],
+  ['a photo of kitchenware, pots or plates', 'home', 'Посуда и кухня'],
+  ['a photo of a power drill or hand tools', 'home', 'Ремонт и стройка'],
+  ['a photo of a potted houseplant', 'home', 'Растения'],
+  ['a photo of a jacket or winter coat', 'fashion', 'Мужская одежда'],
+  ['a photo of a dress', 'fashion', 'Женская одежда'],
+  ['a photo of a shirt or t-shirt', 'fashion', 'Мужская одежда'],
+  ['a photo of shoes or sneakers', 'fashion', 'Обувь'],
+  ['a photo of a handbag or purse', 'fashion', 'Аксессуары'],
+  ['a photo of a backpack', 'fashion', 'Аксессуары'],
+  ['a photo of a wristwatch', 'fashion', 'Аксессуары'],
+  ['a photo of sunglasses', 'fashion', 'Аксессуары'],
+  ['a photo of an acoustic or electric guitar', 'hobby', 'Музыка'],
+  ['a photo of a piano or music keyboard', 'hobby', 'Музыка'],
+  ['a photo of gym or fitness equipment', 'hobby', 'Тренажёры'],
+  ['a photo of a camping tent', 'hobby', 'Туризм и отдых'],
+  ['a photo of a baby stroller', 'kids', 'Коляски и кресла'],
+  ['a photo of a child car seat', 'kids', 'Коляски и кресла'],
+  ['a photo of a toy', 'kids', 'Игрушки'],
+  ['a photo of a dog', 'animals', 'Собаки'],
+  ['a photo of a cat', 'animals', 'Кошки'],
+];
+const CLIP_PROMPTS = CLIP_LABELS.map(l => l[0]);
+const CLIP_BY_PROMPT = Object.fromEntries(CLIP_LABELS.map(([p, c, s]) => [p, { category: c, subcategory: s }]));
 
 function vLoadScript(src) {
   return new Promise((resolve, reject) => {
     if (document.querySelector(`script[src="${src}"]`)) return resolve();
     const s = document.createElement('script');
-    s.src = src;
-    s.onload = () => resolve();
-    s.onerror = () => reject(new Error('script: ' + src));
+    s.src = src; s.onload = () => resolve(); s.onerror = () => reject(new Error('script: ' + src));
     document.head.appendChild(s);
   });
 }
 
-/* ленивый прогрев модели: грузим tfjs + mobilenet только при первом распознавании */
+/* ленивый прогрев CLIP (Transformers.js, ESM через dynamic import) */
 async function visionLoadModel() {
   if (VISION.model) return VISION.model;
   if (VISION.loading) return VISION.loading;
   VISION.loading = (async () => {
-    if (!window.tf) await vLoadScript('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js');
-    if (!window.mobilenet) await vLoadScript('https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js');
-    VISION.model = await window.mobilenet.load({ version: 2, alpha: 1.0 });
+    const mod = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2');
+    mod.env.allowLocalModels = false;
+    VISION.model = await mod.pipeline('zero-shot-image-classification', 'Xenova/clip-vit-base-patch32');
     return VISION.model;
   })();
   try {
@@ -36,61 +84,32 @@ async function visionLoadModel() {
   }
 }
 
-/* классы ImageNet → категории BAZAR (первое совпадение сверху вниз) */
-const IMAGENET_MAP = [
-  [/cellular|cell phone|cellphone|smartphone|ipod|hand-held|pay-phone|dial telephone/, 'electronics', 'Телефоны'],
-  [/laptop|notebook computer/, 'electronics', 'Ноутбуки'],
-  [/desktop computer|monitor|screen|television|home theater|projector/, 'electronics', 'ТВ и аудио'],
-  [/loudspeaker|microphone|radio|cassette|tape player|cd player|ipod/, 'electronics', 'ТВ и аудио'],
-  [/refrigerator|washer|washing machine|dishwasher|microwave|vacuum|espresso|toaster|oven|space heater/, 'electronics', 'Бытовая техника'],
-  [/reflex camera|polaroid|lens cap|tripod|projector/, 'electronics', 'Фото и видео'],
-  [/tablet|hand-held computer|e-reader/, 'electronics', 'Планшеты'],
-  [/sports car|convertible|minivan|pickup|jeep|limousine|cab|station wagon|car wheel|grille|beach wagon|racer|car mirror/, 'transport', 'Легковые авто'],
-  [/moped|motor scooter|motorcycle|go-kart/, 'transport', 'Мото'],
-  [/garbage truck|tow truck|trailer truck|moving van|minibus|school bus|fire engine/, 'transport', 'Грузовой транспорт'],
-  [/mountain bike|bicycle|tandem|tricycle|unicycle/, 'hobby', 'Велосипеды'],
-  [/dumbbell|barbell|ski|snowboard|punching bag/, 'hobby', 'Тренажёры'],
-  [/acoustic guitar|electric guitar|grand piano|upright piano|drum|violin|cello|saxophone|trumpet|accordion/, 'hobby', 'Музыка'],
-  [/mountain tent|backpack.*tent|canoe|paddle|tent/, 'hobby', 'Туризм и отдых'],
-  [/studio couch|couch|sofa|rocking chair|folding chair|throne|dining table|desk|wardrobe|bookcase|chiffonier|china cabinet|four-poster|crib|table lamp/, 'home', 'Мебель'],
-  [/power drill|hammer|chain saw|lawn mower|plane|hatchet/, 'home', 'Ремонт и стройка'],
-  [/teapot|coffeepot|frying pan|wok|caldron|plate|bowl|cup|water jug|mixing bowl/, 'home', 'Посуда и кухня'],
-  [/pot|flowerpot|vase/, 'home', 'Растения'],
-  [/backpack|purse|wallet|handbag|mailbag|sleeping bag/, 'fashion', 'Аксессуары'],
-  [/analog clock|digital watch|wall clock|stopwatch|sunglass|sunglasses/, 'fashion', 'Аксессуары'],
-  [/jersey|sweatshirt|cardigan|suit|jean|trench coat|fur coat|gown|kimono|poncho|jacket|abaya|cloak|vestment|miniskirt|overskirt|brassiere/, 'fashion', 'Мужская одежда'],
-  [/running shoe|sandal|loafer|cowboy boot|clog|sock/, 'fashion', 'Обувь'],
-  [/cradle|bassinet|crib|toyshop|teddy/, 'kids', 'Игрушки'],
-  [/golden retriever|labrador|husky|pomeranian|poodle|chihuahua|german shepherd|bulldog|terrier|spaniel|collie/, 'animals', 'Собаки'],
-  [/tabby|tiger cat|persian cat|siamese|egyptian cat|cat/, 'animals', 'Кошки'],
-  [/macaw|parrot|lorikeet|goldfish|cockatoo/, 'animals', 'Птицы и рыбки'],
-];
-
-/* prediction[].className → { category, subcategory } | null */
-function mapPrediction(preds) {
-  for (const p of preds) {
-    const name = p.className.toLowerCase();
-    for (const [re, cat, sub] of IMAGENET_MAP) {
-      if (re.test(name)) return { category: cat, subcategory: sub, label: p.className.split(',')[0], confidence: Math.round(p.probability * 100) };
-    }
-  }
-  // не распознали категорию — отдаём верхний класс как подсказку
-  return { category: null, subcategory: null, label: preds[0] ? preds[0].className.split(',')[0] : '', confidence: preds[0] ? Math.round(preds[0].probability * 100) : 0 };
+function cleanLabel(prompt) {
+  return (prompt || '').replace(/^a photo of (an? )?/, '');
 }
 
-async function visionClassify(imgEl) {
+/* image (url/dataURL/canvas) → { category, subcategory, label, confidence, uncertain } */
+async function visionClassify(input) {
   const model = await visionLoadModel();
-  const preds = await model.classify(imgEl, 5);
-  return mapPrediction(preds);
+  const res = await model(input, CLIP_PROMPTS); // [{label, score}] по убыванию
+  const top = res[0];
+  const map = CLIP_BY_PROMPT[top.label] || { category: null, subcategory: null };
+  const confidence = Math.round(top.score * 100);
+  // ближайший результат ДРУГОЙ категории — для оценки уверенности
+  const otherCat = res.find(r => (CLIP_BY_PROMPT[r.label] || {}).category !== map.category);
+  const margin = otherCat ? top.score - otherCat.score : top.score;
+  const uncertain = top.score < 0.18 || margin < 0.05;
+  if (uncertain) {
+    return { category: null, subcategory: null, label: cleanLabel(top.label), confidence, uncertain: true };
+  }
+  return { category: map.category, subcategory: map.subcategory, label: cleanLabel(top.label), confidence };
 }
 
 /* ---------- камера ---------- */
 
 async function visionStartCamera(videoEl) {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('no-getUserMedia');
-  const stream = await navigator.mediaDevices.getUserMedia({
-    video: { facingMode: { ideal: 'environment' } }, audio: false,
-  });
+  const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
   VISION.stream = stream;
   videoEl.srcObject = stream;
   await videoEl.play().catch(() => {});
@@ -104,7 +123,7 @@ function visionStopCamera() {
   }
 }
 
-/* кадр из video / картинку из file → сжатый dataURL (для localStorage и объявления) */
+/* кадр video / картинка file → сжатый dataURL */
 function visionDownscale(source, maxDim, quality) {
   const sw = source.videoWidth || source.naturalWidth || source.width;
   const sh = source.videoHeight || source.naturalHeight || source.height;
@@ -131,12 +150,7 @@ function visionFileToDataURL(file, maxDim, quality) {
   });
 }
 
-/* классификация по dataURL (когда нет живого video-элемента) */
+/* dataURL напрямую отдаём в CLIP (Transformers.js сам читает картинку) */
 function visionClassifyDataURL(dataURL) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = async () => { try { resolve(await visionClassify(img)); } catch (e) { reject(e); } };
-    img.onerror = reject;
-    img.src = dataURL;
-  });
+  return visionClassify(dataURL);
 }
