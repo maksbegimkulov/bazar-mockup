@@ -19,12 +19,12 @@ npm install -g wrangler
 # 2. логинимся (откроется браузер — разреши доступ)
 wrangler login
 
-# 3. из папки проекта деплоим воркер
+# 3. из папки server деплоим воркер (конфиг в wrangler.toml)
 cd server
-wrangler deploy bazar-recognize-worker.js --name bazar-recognize --compatibility-date 2024-01-01
+wrangler deploy
 
 # 4. кладём ключ Gemini как СЕКРЕТ (он не попадёт в код)
-wrangler secret put GEMINI_KEY --name bazar-recognize
+wrangler secret put GEMINI_KEY
 #   вставь новый ключ, Enter
 ```
 
