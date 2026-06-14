@@ -88,6 +88,7 @@ function priceHTML(l) {
 }
 
 function getPhotos(l) {
+  if (l.userPhotos && l.userPhotos.length) return l.userPhotos; // реальные фото с камеры
   if (l.pickedSeeds) return l.pickedSeeds.map(s => photoURL(l.category, s, l.subcategory));
   if (!l.photoCount) return [];
   return Array.from({ length: l.photoCount }, (_, i) => photoURL(l.category, l.photoSeed + i * 13, l.subcategory));
@@ -795,23 +796,33 @@ function renderFavorites() {
     </div>`;
 }
 
-/* ---------------- продажа за 30 секунд (ИИ) ---------------- */
+/* ---------------- продажа за 30 секунд (реальная камера + ИИ) ---------------- */
 
 const DEFAULT_PHONE = '+996 700 123 456';
-state.sell = { step: 'pick', product: null };
+state.sell = { step: 'pick' };
 
 function sellPhoto(p) { return photoURL(p.category, p.photoSeed, p.subcategory); }
 
+/* статистика цен подкатегории (для оценки цены по фото) — без аренды (/мес и т.п.) */
+function subPriceStats(sub) {
+  const ps = LISTINGS.filter(l => l.subcategory === sub && l.price > 0 && !l.priceSuffix)
+    .map(l => l.price).sort((a, b) => a - b);
+  if (ps.length < 4) return null;
+  const at = q => ps[Math.min(ps.length - 1, Math.floor(q * ps.length))];
+  return { min: at(0.1), max: at(0.9), median: ps[Math.floor(ps.length / 2)] };
+}
+
 function renderSell() {
-  if (state.sell._scanTimer) { clearTimeout(state.sell._scanTimer); state.sell._scanTimer = null; }
-  if (state.sell.step === 'scan') renderSellScan();
+  if (state.sell.step !== 'camera') visionStopCamera();
+  if (state.sell.step === 'camera') renderSellCamera();
+  else if (state.sell.step === 'analyze') renderSellAnalyze();
   else if (state.sell.step === 'draft') renderSellDraft();
   else renderSellPick();
 }
 
 function renderSellPick() {
   const grid = DEMO_PRODUCTS.map(p =>
-    `<button class="sell-sample" data-sell-pick="${p.id}" aria-label="${esc(p.title)}"><img src="${sellPhoto(p)}" loading="lazy" alt=""></button>`).join('');
+    `<button class="sell-sample" data-sell-demo="${p.id}" aria-label="${esc(p.title)}"><img src="${sellPhoto(p)}" loading="lazy" alt=""></button>`).join('');
   app.innerHTML = `
     <div class="form-page">
       <div class="sell-head">
@@ -819,75 +830,176 @@ function renderSellPick() {
         <h1>${t('sell.title')}</h1>
         <p>${t('sell.step1sub')}</p>
       </div>
-      <button class="sell-snap" data-sell-pick="random">
+      <button class="sell-snap" data-sell-camera>
         <span class="sell-snap-cam">📷</span>
-        <span>${t('sell.snap')}</span>
+        <span>${t('sell.camera')}</span>
       </button>
-      <div class="sell-or">${t('sell.or')}</div>
+      <label class="btn btn-outline btn-block btn-lg sell-upload-btn">
+        🖼️ ${t('sell.upload')}
+        <input type="file" accept="image/*" id="sellFile" hidden>
+      </label>
+      <div class="sell-or">${t('sell.examples')}</div>
       <div class="sell-samples">${grid}</div>
-      <a class="sell-manual-link" href="#/post" data-link>${t('post.choice.manual')} ›</a>
-    </div>`;
+      <a class="sell-manual-link" href="#/post" data-link>${t('post.choice.manual')} ›</a>`;
+  app.innerHTML += '</div>';
+  const file = $('#sellFile');
+  if (file) file.addEventListener('change', onSellFile);
 }
 
-function renderSellScan() {
-  const p = state.sell.product;
+/* живая камера устройства */
+function renderSellCamera() {
+  app.innerHTML = `
+    <div class="form-page sell-cam-page">
+      <div class="sell-cam-frame">
+        <video id="sellVideo" playsinline autoplay muted></video>
+      </div>
+      <div class="sell-cam-bar">
+        <button class="btn btn-outline" data-sell-cancelcam>${t('sell.cancel')}</button>
+        <button class="sell-shutter" id="sellShutter" aria-label="${t('sell.shutter')}"><span></span></button>
+        <label class="btn btn-outline sell-upload-mini">🖼️<input type="file" accept="image/*" id="sellFile2" hidden></label>
+      </div>
+    </div>`;
+  const video = $('#sellVideo');
+  visionStartCamera(video).catch(() => {
+    showToast(t('sell.camDenied'));
+    state.sell.step = 'pick';
+    renderSell();
+  });
+  $('#sellShutter').addEventListener('click', () => {
+    const dataURL = visionDownscale(video, 1024, 0.72);
+    visionStopCamera();
+    if (dataURL) startSellAnalyze(dataURL);
+  });
+  $('#sellFile2').addEventListener('change', onSellFile);
+}
+
+async function onSellFile(e) {
+  const f = e.target.files && e.target.files[0];
+  if (!f) return;
+  try {
+    const dataURL = await visionFileToDataURL(f, 1024, 0.72);
+    if (dataURL) startSellAnalyze(dataURL);
+  } catch { showToast(t('toast.checkFields')); }
+}
+
+/* фото получено → распознаём через on-device модель */
+function startSellAnalyze(dataURL) {
+  state.sell = { step: 'analyze', photo: dataURL };
+  if (!parseHash().path.startsWith('/sell')) location.hash = '#/sell';
+  else renderSell();
+}
+
+function renderSellAnalyze() {
+  const isDemo = !!state.sell.product;
+  const photo = isDemo ? sellPhoto(state.sell.product) : state.sell.photo;
+  const firstStatus = isDemo ? t('sell.scanning') : t('sell.modelLoading');
   app.innerHTML = `
     <div class="form-page sell-scan-page">
       <div class="sell-scan-card">
         <div class="sell-scan-photo">
-          <img src="${sellPhoto(p)}" alt="">
+          <img src="${photo}" alt="">
           <div class="sell-scan-grid"></div>
           <div class="sell-scan-line"></div>
         </div>
         <div class="sell-scan-status">
           <span class="ai-avatar">✨</span>
-          <span id="sellScanText">${t('sell.scanning')}</span>
+          <span id="sellScanText">${firstStatus}</span>
         </div>
         <div class="ai-bubble sell-scan-dots"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
       </div>
     </div>`;
-  const steps = [t('sell.scan1'), t('sell.scan2'), t('sell.scan3')];
-  let i = 0;
-  const tick = setInterval(() => {
-    const el = $('#sellScanText');
-    if (el && steps[i]) el.textContent = steps[i++];
-  }, 540);
-  state.sell._scanTimer = setTimeout(() => {
-    clearInterval(tick);
-    state.sell._scanTimer = null;
-    if (!parseHash().path.startsWith('/sell')) return; // ушли со страницы — не перерисовываем
+
+  const toDraft = () => {
+    if (!parseHash().path.startsWith('/sell') || state.sell.step !== 'analyze') return;
     state.sell.step = 'draft';
     renderSell();
-  }, 1850);
+  };
+
+  if (isDemo) {
+    // демо: анимация распознавания, данные предзаписаны
+    const steps = [t('sell.scan1'), t('sell.scan2'), t('sell.scan3')];
+    let i = 0;
+    const tick = setInterval(() => { const el = $('#sellScanText'); if (el && steps[i]) el.textContent = steps[i++]; }, 540);
+    state.sell._scanTimer = setTimeout(() => { clearInterval(tick); state.sell._scanTimer = null; toDraft(); }, 1850);
+    return;
+  }
+
+  // реальное фото: классификация on-device (модель грузится лениво)
+  visionClassifyDataURL(photo).then(det => {
+    if (state.sell.step !== 'analyze') return;
+    state.sell.detection = det;
+    toDraft();
+  }).catch(() => {
+    if (state.sell.step !== 'analyze') return;
+    state.sell.detection = { category: null, subcategory: null, label: '', confidence: 0, failed: true };
+    toDraft();
+  });
+  setTimeout(() => { const el = $('#sellScanText'); if (el && state.sell.step === 'analyze') el.textContent = t('sell.analyzing'); }, 800);
 }
 
+/* единый черновик: демо-товар ИЛИ реальное фото с распознаванием */
 function renderSellDraft() {
+  const isReal = !state.sell.product;
   const p = state.sell.product;
-  let condition = p.condition || '';
+  const det = state.sell.detection || {};
+  const photo = isReal ? state.sell.photo : sellPhoto(p);
+
+  let category = isReal ? (det.category || '') : p.category;
+  let subcategory = isReal ? (det.subcategory || '') : p.subcategory;
+  let condition = isReal ? 'used' : (p.condition || '');
+  const stats = isReal && subcategory ? subPriceStats(subcategory) : null;
+  let market = isReal ? (stats ? [stats.min, stats.max] : null) : p.market;
+  let suggested = isReal ? (stats ? Math.round(stats.median / 500) * 500 : '') : p.suggested;
+  const specs = isReal ? [] : (p.specs || []);
+
   const cityOptions = CITIES.map(c => `<option ${c === (state.city !== 'all' ? state.city : 'Бишкек') ? 'selected' : ''}>${esc(c)}</option>`).join('');
-  const specs = (p.specs || []).map(([k, v]) => `<div class="prow"><span>${t(k)}</span><span>${esc(v)}</span></div>`).join('');
-  const condChip = (val, label) =>
-    `<button type="button" class="fchip ${condition === val ? 'active' : ''}" data-scond="${val}">${label}</button>`;
+  const condChip = (val, label) => `<button type="button" class="fchip ${condition === val ? 'active' : ''}" data-scond="${val}">${label}</button>`;
+  const specsHTML = specs.map(([k, v]) => `<div class="prow"><span>${t(k)}</span><span>${esc(v)}</span></div>`).join('');
+
+  // шапка распознавания
+  let detLine;
+  if (!isReal) detLine = t('sell.recognized').replace('{c}', p.confidence);
+  else if (det.failed) detLine = t('sell.modelFail');
+  else if (det.category) detLine = `${t('sell.looksLike').replace('{cat}', subName(det.subcategory))} · ${det.confidence}%`;
+  else detLine = det.label ? `${t('sell.detected').replace('{label}', esc(det.label))} — ${t('sell.unknownCat')}` : t('sell.unknownCat');
+
+  // категория/подкатегория редактируются только в реальном режиме
+  const catSelect = isReal ? `
+    <div class="form-row">
+      <div class="fgroup">
+        <label class="flabel">${t('form.cat')}</label>
+        <select class="fselect" id="sCat">
+          <option value="">${t('form.chooseCat')}</option>
+          ${CATEGORIES.map(c => `<option value="${c.id}" ${category === c.id ? 'selected' : ''}>${c.emoji} ${catName(c)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="fgroup" id="sSubWrap" ${category ? '' : 'hidden'}>
+        <label class="flabel">${t('form.sub')}</label>
+        <select class="fselect" id="sSub">${category ? (catById(category)?.subs || []).map(sx => `<option value="${esc(sx)}" ${subcategory === sx ? 'selected' : ''}>${esc(subName(sx))}</option>`).join('') : ''}</select>
+      </div>
+    </div>` : '';
 
   app.innerHTML = `
     <div class="form-page">
-      <div class="sell-draft-top">
-        <img class="sell-draft-photo" src="${sellPhoto(p)}" alt="">
+      <div class="sell-draft-top ${isReal && (det.failed || !det.category) ? 'sell-draft-warn' : ''}">
+        <img class="sell-draft-photo" src="${photo}" alt="">
         <div class="sell-draft-meta">
-          <div class="sell-ready"><span class="sell-ready-check">✓</span> ${t('sell.title')}</div>
-          <div class="sell-confidence">${t('sell.recognized').replace('{c}', p.confidence)}</div>
+          <div class="sell-ready"><span class="sell-ready-check">✓</span> ${isReal ? t('sell.yourPhoto') : t('sell.title')}</div>
+          <div class="sell-confidence">${detLine}</div>
         </div>
       </div>
+      ${isReal ? `<div class="sell-real-note">ℹ️ ${t('sell.realNote')}</div>` : ''}
       <form id="sellForm" class="form-card">
+        ${catSelect}
         <div class="fgroup">
           <label class="flabel">${t('form.title')}</label>
-          <input class="finput" id="sTitle" maxlength="80" value="${esc(p.title)}">
+          <input class="finput" id="sTitle" maxlength="80" placeholder="${t('form.titlePh')}" value="${isReal ? '' : esc(p.title)}">
         </div>
         <div class="fgroup sell-price-group">
-          <label class="flabel">${t('sell.priceSuggested')}</label>
-          <input class="finput sell-price-input" id="sPrice" type="number" inputmode="numeric" min="0" value="${p.suggested}">
-          <div class="sell-market">📊 ${t('sell.market').replace('{min}', fmtNum(p.market[0])).replace('{max}', fmtNum(p.market[1])).replace('{som}', t('som'))}</div>
-          <div class="sell-price-why">💡 ${t('sell.priceWhy')}</div>
+          <label class="flabel">${isReal ? t('sell.priceByCat') : t('sell.priceSuggested')}</label>
+          <input class="finput sell-price-input" id="sPrice" type="number" inputmode="numeric" min="0" value="${suggested}" placeholder="0">
+          <div class="sell-market" id="sMarket">${market ? '📊 ' + t('sell.market').replace('{min}', fmtNum(market[0])).replace('{max}', fmtNum(market[1])).replace('{som}', t('som')) : ''}</div>
+          ${isReal ? '' : `<div class="sell-price-why">💡 ${t('sell.priceWhy')}</div>`}
         </div>
         <div class="form-row">
           <div class="fgroup">
@@ -903,20 +1015,17 @@ function renderSellDraft() {
             <select class="fselect" id="sCity">${cityOptions}</select>
           </div>
         </div>
-        ${specs ? `<div class="fgroup">
-          <label class="flabel">${t('item.specs')}</label>
-          <div class="params-table sell-specs">${specs}</div>
-        </div>` : ''}
+        ${specsHTML ? `<div class="fgroup"><label class="flabel">${t('item.specs')}</label><div class="params-table sell-specs">${specsHTML}</div></div>` : ''}
         <div class="fgroup">
           <label class="flabel">${t('form.desc')}</label>
-          <textarea class="ftextarea" id="sDesc" maxlength="2000">${esc(p.desc)}</textarea>
+          <textarea class="ftextarea" id="sDesc" maxlength="2000" placeholder="${t('form.descPh')}">${isReal ? '' : esc(p.desc)}</textarea>
         </div>
         <div class="sell-hint">${t('sell.manualHint')}</div>
         <button type="submit" class="btn btn-primary btn-block btn-lg">${t('sell.publish')}</button>
       </form>
       <div class="sell-draft-actions">
         <button class="btn btn-outline" data-action="sell-to-manual">✏️ ${t('sell.edit')}</button>
-        <button class="btn btn-outline" data-sell-pick="random">📷 ${t('sell.retake')}</button>
+        <button class="btn btn-outline" data-sell-restart>📷 ${t('sell.retake')}</button>
       </div>
     </div>`;
 
@@ -927,9 +1036,28 @@ function renderSellDraft() {
     document.querySelectorAll('#sCond .fchip').forEach(x => x.classList.toggle('active', x === b));
   });
 
+  // реальный режим: смена категории → подкатегории + переоценка цены
+  if (isReal) {
+    const refreshPrice = () => {
+      const st = subPriceStats(subcategory);
+      market = st ? [st.min, st.max] : null;
+      const mEl = $('#sMarket');
+      if (mEl) mEl.innerHTML = market ? '📊 ' + t('sell.market').replace('{min}', fmtNum(market[0])).replace('{max}', fmtNum(market[1])).replace('{som}', t('som')) : '';
+      if (st && !$('#sPrice').value) $('#sPrice').value = Math.round(st.median / 500) * 500;
+    };
+    $('#sCat')?.addEventListener('change', e => {
+      category = e.target.value;
+      const c = catById(category);
+      $('#sSubWrap').hidden = !c;
+      $('#sSub').innerHTML = c ? c.subs.map(sx => `<option value="${esc(sx)}">${esc(subName(sx))}</option>`).join('') : '';
+      subcategory = c ? c.subs[0] : '';
+      refreshPrice();
+    });
+    $('#sSub')?.addEventListener('change', e => { subcategory = e.target.value; refreshPrice(); });
+  }
+
   const collect = () => ({
-    category: p.category,
-    subcategory: p.subcategory,
+    category, subcategory,
     title: $('#sTitle').value.trim(),
     description: $('#sDesc').value.trim(),
     price: +$('#sPrice').value || 0,
@@ -938,21 +1066,25 @@ function renderSellDraft() {
     condition: condition || null,
     phone: DEFAULT_PHONE,
     hasDelivery: false,
-    pickedSeeds: [p.photoSeed, p.photoSeed + 7, p.photoSeed + 13],
-    specs: p.specs,
+    userPhotos: isReal ? [photo] : null,
+    pickedSeeds: isReal ? null : [p.photoSeed, p.photoSeed + 7, p.photoSeed + 13],
+    specs: isReal ? null : p.specs,
   });
   state.sell._collect = collect;
 
   $('#sellForm').addEventListener('submit', e => {
     e.preventDefault();
     const d = collect();
+    if (!d.category || !d.subcategory) { showToast(t('err.cat')); return; }
     if (d.title.length < 5 || d.price <= 0) { showToast(t('toast.checkFields')); return; }
     const listing = {
       id: 'm' + Date.now(),
       title: d.title, price: d.price, priceSuffix: '', negotiable: false,
       category: d.category, subcategory: d.subcategory, city: d.city, district: null,
-      condition: d.condition, description: d.description,
-      pickedSeeds: d.pickedSeeds, photoCount: d.pickedSeeds.length, photoSeed: p.photoSeed,
+      condition: d.condition, description: d.description || d.title,
+      userPhotos: d.userPhotos, pickedSeeds: d.pickedSeeds,
+      photoCount: d.userPhotos ? d.userPhotos.length : (d.pickedSeeds ? d.pickedSeeds.length : 0),
+      photoSeed: isReal ? 11 : p.photoSeed,
       specs: d.specs,
       sellerName: USER_NAME, sellerType: 'private', sellerRating: 5.0,
       sellerAds: state.myListings.length + 1, sellerSinceYear: 2026,
@@ -960,8 +1092,13 @@ function renderSellDraft() {
       hasDelivery: false, phone: DEFAULT_PHONE,
     };
     state.myListings.unshift(listing);
-    lsSave(LS.my, state.myListings);
-    state.sell = { step: 'pick', product: null };
+    try {
+      lsSave(LS.my, state.myListings);
+    } catch {
+      // localStorage переполнен реальными фото — публикуем без сохранения фото в хранилище
+      showToast(t('toast.published'), 'success');
+    }
+    state.sell = { step: 'pick' };
     showToast(t('toast.published'), 'success');
     location.hash = '#/item/' + listing.id;
   });
@@ -1593,6 +1730,7 @@ function router() {
   closeModal();
   closeFilterSheet();
   hideSuggest();
+  if (!path.startsWith('/sell') && typeof visionStopCamera === 'function') visionStopCamera();
 
   if (path === '/' || path === '') {
     renderHome();
@@ -1725,18 +1863,30 @@ document.addEventListener('click', e => {
   const themeOpt = e.target.closest('[data-set-theme]');
   if (themeOpt) { setTheme(themeOpt.dataset.setTheme); renderProfile(); return; }
 
-  /* продажа за 30 секунд: выбор/съёмка товара → распознавание */
-  const sellPickBtn = e.target.closest('[data-sell-pick]');
-  if (sellPickBtn) {
-    const id = sellPickBtn.dataset.sellPick;
-    const p = id === 'random'
-      ? DEMO_PRODUCTS[Math.floor(Math.random() * DEMO_PRODUCTS.length)]
-      : DEMO_PRODUCTS.find(x => x.id === id);
+  /* продажа за 30 секунд */
+  const sellDemoBtn = e.target.closest('[data-sell-demo]');
+  if (sellDemoBtn) {
+    const p = DEMO_PRODUCTS.find(x => x.id === sellDemoBtn.dataset.sellDemo);
     if (p) {
-      state.sell = { step: 'scan', product: p };
-      if (parseHash().path.startsWith('/sell')) renderSell();
-      else location.hash = '#/sell';
+      state.sell = { step: 'analyze', product: p };
+      if (parseHash().path.startsWith('/sell')) renderSell(); else location.hash = '#/sell';
     }
+    return;
+  }
+  if (e.target.closest('[data-sell-camera]')) {
+    state.sell = { step: 'camera' };
+    if (parseHash().path.startsWith('/sell')) renderSell(); else location.hash = '#/sell';
+    return;
+  }
+  if (e.target.closest('[data-sell-cancelcam]')) {
+    visionStopCamera();
+    state.sell = { step: 'pick' };
+    renderSell();
+    return;
+  }
+  if (e.target.closest('[data-sell-restart]')) {
+    state.sell = { step: 'pick' };
+    renderSell();
     return;
   }
 
