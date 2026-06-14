@@ -1498,6 +1498,35 @@ main.container { padding-top: 20px; padding-bottom: 90px; min-height: 70vh; }
 .sell-promo-sub { display: block; color: var(--text-2); font-size: 12.5px; margin-top: 2px; }
 .sell-or-post { margin: 14px 0; }
 
+/* загрузка фото + живая камера */
+.sell-upload-btn { margin-top: 10px; cursor: pointer; }
+.sell-cam-page { padding-top: 6px; }
+.sell-cam-frame {
+  position: relative; width: 100%;
+  aspect-ratio: 3 / 4; max-height: 62vh;
+  background: #000; border-radius: var(--radius); overflow: hidden;
+}
+.sell-cam-frame video { width: 100%; height: 100%; object-fit: cover; }
+.sell-cam-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 16px; }
+.sell-shutter {
+  width: 66px; height: 66px; border-radius: 50%;
+  background: #fff; border: 3px solid var(--accent);
+  display: grid; place-items: center; flex-shrink: 0;
+}
+.sell-shutter span { width: 52px; height: 52px; border-radius: 50%; background: var(--accent); transition: transform 0.1s; }
+.sell-shutter:active span { transform: scale(0.86); }
+.sell-upload-mini { font-size: 18px; padding: 10px 14px; cursor: pointer; }
+
+/* честная плашка: ИИ определил категорию, модель/цену уточнить */
+.sell-real-note {
+  background: var(--badge-blue-bg); color: var(--badge-blue-text);
+  border-radius: var(--radius-s); padding: 11px 14px;
+  font-size: 12.5px; line-height: 1.5; margin-bottom: 14px;
+}
+.sell-draft-top.sell-draft-warn { background: var(--vip-soft); }
+.sell-draft-warn .sell-ready { color: var(--vip-text); }
+.sell-draft-warn .sell-ready-check { background: var(--vip); }
+
 @media (max-width: 880px) { .home-ai-row { grid-template-columns: 1fr; } }
 @media (max-width: 720px) {
   .sell-samples { grid-template-columns: repeat(3, minmax(0, 1fr)); }
