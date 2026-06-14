@@ -153,6 +153,7 @@ const I18N = {
     'sell.modelFail': 'Не удалось загрузить ИИ-модель. Выберите категорию вручную.', 'sell.useExample': 'Демо-примеры',
     'sell.titleHint': 'Уточните модель и детали', 'sell.byAI': 'оценка ИИ по фото',
     'sell.smartRecognizing': 'ИИ распознаёт товар…', 'sell.geminiFail': 'Сервер недоступен — использую встроенное распознавание',
+    'sell.verifyModel': 'ИИ определил линейку, но не уверен в точной модели — проверьте и уточните заголовок.',
     'ai.showPrev': 'Показать прежние',
   },
   en: {
@@ -292,6 +293,7 @@ const I18N = {
     'sell.modelFail': 'Couldn’t load the AI model. Pick the category manually.', 'sell.useExample': 'Demo examples',
     'sell.titleHint': 'Add the model and details', 'sell.byAI': 'AI estimate from the photo',
     'sell.smartRecognizing': 'AI is recognizing the item…', 'sell.geminiFail': 'Server unavailable — using built-in recognition',
+    'sell.verifyModel': 'The AI identified the line but isn’t sure of the exact model — please check and refine the title.',
     'ai.showPrev': 'Show previous',
   },
   ky: {
@@ -431,6 +433,7 @@ const I18N = {
     'sell.modelFail': 'ИИ моделин жүктөө мүмкүн болбоду. Категорияны кол менен тандаңыз.', 'sell.useExample': 'Демо мисалдар',
     'sell.titleHint': 'Моделди жана деталдарды кошуңуз', 'sell.byAI': 'ИИ сүрөт боюнча баасы',
     'sell.smartRecognizing': 'ИИ товарды таанып жатат…', 'sell.geminiFail': 'Сервер жеткиликсиз — кыналган таанууну колдоном',
+    'sell.verifyModel': 'ИИ линейканы аныктады, бирок так моделге ишенбейт — текшерип, аталышты тактаңыз.',
     'ai.showPrev': 'Мурункусун көрсөтүү',
   },
 };

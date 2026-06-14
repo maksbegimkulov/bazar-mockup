@@ -877,9 +877,10 @@ function renderSellCamera() {
     renderSell();
   });
   $('#sellShutter').addEventListener('click', () => {
-    const dataURL = visionDownscale(video, 1024, 0.72);
+    const lo = visionDownscale(video, 1024, 0.72); // хранение/показ
+    const hi = visionDownscale(video, 1600, 0.85); // распознавание (мелкие детали)
     visionStopCamera();
-    if (dataURL) startSellAnalyze(dataURL);
+    if (lo) startSellAnalyze(lo, hi);
   });
   $('#sellFile2').addEventListener('change', onSellFile);
 }
@@ -888,14 +889,14 @@ async function onSellFile(e) {
   const f = e.target.files && e.target.files[0];
   if (!f) return;
   try {
-    const dataURL = await visionFileToDataURL(f, 1024, 0.72);
-    if (dataURL) startSellAnalyze(dataURL);
+    const { lo, hi } = await visionFileToPair(f);
+    if (lo) startSellAnalyze(lo, hi);
   } catch { showToast(t('toast.checkFields')); }
 }
 
-/* фото получено → распознаём через on-device модель */
-function startSellAnalyze(dataURL) {
-  state.sell = { step: 'analyze', photo: dataURL };
+/* фото получено → распознаём. photo = для показа/хранения, photoHi = для ИИ */
+function startSellAnalyze(dataURL, hiURL) {
+  state.sell = { step: 'analyze', photo: dataURL, photoHi: hiURL || dataURL };
   if (!parseHash().path.startsWith('/sell')) location.hash = '#/sell';
   else renderSell();
 }
@@ -903,7 +904,8 @@ function startSellAnalyze(dataURL) {
 function renderSellAnalyze() {
   const isDemo = !!state.sell.product;
   const useSmart = !isDemo && typeof smartOn === 'function' && smartOn();
-  const photo = isDemo ? sellPhoto(state.sell.product) : state.sell.photo;
+  const photo = isDemo ? sellPhoto(state.sell.product) : state.sell.photo;            // для показа
+  const recoPhoto = isDemo ? photo : (state.sell.photoHi || state.sell.photo);        // для распознавания (выше разрешение)
   const firstStatus = isDemo ? t('sell.scanning') : (useSmart ? t('sell.smartRecognizing') : t('sell.modelLoading'));
   app.innerHTML = `
     <div class="form-page sell-scan-page">
@@ -937,11 +939,11 @@ function renderSellAnalyze() {
 
   // реальное фото: точный сервер-ИИ (если подключён) ИЛИ встроенный CLIP on-device
   const recognize = useSmart
-    ? smartRecognize(photo).catch(err => {
+    ? smartRecognize(recoPhoto).catch(err => {
         // сервер недоступен/ошибка — мягко падаем на встроенный движок
-        return visionClassifyDataURL(photo);
+        return visionClassifyDataURL(recoPhoto);
       })
-    : visionClassifyDataURL(photo);
+    : visionClassifyDataURL(recoPhoto);
   recognize.then(det => {
     if (!live()) return;
     self.detection = det;
@@ -1016,6 +1018,7 @@ function renderSellDraft() {
         </div>
       </div>
       ${isReal && !isSmart ? `<div class="sell-real-note">ℹ️ ${t('sell.realNote')}</div>` : ''}
+      ${isSmart && det.modelCertain === false ? `<div class="sell-real-note sell-verify-note">💡 ${t('sell.verifyModel')}</div>` : ''}
       <form id="sellForm" class="form-card">
         ${catSelect}
         <div class="fgroup">
