@@ -84,20 +84,22 @@ ${catList}
 
     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${env.GEMINI_KEY}`;
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-    // авто-повтор при временной перегрузке Gemini (429/500/503), чтобы юзер не ловил сбой
+    // повтор ТОЛЬКО при временной перегрузке сервера Gemini (500/503).
+    // 429 = исчерпана квота — повтор лишь сожжёт её ещё быстрее, поэтому сразу
+    // отдаём ошибку, и сайт мягко падает на встроенный движок (категория).
     let g = null, lastStatus = 0;
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         g = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       } catch (e) {
-        g = null; lastStatus = 0; await sleep(600 * (attempt + 1)); continue;
+        g = null; lastStatus = 0; await sleep(500 * (attempt + 1)); continue;
       }
       if (g.ok) break;
       lastStatus = g.status;
-      if (g.status === 429 || g.status === 500 || g.status === 503) { g = null; await sleep(600 * (attempt + 1)); continue; }
-      break; // 400/401/403 и пр. — повтор не поможет
+      if (g.status === 500 || g.status === 503) { g = null; await sleep(500 * (attempt + 1)); continue; }
+      break; // 429 (квота) / 400/401/403 — повтор не поможет, быстрый фолбэк
     }
-    if (!g || !g.ok) return json({ error: 'gemini ' + (g ? g.status : lastStatus) }, 502);
+    if (!g || !g.ok) return json({ error: 'gemini ' + (g ? g.status : lastStatus), retryable: lastStatus === 429 || lastStatus === 503 }, 502);
 
     const data = await g.json();
     const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
