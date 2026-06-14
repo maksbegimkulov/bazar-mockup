@@ -831,23 +831,6 @@ function renderSell() {
   else renderSellPick();
 }
 
-function geminiBanner() {
-  if (geminiOn()) {
-    return `<div class="gemini-bar gemini-on">
-      <span>🔮 ${t('sell.geminiOn')}</span>
-      <button class="gemini-off-btn" data-gemini-off>${t('sell.geminiOff')}</button>
-    </div>`;
-  }
-  return `<button class="gemini-bar gemini-connect" data-gemini-connect>
-    <span class="gemini-bar-ico">🔮</span>
-    <span class="gemini-bar-text">
-      <span class="gemini-bar-title">${t('sell.geminiTitle')}</span>
-      <span class="gemini-bar-sub">${t('sell.geminiSub')}</span>
-    </span>
-    <span class="ai-item-arrow">›</span>
-  </button>`;
-}
-
 function renderSellPick() {
   const grid = DEMO_PRODUCTS.map(p =>
     `<button class="sell-sample" data-sell-demo="${p.id}" aria-label="${esc(p.title)}"><img src="${sellPhoto(p)}" loading="lazy" alt=""></button>`).join('');
@@ -858,7 +841,6 @@ function renderSellPick() {
         <h1>${t('sell.title')}</h1>
         <p>${t('sell.step1sub')}</p>
       </div>
-      ${geminiBanner()}
       <button class="sell-snap" data-sell-camera>
         <span class="sell-snap-cam">📷</span>
         <span>${t('sell.camera')}</span>
@@ -873,18 +855,6 @@ function renderSellPick() {
   app.innerHTML += '</div>';
   const file = $('#sellFile');
   if (file) file.addEventListener('change', onSellFile);
-}
-
-function openGeminiModal() {
-  openModal(`
-    <h3>🔮 ${t('sell.geminiModalTitle')}</h3>
-    <p class="modal-text">${t('sell.geminiHow')}</p>
-    <input class="finput" id="geminiKeyInput" type="password" autocomplete="off" placeholder="${t('sell.geminiKeyPh')}" value="${esc(geminiKey())}" style="margin-bottom:12px">
-    <a class="sell-manual-link" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" style="margin:0 0 16px">${t('sell.geminiGetKey')} ›</a>
-    <div class="modal-actions">
-      <button class="btn btn-outline btn-block" data-action="modal-close">${t('del.cancel')}</button>
-      <button class="btn btn-primary btn-block" data-gemini-save>${t('sell.geminiSave')}</button>
-    </div>`);
 }
 
 /* живая камера устройства */
@@ -932,9 +902,9 @@ function startSellAnalyze(dataURL) {
 
 function renderSellAnalyze() {
   const isDemo = !!state.sell.product;
-  const useGemini = !isDemo && typeof geminiOn === 'function' && geminiOn();
+  const useSmart = !isDemo && typeof smartOn === 'function' && smartOn();
   const photo = isDemo ? sellPhoto(state.sell.product) : state.sell.photo;
-  const firstStatus = isDemo ? t('sell.scanning') : (useGemini ? t('sell.geminiRecognizing') : t('sell.modelLoading'));
+  const firstStatus = isDemo ? t('sell.scanning') : (useSmart ? t('sell.smartRecognizing') : t('sell.modelLoading'));
   app.innerHTML = `
     <div class="form-page sell-scan-page">
       <div class="sell-scan-card">
@@ -965,11 +935,10 @@ function renderSellAnalyze() {
     return;
   }
 
-  // реальное фото: Gemini (точно, нужен ключ) ИЛИ CLIP on-device
-  const recognize = useGemini
-    ? geminiRecognize(photo).catch(err => {
-        // ключ битый/квота/сеть — мягко падаем на CLIP
-        showToast(t('sell.geminiFail'));
+  // реальное фото: точный сервер-ИИ (если подключён) ИЛИ встроенный CLIP on-device
+  const recognize = useSmart
+    ? smartRecognize(photo).catch(err => {
+        // сервер недоступен/ошибка — мягко падаем на встроенный движок
         return visionClassifyDataURL(photo);
       })
     : visionClassifyDataURL(photo);
@@ -982,32 +951,32 @@ function renderSellAnalyze() {
     self.detection = { category: null, subcategory: null, label: '', confidence: 0, failed: true };
     toDraft();
   });
-  if (!useGemini) setTimeout(() => { const el = $('#sellScanText'); if (live() && el) el.textContent = t('sell.analyzing'); }, 1500);
+  if (!useSmart) setTimeout(() => { const el = $('#sellScanText'); if (live() && el) el.textContent = t('sell.analyzing'); }, 1500);
 }
 
-/* единый черновик: демо-товар ИЛИ реальное фото (Gemini / CLIP) */
+/* единый черновик: демо-товар ИЛИ реальное фото (точный сервер-ИИ / встроенный CLIP) */
 function renderSellDraft() {
   const isReal = !state.sell.product;
   const p = state.sell.product;
   const det = state.sell.detection || {};
-  const isGemini = isReal && det.source === 'gemini' && det.category;
+  const isSmart = isReal && det.source === 'smart' && det.category;
   const photo = isReal ? state.sell.photo : sellPhoto(p);
 
   let category = isReal ? (det.category || '') : p.category;
   let subcategory = isReal ? (det.subcategory || '') : p.subcategory;
   let condition = isReal ? (det.condition || 'used') : (p.condition || '');
 
-  // заголовок и описание: Gemini пишет сам, CLIP — шаблон по категории, демо — готовое
-  const tmpl = (isReal && !isGemini && subcategory) ? sellTemplate(det.noun, condition) : null;
-  let titleVal = isGemini ? det.title : (isReal ? (tmpl ? tmpl.title : '') : p.title);
-  let descVal = isGemini ? det.description : (isReal ? (tmpl ? tmpl.desc : '') : p.desc);
+  // заголовок и описание: сервер-ИИ пишет сам, CLIP — шаблон по категории, демо — готовое
+  const tmpl = (isReal && !isSmart && subcategory) ? sellTemplate(det.noun, condition) : null;
+  let titleVal = isSmart ? det.title : (isReal ? (tmpl ? tmpl.title : '') : p.title);
+  let descVal = isSmart ? det.description : (isReal ? (tmpl ? tmpl.desc : '') : p.desc);
 
-  // цена: Gemini даёт конкретную, CLIP — осторожный ориентир (p30), демо — готовую
+  // цена: сервер-ИИ даёт конкретную, CLIP — осторожный ориентир (p30), демо — готовую
   const stats = isReal && subcategory ? subPriceStats(subcategory) : null;
   let market = isReal ? (stats ? [stats.min, stats.max] : null) : p.market;
-  let suggested = isGemini ? det.price : (isReal ? (stats ? Math.round(stats.lo / 500) * 500 : '') : p.suggested);
+  let suggested = isSmart ? det.price : (isReal ? (stats ? Math.round(stats.lo / 500) * 500 : '') : p.suggested);
 
-  const specs = isGemini ? (det.specs || []) : (isReal ? [] : (p.specs || []));
+  const specs = isSmart ? (det.specs || []) : (isReal ? [] : (p.specs || []));
 
   const cityOptions = CITIES.map(c => `<option ${c === (state.city !== 'all' ? state.city : 'Бишкек') ? 'selected' : ''}>${esc(c)}</option>`).join('');
   const condChip = (val, label) => `<button type="button" class="fchip ${condition === val ? 'active' : ''}" data-scond="${val}">${label}</button>`;
@@ -1017,7 +986,7 @@ function renderSellDraft() {
   let detLine;
   if (!isReal) detLine = t('sell.recognized').replace('{c}', p.confidence);
   else if (det.failed) detLine = t('sell.modelFail');
-  else if (isGemini) detLine = `${t('sell.detected').replace('{label}', esc(det.title))} · ${det.confidence}%`;
+  else if (isSmart) detLine = `${t('sell.detected').replace('{label}', esc(det.title))} · ${det.confidence}%`;
   else if (det.category) detLine = `${t('sell.looksLike').replace('{cat}', subName(det.subcategory))} · ${det.confidence}%`;
   else detLine = det.label ? `${t('sell.detected').replace('{label}', esc(det.label))} — ${t('sell.unknownCat')}` : t('sell.unknownCat');
 
@@ -1046,7 +1015,7 @@ function renderSellDraft() {
           <div class="sell-confidence">${detLine}</div>
         </div>
       </div>
-      ${isReal && !isGemini ? `<div class="sell-real-note">ℹ️ ${t('sell.realNote')}</div>` : ''}
+      ${isReal && !isSmart ? `<div class="sell-real-note">ℹ️ ${t('sell.realNote')}</div>` : ''}
       <form id="sellForm" class="form-card">
         ${catSelect}
         <div class="fgroup">
@@ -1054,10 +1023,10 @@ function renderSellDraft() {
           <input class="finput" id="sTitle" maxlength="80" placeholder="${t('sell.titleHint')}" value="${esc(titleVal)}">
         </div>
         <div class="fgroup sell-price-group">
-          <label class="flabel">${isGemini || !isReal ? t('sell.priceSuggested') : t('sell.priceByCat')}</label>
+          <label class="flabel">${isSmart || !isReal ? t('sell.priceSuggested') : t('sell.priceByCat')}</label>
           <input class="finput sell-price-input" id="sPrice" type="number" inputmode="numeric" min="0" value="${suggested}" placeholder="0">
           <div class="sell-market" id="sMarket">${market ? '📊 ' + t('sell.market').replace('{min}', fmtNum(market[0])).replace('{max}', fmtNum(market[1])).replace('{som}', t('som')) : ''}</div>
-          ${isGemini ? `<div class="sell-price-why">💡 ${t('sell.byAI')}</div>` : (!isReal ? `<div class="sell-price-why">💡 ${t('sell.priceWhy')}</div>` : '')}
+          ${isSmart ? `<div class="sell-price-why">💡 ${t('sell.byAI')}</div>` : (!isReal ? `<div class="sell-price-why">💡 ${t('sell.priceWhy')}</div>` : '')}
         </div>
         <div class="form-row">
           <div class="fgroup">
@@ -1954,22 +1923,6 @@ document.addEventListener('click', e => {
     location.hash = '#/';
     return;
   }
-  if (e.target.closest('[data-gemini-connect]')) { openGeminiModal(); return; }
-  if (e.target.closest('[data-gemini-off]')) {
-    setGeminiKey('');
-    showToast(t('sell.geminiDisconnected'));
-    if (parseHash().path.startsWith('/sell')) renderSell();
-    return;
-  }
-  if (e.target.closest('[data-gemini-save]')) {
-    const inp = $('#geminiKeyInput');
-    setGeminiKey(inp ? inp.value : '');
-    closeModal();
-    showToast(geminiOn() ? t('sell.geminiConnected') : t('sell.geminiDisconnected'), geminiOn() ? 'success' : '');
-    if (parseHash().path.startsWith('/sell')) renderSell();
-    return;
-  }
-
   /* чаты */
   const chatRow = e.target.closest('[data-chat]');
   if (chatRow) { location.hash = '#/chats/' + chatRow.dataset.chat; return; }
