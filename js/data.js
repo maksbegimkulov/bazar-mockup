@@ -447,3 +447,81 @@ function generateListings() {
 }
 
 const LISTINGS = generateListings();
+
+/* ============================================================
+   Демо-товары для флоу «Продажа за 30 секунд»:
+   что пользователь «фотографирует», а ИИ-помощница распознаёт.
+   spec[].k — i18n-ключ метки (значение v — контент, остаётся как есть).
+   ============================================================ */
+const DEMO_PRODUCTS = [
+  {
+    id: 'iphone13', category: 'electronics', subcategory: 'Телефоны', photoSeed: 12,
+    title: 'iPhone 13 128GB, отличное состояние', condition: 'used',
+    market: [36000, 52000], suggested: 42000, confidence: 96,
+    desc: 'iPhone 13 на 128 ГБ. Состояние отличное, аккумулятор держит хорошо. Без сколов и царапин, всё работает идеально. Комплект: телефон, кабель. Причина продажи — переход на новую модель.',
+    specs: [['spec.brand', 'Apple'], ['spec.model', 'iPhone 13'], ['spec.memory', '128 ГБ'], ['spec.color', 'Тёмная ночь']],
+  },
+  {
+    id: 'macbookair', category: 'electronics', subcategory: 'Ноутбуки', photoSeed: 19,
+    title: 'MacBook Air M1 13" 8/256, как новый', condition: 'used',
+    market: [52000, 70000], suggested: 60000, confidence: 94,
+    desc: 'MacBook Air на чипе M1, 8 ГБ / 256 ГБ SSD. Лёгкий, тихий, без вентилятора. Циклов аккумулятора мало, держит весь день. Идеален для учёбы и работы. В комплекте оригинальная зарядка.',
+    specs: [['spec.brand', 'Apple'], ['spec.model', 'MacBook Air M1'], ['spec.memory', '8 / 256 ГБ'], ['spec.year', '2021']],
+  },
+  {
+    id: 'airpodspro', category: 'electronics', subcategory: 'ТВ и аудио', photoSeed: 7,
+    title: 'AirPods Pro 2, оригинал, чек', condition: 'new',
+    market: [14000, 19000], suggested: 16000, confidence: 92,
+    desc: 'AirPods Pro 2-го поколения. Активное шумоподавление, оригинал, есть чек. Запечатаны / как новые. Гарантия. Отличный звук и посадка.',
+    specs: [['spec.brand', 'Apple'], ['spec.model', 'AirPods Pro 2'], ['spec.condition', 'Новые']],
+  },
+  {
+    id: 'ps5', category: 'electronics', subcategory: 'ТВ и аудио', photoSeed: 31,
+    title: 'PlayStation 5 Slim + 2 геймпада', condition: 'used',
+    market: [42000, 55000], suggested: 47000, confidence: 90,
+    desc: 'PlayStation 5 Slim, в комплекте 2 беспроводных геймпада DualSense. Полностью рабочая, без перегрева. Подключу и покажу при встрече. Возможен небольшой торг.',
+    specs: [['spec.brand', 'Sony'], ['spec.model', 'PlayStation 5 Slim'], ['spec.memory', '1 ТБ']],
+  },
+  {
+    id: 'fridgelg', category: 'electronics', subcategory: 'Бытовая техника', photoSeed: 23,
+    title: 'Холодильник LG No Frost 2 м, серый', condition: 'used',
+    market: [38000, 62000], suggested: 45000, confidence: 88,
+    desc: 'Холодильник LG, система No Frost, высота 2 метра. Работает тихо, держит температуру, не шумит. Цвет графит/серый. Самовывоз, помогу с погрузкой.',
+    specs: [['spec.brand', 'LG'], ['spec.type', 'No Frost'], ['spec.color', 'Графит']],
+  },
+  {
+    id: 'sofa', category: 'home', subcategory: 'Мебель', photoSeed: 4,
+    title: 'Диван угловой, раскладной, велюр', condition: 'used',
+    market: [19000, 44000], suggested: 28000, confidence: 85,
+    desc: 'Угловой раскладной диван, обивка велюр, цвет серо-бежевый. Механизм еврокнижка, есть ящик для белья. Пользовались аккуратно, без пятен. Доставка по городу за отдельную плату.',
+    specs: [['spec.material', 'Велюр'], ['spec.mechanism', 'Еврокнижка'], ['spec.color', 'Серо-бежевый']],
+  },
+  {
+    id: 'camry', category: 'transport', subcategory: 'Легковые авто', photoSeed: 1,
+    title: 'Toyota Camry 70, 2019, 2.5, один хозяин', condition: null,
+    market: [1850000, 2550000], suggested: 2150000, confidence: 91,
+    desc: 'Toyota Camry 70, 2019 год, двигатель 2.5. Один хозяин, обслуживание по регламенту, не бита не крашена. Полный электропакет, камера, климат. Реальному покупателю торг при осмотре.',
+    specs: [['spec.brand', 'Toyota'], ['spec.model', 'Camry 70'], ['spec.year', '2019'], ['spec.engine', '2.5 л']],
+  },
+  {
+    id: 'bike', category: 'hobby', subcategory: 'Велосипеды', photoSeed: 9,
+    title: 'Велосипед Giant Talon 2, рама M', condition: 'used',
+    market: [28000, 55000], suggested: 38000, confidence: 87,
+    desc: 'Горный велосипед Giant Talon 2, рама размер M (рост 170–182). Гидравлические тормоза, вилка с блокировкой, 27.5". Прошёл одно лето, состояние отличное. Торг при осмотре.',
+    specs: [['spec.brand', 'Giant'], ['spec.model', 'Talon 2'], ['spec.frame', 'M (27.5")']],
+  },
+  {
+    id: 'jacket', category: 'fashion', subcategory: 'Мужская одежда', photoSeed: 14,
+    title: 'Куртка зимняя The North Face, L', condition: 'used',
+    market: [7000, 14000], suggested: 9000, confidence: 83,
+    desc: 'Зимняя куртка The North Face, размер L. Тёплая, непродуваемая, капюшон. Надевалась один сезон, состояние отличное. Цвет чёрный. Самовывоз или доставка.',
+    specs: [['spec.brand', 'The North Face'], ['spec.size', 'L'], ['spec.color', 'Чёрный']],
+  },
+  {
+    id: 'stroller', category: 'kids', subcategory: 'Коляски и кресла', photoSeed: 26,
+    title: 'Коляска Anex 2 в 1, после одного ребёнка', condition: 'used',
+    market: [18000, 34000], suggested: 24000, confidence: 86,
+    desc: 'Коляска Anex 2 в 1 (люлька + прогулочный блок). После одного ребёнка, всё чистое и рабочее. Большие колёса, удобная для города. В комплекте дождевик и сумка.',
+    specs: [['spec.brand', 'Anex'], ['spec.type', '2 в 1'], ['spec.color', 'Серый']],
+  },
+];

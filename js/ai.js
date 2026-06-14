@@ -38,10 +38,41 @@ function aiItemHTML(id) {
   </a>`;
 }
 
+const DEC_ICON = { best: '⭐', value: '🔥', purpose: '🎯', cheap: '💸' };
+
+/* карточка одного выбора в «решении» Дианы */
+function aiPickHTML(pick) {
+  const l = getListing(pick.id);
+  if (!l) return '';
+  const photos = getPhotos(l);
+  return `
+  <a class="ai-pick ai-pick-${pick.kind}" href="#/item/${l.id}" data-link>
+    <span class="ai-pick-badge">${DEC_ICON[pick.kind] || '•'} ${esc(pick.label)}</span>
+    <span class="ai-pick-body">
+      ${photos.length ? `<img src="${photos[0]}" alt="">` : '<span class="thumb-fallback" style="width:52px;height:52px">📷</span>'}
+      <span class="ai-pick-info">
+        <span class="ai-pick-title">${esc(l.title)}</span>
+        <span class="ai-pick-price">${l.negotiable ? t('price.negotiable') : fmtNum(l.price) + ' ' + t('som') + esc(l.priceSuffix)}</span>
+        <span class="ai-pick-reason">${esc(pick.reason)}</span>
+      </span>
+      <span class="ai-item-arrow">›</span>
+    </span>
+  </a>`;
+}
+
 function aiMsgHTML(m, idx) {
-  let items = (m.items || []).map(aiItemHTML).join('');
-  // объявления из старой переписки могли быть удалены
-  if (!items && m.items && m.items.length) items = `<div class="ai-stale">${t('ai.staleItems')}</div>`;
+  let body = '';
+  if (m.decision && m.decision.length) {
+    const picks = m.decision.map(aiPickHTML).join('');
+    const more = m.moreCount > 0
+      ? `<button class="ai-pick-more" data-ai-act="${idx}:0">${t('dec.more').replace('{n}', m.moreCount)} ›</button>`
+      : '';
+    body = picks ? `<div class="ai-picks">${picks}${more}</div>` : `<div class="ai-stale">${t('ai.staleItems')}</div>`;
+  } else {
+    let items = (m.items || []).map(aiItemHTML).join('');
+    if (!items && m.items && m.items.length) items = `<div class="ai-stale">${t('ai.staleItems')}</div>`;
+    body = items ? `<div class="ai-items">${items}</div>` : '';
+  }
   const actions = (m.actions || []).map((a, i) =>
     `<button class="fchip ai-chip" data-ai-act="${idx}:${i}">${esc(a.label)}</button>`).join('');
   return `
@@ -49,7 +80,7 @@ function aiMsgHTML(m, idx) {
     ${m.role === 'ai' ? '<span class="ai-avatar">✨</span>' : ''}
     <div class="ai-bubble">
       <div class="ai-text">${esc(m.text).replace(/\n/g, '<br>')}</div>
-      ${items ? `<div class="ai-items">${items}</div>` : ''}
+      ${body}
       ${actions ? `<div class="ai-actions chip-row">${actions}</div>` : ''}
     </div>
   </div>`;
@@ -144,6 +175,100 @@ function aiFilterPhrase(f) {
   return parts.join(' · ');
 }
 
+/* медиана цены по подкатегории (для «выгодно vs рынок») */
+function subMedian(l) {
+  const peers = allListings().filter(x =>
+    x.subcategory === l.subcategory && x.price > 0 && x.priceSuffix === l.priceSuffix);
+  if (peers.length < 6) return null;
+  const ps = peers.map(x => x.price).sort((a, b) => a - b);
+  return ps[Math.floor(ps.length / 2)];
+}
+
+/* цель из запроса → «лучший для съёмки/игр/работы/семьи/экономичный» */
+function detectPurpose(raw, cat) {
+  const s = normText(raw);
+  if (/камер|видео|съёмк|съемк|фото|блог|ютуб|контент|снима/.test(s)) return 'camera';
+  if (/\bигр|гейм|пубг|танк/.test(s)) return 'gaming';
+  if (/учёб|учеб|студент|работ|офис|зум|онлайн|программ|кодин/.test(s)) return 'work';
+  if (cat === 'transport' && /семь|семей|\bдет/.test(s)) return 'family';
+  if (cat === 'transport' && /расход|экономичн|топлив/.test(s)) return 'economy';
+  return null;
+}
+
+/* «решение, а не список»: до 3 выделенных выборов с обоснованием */
+function aiDecision(res, raw, f) {
+  if (res.length < 3) return null;
+  const priced = res.filter(l => l.price > 0);
+  if (priced.length < 3) return null;
+
+  // ratio = цена / медиана рынка (меньше 1 = ниже рынка)
+  const ratio = new Map();
+  for (const l of priced) {
+    const m = subMedian(l);
+    if (m) ratio.set(l.id, l.price / m);
+  }
+  // «сладкая зона» цены ценится выше, чем подозрительно дешёвое (часто старая модель)
+  const score = l => {
+    const r = ratio.get(l.id);
+    let s = 0;
+    if (r != null) s += r <= 0.7 ? 1.2 : r <= 0.88 ? 2.5 : r <= 1.0 ? 1.7 : r <= 1.12 ? 0.7 : 0;
+    s += (l.sellerRating - 3.5) * 1.5;
+    if (l.condition === 'new') s += 1.2;
+    if (l.hasDelivery) s += 0.8;
+    if (getPhotos(l).length) s += 0.5;
+    if (hoursAgo(l) < 48) s += 0.6;
+    s += Math.log10(l.views + 1) * 0.3;
+    return s;
+  };
+  // обоснование: % ниже рынка показываем только в правдоподобном диапазоне
+  const reasonFor = l => {
+    const r = ratio.get(l.id);
+    if (r != null && r >= 0.75 && r <= 0.92) return t('dec.r.belowMarket').replace('{p}', Math.round((1 - r) * 100));
+    if (l.sellerRating >= 4.6) return `★ ${l.sellerRating}`;
+    if (l.hasDelivery) return t('ai.q.deliv');
+    if (l.condition === 'new') return t('ai.q.new');
+    if (r != null && r <= 1.12) return t('dec.r.inMarket');
+    if (hoursAgo(l) < 48) return t('dec.r.fresh');
+    return t('dec.r.popular').replace('{v}', fmtNum(l.views));
+  };
+
+  const usedId = new Set(), usedTitle = new Set();
+  const free = () => priced.filter(l => !usedId.has(l.id) && !usedTitle.has(normText(l.title)));
+  const reserve = l => { usedId.add(l.id); usedTitle.add(normText(l.title)); };
+
+  const purpose = detectPurpose(raw, f.cat);
+  const purposeLabels = {
+    camera: t('dec.purpose.camera'), gaming: t('dec.purpose.gaming'),
+    work: t('dec.purpose.work'), family: t('dec.purpose.family'), economy: t('dec.purpose.economy'),
+  };
+
+  // сначала резервируем «премиум для цели» (топовую модель), чтобы её не забрал «лучший выбор»
+  let purposePick = null;
+  if (purpose && purpose !== 'economy') {
+    const top = [...free()].sort((a, b) => b.price - a.price)[0];
+    if (top) { purposePick = { id: top.id, label: purposeLabels[purpose], reason: t('dec.r.top'), kind: 'purpose' }; reserve(top); }
+  }
+  // лучший выбор — композитный скор среди оставшихся
+  let bestPick = null;
+  const best = [...free()].sort((a, b) => score(b) - score(a))[0];
+  if (best) { bestPick = { id: best.id, label: t('dec.best'), reason: reasonFor(best), kind: 'best' }; reserve(best); }
+  // самое выгодное (если не было цели)
+  let valuePick = null;
+  if (!purposePick) {
+    const withR = free().filter(l => ratio.get(l.id) != null && ratio.get(l.id) >= 0.7 && ratio.get(l.id) < 0.95);
+    const v = withR.sort((a, b) => ratio.get(a.id) - ratio.get(b.id))[0];
+    if (v) { valuePick = { id: v.id, label: t('dec.value'), reason: t('dec.r.belowMarket').replace('{p}', Math.round((1 - ratio.get(v.id)) * 100)), kind: 'value' }; reserve(v); }
+  }
+  // дешевле всего
+  let cheapPick = null;
+  const cheap = [...free()].sort((a, b) => a.price - b.price)[0];
+  if (cheap) { cheapPick = { id: cheap.id, label: purpose === 'economy' ? purposeLabels.economy : t('dec.cheapest'), reason: t('dec.r.cheapest'), kind: 'cheap' }; reserve(cheap); }
+
+  // порядок показа: лучший → цель/выгодное → дешевле
+  const picks = [bestPick, purposePick || valuePick, cheapPick].filter(Boolean);
+  return picks.length >= 2 ? picks : null;
+}
+
 function aiSearchReply(raw) {
   const parsed = parseSearchQuery(raw);
   const f = { ...defaultFilters(), city: state.city };
@@ -184,12 +309,13 @@ function aiSearchReply(raw) {
   AI.lastF = f;
   const phrase = aiFilterPhrase(f);
   const n = res.length;
+  const isPriceQ = /сколько сто|почем|стоимост|цена/.test(normText(raw));
   let text = note
     ? `${note}: ${nLabel(n)}. ${t('ai.best')}`
     : `${t('ai.found')} ${nLabel(n)}${phrase ? ` (${phrase})` : ''}. ${t('ai.best')}`;
 
   // вопрос о цене — отвечаем рыночной вилкой, а не просто списком
-  if (/сколько сто|почем|стоимост|цена/.test(normText(raw))) {
+  if (isPriceQ) {
     const ps = res.map(l => l.price).filter(Boolean);
     if (ps.length) {
       const range = t('ai.priceRange')
@@ -201,6 +327,14 @@ function aiSearchReply(raw) {
     }
   }
 
+  // «решение, а не список»: выделенные выборы с обоснованием
+  const decision = isPriceQ ? null : aiDecision(res, raw, f);
+  if (decision) {
+    text = note
+      ? `${note}: ${nLabel(n)}. ${t('dec.lead')}`
+      : `${t('ai.found')} ${nLabel(n)}${phrase ? ` (${phrase})` : ''}. ${t('dec.lead')}`;
+  }
+
   // refine-чипы несут базовые фильтры с собой — переживают перезагрузку страницы
   const actions = [{ label: `${t('ai.showAll')} ${fmtNum(n)} ${t('ai.inSearch')}`, act: { type: 'search', f } }];
   if (f.condition === 'any' && res.some(l => l.condition)) actions.push({ label: t('ai.onlyNew'), act: { type: 'refine', patch: { condition: 'new' }, base: f } });
@@ -208,6 +342,9 @@ function aiSearchReply(raw) {
   if (f.city !== 'all') actions.push({ label: t('ai.allKg'), act: { type: 'refine', patch: { city: 'all' }, base: f } });
   else if (!f.delivery && res.some(l => l.hasDelivery)) actions.push({ label: t('ai.withDeliv'), act: { type: 'refine', patch: { delivery: true }, base: f } });
 
+  if (decision) {
+    return { text, decision, moreCount: n - decision.length, actions: actions.slice(0, 3) };
+  }
   return { text, items: res.slice(0, 5).map(l => l.id), actions: actions.slice(0, 4) };
 }
 
