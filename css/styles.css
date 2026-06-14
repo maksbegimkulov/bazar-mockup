@@ -1526,6 +1526,23 @@ main.container { padding-top: 20px; padding-bottom: 90px; min-height: 70vh; }
 .sell-draft-top.sell-draft-warn { background: var(--vip-soft); }
 .sell-draft-warn .sell-ready { color: var(--vip-text); }
 .sell-draft-warn .sell-ready-check { background: var(--vip); }
+.sell-draft-actions { flex-wrap: wrap; }
+
+/* подключение Gemini */
+.gemini-bar {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  margin-bottom: 14px; padding: 13px 15px;
+  border-radius: var(--radius); text-align: left;
+}
+.gemini-connect { background: linear-gradient(120deg, var(--ai-grad-a), var(--badge-blue-bg)); }
+.gemini-connect:active { transform: scale(0.99); }
+.gemini-bar-ico { font-size: 22px; flex-shrink: 0; }
+.gemini-bar-text { flex: 1; min-width: 0; }
+.gemini-bar-title { display: block; font-weight: 800; font-size: 14.5px; }
+.gemini-bar-sub { display: block; color: var(--text-2); font-size: 12.5px; margin-top: 2px; }
+.gemini-on { justify-content: space-between; background: var(--accent-soft); color: var(--accent-dark); font-weight: 700; font-size: 13.5px; }
+.gemini-off-btn { color: var(--text-2); font-size: 12.5px; font-weight: 600; padding: 6px 10px; margin: -6px -6px -6px 0; flex-shrink: 0; }
+.gemini-off-btn:active { color: var(--danger); }
 
 @media (max-width: 880px) { .home-ai-row { grid-template-columns: 1fr; } }
 @media (max-width: 720px) {

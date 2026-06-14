@@ -11,51 +11,51 @@ const VISION = { model: null, loading: null, stream: null };
 /* промпт → категория/подкатегория BAZAR. Несколько промптов на одну
    подкатегорию повышают точность; обратно мапим по объекту. */
 const CLIP_LABELS = [
-  ['a photo of a smartphone or mobile phone', 'electronics', 'Телефоны'],
-  ['a photo of a laptop computer', 'electronics', 'Ноутбуки'],
-  ['a photo of a tablet computer', 'electronics', 'Планшеты'],
-  ['a photo of a flat-screen television', 'electronics', 'ТВ и аудио'],
-  ['a photo of headphones or earbuds', 'electronics', 'ТВ и аудио'],
-  ['a photo of a bluetooth speaker', 'electronics', 'ТВ и аудио'],
-  ['a photo of a video game console', 'electronics', 'ТВ и аудио'],
-  ['a photo of a digital photo camera', 'electronics', 'Фото и видео'],
-  ['a photo of a refrigerator', 'electronics', 'Бытовая техника'],
-  ['a photo of a washing machine', 'electronics', 'Бытовая техника'],
-  ['a photo of a microwave oven or kitchen appliance', 'electronics', 'Бытовая техника'],
-  ['a photo of a vacuum cleaner', 'electronics', 'Бытовая техника'],
-  ['a photo of a car or automobile', 'transport', 'Легковые авто'],
-  ['a photo of a motorcycle', 'transport', 'Мото'],
-  ['a photo of a motor scooter', 'transport', 'Мото'],
-  ['a photo of car tires or wheels', 'transport', 'Запчасти и аксессуары'],
-  ['a photo of a bicycle', 'hobby', 'Велосипеды'],
-  ['a photo of a sofa or couch', 'home', 'Мебель'],
-  ['a photo of an armchair or office chair', 'home', 'Мебель'],
-  ['a photo of a table or desk', 'home', 'Мебель'],
-  ['a photo of a bed', 'home', 'Мебель'],
-  ['a photo of a wardrobe or cabinet', 'home', 'Мебель'],
-  ['a photo of kitchenware, pots or plates', 'home', 'Посуда и кухня'],
-  ['a photo of a power drill or hand tools', 'home', 'Ремонт и стройка'],
-  ['a photo of a potted houseplant', 'home', 'Растения'],
-  ['a photo of a jacket or winter coat', 'fashion', 'Мужская одежда'],
-  ['a photo of a dress', 'fashion', 'Женская одежда'],
-  ['a photo of a shirt or t-shirt', 'fashion', 'Мужская одежда'],
-  ['a photo of shoes or sneakers', 'fashion', 'Обувь'],
-  ['a photo of a handbag or purse', 'fashion', 'Аксессуары'],
-  ['a photo of a backpack', 'fashion', 'Аксессуары'],
-  ['a photo of a wristwatch', 'fashion', 'Аксессуары'],
-  ['a photo of sunglasses', 'fashion', 'Аксессуары'],
-  ['a photo of an acoustic or electric guitar', 'hobby', 'Музыка'],
-  ['a photo of a piano or music keyboard', 'hobby', 'Музыка'],
-  ['a photo of gym or fitness equipment', 'hobby', 'Тренажёры'],
-  ['a photo of a camping tent', 'hobby', 'Туризм и отдых'],
-  ['a photo of a baby stroller', 'kids', 'Коляски и кресла'],
-  ['a photo of a child car seat', 'kids', 'Коляски и кресла'],
-  ['a photo of a toy', 'kids', 'Игрушки'],
-  ['a photo of a dog', 'animals', 'Собаки'],
-  ['a photo of a cat', 'animals', 'Кошки'],
+  ['a photo of a smartphone or mobile phone', 'electronics', 'Телефоны', 'Телефон'],
+  ['a photo of a laptop computer', 'electronics', 'Ноутбуки', 'Ноутбук'],
+  ['a photo of a tablet computer', 'electronics', 'Планшеты', 'Планшет'],
+  ['a photo of a flat-screen television', 'electronics', 'ТВ и аудио', 'Телевизор'],
+  ['a photo of headphones or earbuds', 'electronics', 'ТВ и аудио', 'Наушники'],
+  ['a photo of a bluetooth speaker', 'electronics', 'ТВ и аудио', 'Колонка'],
+  ['a photo of a video game console', 'electronics', 'ТВ и аудио', 'Игровая приставка'],
+  ['a photo of a digital photo camera', 'electronics', 'Фото и видео', 'Фотоаппарат'],
+  ['a photo of a refrigerator', 'electronics', 'Бытовая техника', 'Холодильник'],
+  ['a photo of a washing machine', 'electronics', 'Бытовая техника', 'Стиральная машина'],
+  ['a photo of a microwave oven or kitchen appliance', 'electronics', 'Бытовая техника', 'Бытовая техника'],
+  ['a photo of a vacuum cleaner', 'electronics', 'Бытовая техника', 'Пылесос'],
+  ['a photo of a car or automobile', 'transport', 'Легковые авто', 'Автомобиль'],
+  ['a photo of a motorcycle', 'transport', 'Мото', 'Мотоцикл'],
+  ['a photo of a motor scooter', 'transport', 'Мото', 'Скутер'],
+  ['a photo of car tires or wheels', 'transport', 'Запчасти и аксессуары', 'Шины / диски'],
+  ['a photo of a bicycle', 'hobby', 'Велосипеды', 'Велосипед'],
+  ['a photo of a sofa or couch', 'home', 'Мебель', 'Диван'],
+  ['a photo of an armchair or office chair', 'home', 'Мебель', 'Кресло'],
+  ['a photo of a table or desk', 'home', 'Мебель', 'Стол'],
+  ['a photo of a bed', 'home', 'Мебель', 'Кровать'],
+  ['a photo of a wardrobe or cabinet', 'home', 'Мебель', 'Шкаф'],
+  ['a photo of kitchenware, pots or plates', 'home', 'Посуда и кухня', 'Посуда'],
+  ['a photo of a power drill or hand tools', 'home', 'Ремонт и стройка', 'Инструмент'],
+  ['a photo of a potted houseplant', 'home', 'Растения', 'Растение'],
+  ['a photo of a jacket or winter coat', 'fashion', 'Мужская одежда', 'Куртка'],
+  ['a photo of a dress', 'fashion', 'Женская одежда', 'Платье'],
+  ['a photo of a shirt or t-shirt', 'fashion', 'Мужская одежда', 'Рубашка'],
+  ['a photo of shoes or sneakers', 'fashion', 'Обувь', 'Обувь'],
+  ['a photo of a handbag or purse', 'fashion', 'Аксессуары', 'Сумка'],
+  ['a photo of a backpack', 'fashion', 'Аксессуары', 'Рюкзак'],
+  ['a photo of a wristwatch', 'fashion', 'Аксессуары', 'Часы'],
+  ['a photo of sunglasses', 'fashion', 'Аксессуары', 'Очки'],
+  ['a photo of an acoustic or electric guitar', 'hobby', 'Музыка', 'Гитара'],
+  ['a photo of a piano or music keyboard', 'hobby', 'Музыка', 'Синтезатор'],
+  ['a photo of gym or fitness equipment', 'hobby', 'Тренажёры', 'Тренажёр'],
+  ['a photo of a camping tent', 'hobby', 'Туризм и отдых', 'Палатка'],
+  ['a photo of a baby stroller', 'kids', 'Коляски и кресла', 'Коляска'],
+  ['a photo of a child car seat', 'kids', 'Коляски и кресла', 'Автокресло'],
+  ['a photo of a toy', 'kids', 'Игрушки', 'Игрушка'],
+  ['a photo of a dog', 'animals', 'Собаки', 'Собака'],
+  ['a photo of a cat', 'animals', 'Кошки', 'Кошка'],
 ];
 const CLIP_PROMPTS = CLIP_LABELS.map(l => l[0]);
-const CLIP_BY_PROMPT = Object.fromEntries(CLIP_LABELS.map(([p, c, s]) => [p, { category: c, subcategory: s }]));
+const CLIP_BY_PROMPT = Object.fromEntries(CLIP_LABELS.map(([p, c, s, n]) => [p, { category: c, subcategory: s, noun: n }]));
 
 function vLoadScript(src) {
   return new Promise((resolve, reject) => {
@@ -93,16 +93,89 @@ async function visionClassify(input) {
   const model = await visionLoadModel();
   const res = await model(input, CLIP_PROMPTS); // [{label, score}] по убыванию
   const top = res[0];
-  const map = CLIP_BY_PROMPT[top.label] || { category: null, subcategory: null };
+  const map = CLIP_BY_PROMPT[top.label] || { category: null, subcategory: null, noun: '' };
   const confidence = Math.round(top.score * 100);
   // ближайший результат ДРУГОЙ категории — для оценки уверенности
   const otherCat = res.find(r => (CLIP_BY_PROMPT[r.label] || {}).category !== map.category);
   const margin = otherCat ? top.score - otherCat.score : top.score;
   const uncertain = top.score < 0.18 || margin < 0.05;
   if (uncertain) {
-    return { category: null, subcategory: null, label: cleanLabel(top.label), confidence, uncertain: true };
+    return { source: 'clip', category: null, subcategory: null, noun: '', label: cleanLabel(top.label), confidence, uncertain: true };
   }
-  return { category: map.category, subcategory: map.subcategory, label: cleanLabel(top.label), confidence };
+  return { source: 'clip', category: map.category, subcategory: map.subcategory, noun: map.noun, label: cleanLabel(top.label), confidence };
+}
+
+/* ---------- Gemini (точное распознавание, нужен ключ пользователя) ---------- */
+
+const GEMINI_KEY_LS = 'bazar_gemini_key';
+function geminiKey() { return lsLoad(GEMINI_KEY_LS, ''); }
+function setGeminiKey(k) { lsSave(GEMINI_KEY_LS, (k || '').trim()); }
+function geminiOn() { return !!geminiKey(); }
+
+function normalizeGemini(p) {
+  const cat = CATEGORIES.find(c => c.id === p.category)
+    || CATEGORIES.find(c => Array.isArray(c.subs) && c.subs.includes(p.subcategory));
+  const sub = cat && cat.subs.includes(p.subcategory) ? p.subcategory : (cat ? cat.subs[0] : null);
+  const specs = Array.isArray(p.specs)
+    ? p.specs.filter(s => s && s.value).slice(0, 6).map(s => [String(s.label || '').slice(0, 40), String(s.value).slice(0, 60)])
+    : [];
+  return {
+    source: 'gemini',
+    category: cat ? cat.id : null,
+    subcategory: sub,
+    noun: '',
+    title: String(p.title || '').slice(0, 80),
+    description: String(p.description || '').slice(0, 600),
+    condition: p.condition === 'new' ? 'new' : 'used',
+    price: Math.max(0, Math.round(Number(p.priceKGS) || 0)),
+    confidence: Math.min(99, Math.max(1, Math.round(Number(p.confidence) || 90))),
+    specs,
+    uncertain: !cat,
+  };
+}
+
+async function geminiRecognize(dataURL) {
+  const key = geminiKey();
+  if (!key) throw new Error('no-key');
+  const base64 = dataURL.split(',')[1];
+  const cats = CATEGORIES.map(c => `${c.id} (${c.name}): ${c.subs.join(' | ')}`).join('\n');
+  const prompt = `Ты — ассистент торговой площадки в Кыргызстане (BAZAR). На фото — товар, который пользователь хочет продать.
+Определи его максимально точно: бренд и модель, если их видно. Верни данные для объявления СТРОГО в JSON.
+Категорию (поле category = id) и подкатегорию (subcategory — точное название) выбери ТОЛЬКО из этого списка:
+${cats}
+Требования:
+- title: краткий заголовок на русском, с брендом/моделью если различимы (например «iPhone 13 128GB» или «Диван угловой, велюр»).
+- description: 1–2 коротких естественных предложения на русском.
+- condition: "new" если выглядит новым, иначе "used".
+- priceKGS: реалистичная цена в сомах для Кыргызстана (б/у — дешевле).
+- specs: 2–4 ключевые характеристики ([{label,value}] на русском), если различимы.
+- confidence: 0–100 — насколько уверен.`;
+  const body = {
+    contents: [{ parts: [{ text: prompt }, { inlineData: { mimeType: 'image/jpeg', data: base64 } }] }],
+    generationConfig: {
+      temperature: 0.2,
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: 'OBJECT',
+        properties: {
+          category: { type: 'STRING' }, subcategory: { type: 'STRING' },
+          title: { type: 'STRING' }, description: { type: 'STRING' },
+          condition: { type: 'STRING' }, priceKGS: { type: 'NUMBER' }, confidence: { type: 'NUMBER' },
+          specs: { type: 'ARRAY', items: { type: 'OBJECT', properties: { label: { type: 'STRING' }, value: { type: 'STRING' } } } },
+        },
+        required: ['category', 'subcategory', 'title', 'description', 'condition', 'priceKGS'],
+      },
+    },
+  };
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(key)}`;
+  const resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  if (!resp.ok) throw new Error('gemini-http-' + resp.status);
+  const data = await resp.json();
+  const text = data.candidates && data.candidates[0] && data.candidates[0].content
+    && data.candidates[0].content.parts && data.candidates[0].content.parts[0]
+    && data.candidates[0].content.parts[0].text;
+  if (!text) throw new Error('gemini-empty');
+  return normalizeGemini(JSON.parse(text));
 }
 
 /* ---------- камера ---------- */
