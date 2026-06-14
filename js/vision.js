@@ -105,14 +105,28 @@ async function visionClassify(input) {
   return { source: 'clip', category: map.category, subcategory: map.subcategory, noun: map.noun, label: cleanLabel(top.label), confidence };
 }
 
-/* ---------- Gemini (точное распознавание, нужен ключ пользователя) ---------- */
+/* ---------- Точное распознавание через сервер-прокси ----------
+   Ключ ИИ хранится на сервере (Cloudflare Worker), НЕ в браузере и НЕ в коде.
+   Браузер шлёт только фото → сервер распознаёт → возвращает готовое объявление.
+   Работает для ВСЕХ пользователей без ввода ключа. Пусто = выключено (тогда
+   используется встроенный on-device движок CLIP, тоже без ключа). */
+const SMART_ENDPOINT = '';
+function smartOn() { return !!SMART_ENDPOINT; }
 
-const GEMINI_KEY_LS = 'bazar_gemini_key';
-function geminiKey() { return lsLoad(GEMINI_KEY_LS, ''); }
-function setGeminiKey(k) { lsSave(GEMINI_KEY_LS, (k || '').trim()); }
-function geminiOn() { return !!geminiKey(); }
+async function smartRecognize(dataURL) {
+  const base64 = dataURL.split(',')[1];
+  const categories = CATEGORIES.map(c => ({ id: c.id, name: c.name, subs: c.subs }));
+  const resp = await fetch(SMART_ENDPOINT, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ image: base64, categories }),
+  });
+  if (!resp.ok) throw new Error('smart-http-' + resp.status);
+  const data = await resp.json();
+  return normalizeSmart(data);
+}
 
-function normalizeGemini(p) {
+function normalizeSmart(p) {
   const cat = CATEGORIES.find(c => c.id === p.category)
     || CATEGORIES.find(c => Array.isArray(c.subs) && c.subs.includes(p.subcategory));
   const sub = cat && cat.subs.includes(p.subcategory) ? p.subcategory : (cat ? cat.subs[0] : null);
@@ -120,7 +134,7 @@ function normalizeGemini(p) {
     ? p.specs.filter(s => s && s.value).slice(0, 6).map(s => [String(s.label || '').slice(0, 40), String(s.value).slice(0, 60)])
     : [];
   return {
-    source: 'gemini',
+    source: 'smart',
     category: cat ? cat.id : null,
     subcategory: sub,
     noun: '',
@@ -132,50 +146,6 @@ function normalizeGemini(p) {
     specs,
     uncertain: !cat,
   };
-}
-
-async function geminiRecognize(dataURL) {
-  const key = geminiKey();
-  if (!key) throw new Error('no-key');
-  const base64 = dataURL.split(',')[1];
-  const cats = CATEGORIES.map(c => `${c.id} (${c.name}): ${c.subs.join(' | ')}`).join('\n');
-  const prompt = `Ты — ассистент торговой площадки в Кыргызстане (BAZAR). На фото — товар, который пользователь хочет продать.
-Определи его максимально точно: бренд и модель, если их видно. Верни данные для объявления СТРОГО в JSON.
-Категорию (поле category = id) и подкатегорию (subcategory — точное название) выбери ТОЛЬКО из этого списка:
-${cats}
-Требования:
-- title: краткий заголовок на русском, с брендом/моделью если различимы (например «iPhone 13 128GB» или «Диван угловой, велюр»).
-- description: 1–2 коротких естественных предложения на русском.
-- condition: "new" если выглядит новым, иначе "used".
-- priceKGS: реалистичная цена в сомах для Кыргызстана (б/у — дешевле).
-- specs: 2–4 ключевые характеристики ([{label,value}] на русском), если различимы.
-- confidence: 0–100 — насколько уверен.`;
-  const body = {
-    contents: [{ parts: [{ text: prompt }, { inlineData: { mimeType: 'image/jpeg', data: base64 } }] }],
-    generationConfig: {
-      temperature: 0.2,
-      responseMimeType: 'application/json',
-      responseSchema: {
-        type: 'OBJECT',
-        properties: {
-          category: { type: 'STRING' }, subcategory: { type: 'STRING' },
-          title: { type: 'STRING' }, description: { type: 'STRING' },
-          condition: { type: 'STRING' }, priceKGS: { type: 'NUMBER' }, confidence: { type: 'NUMBER' },
-          specs: { type: 'ARRAY', items: { type: 'OBJECT', properties: { label: { type: 'STRING' }, value: { type: 'STRING' } } } },
-        },
-        required: ['category', 'subcategory', 'title', 'description', 'condition', 'priceKGS'],
-      },
-    },
-  };
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(key)}`;
-  const resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  if (!resp.ok) throw new Error('gemini-http-' + resp.status);
-  const data = await resp.json();
-  const text = data.candidates && data.candidates[0] && data.candidates[0].content
-    && data.candidates[0].content.parts && data.candidates[0].content.parts[0]
-    && data.candidates[0].content.parts[0].text;
-  if (!text) throw new Error('gemini-empty');
-  return normalizeGemini(JSON.parse(text));
 }
 
 /* ---------- камера ---------- */
