@@ -1742,6 +1742,34 @@ main.container { padding-top: 20px; padding-bottom: 90px; min-height: 70vh; }
   .chat-window.hide-mobile { display: none; }
   .chat-head .back-btn { display: grid; }
 
+  /* активный диалог на мобиле = полноэкранный оверлей, привязанный к VISUAL
+     viewport (--vvh/--vvtop, выставляются из JS). Клавиатура больше не утаскивает
+     шапку и сообщения: шапка зафиксирована сверху, инпут — над клавиатурой,
+     список скроллится внутри. Список диалогов (.chat-window.hide-mobile) не трогаем.
+     Fallback на 100dvh/100vh — для браузеров без visualViewport. */
+  .chat-window:not(.hide-mobile) {
+    position: fixed;
+    left: 0; right: 0; top: 0;
+    height: 100vh;
+    height: var(--vvh, 100dvh);
+    transform: translateY(var(--vvtop, 0px));
+    z-index: 90;
+    background: var(--bg);
+    border-radius: 0;
+  }
+  .chat-window:not(.hide-mobile) .chat-head {
+    flex-shrink: 0;
+    padding-top: calc(12px + env(safe-area-inset-top));
+    background: var(--card);
+  }
+  .chat-window:not(.hide-mobile) .chat-msgs { flex: 1; min-height: 0; }
+  .chat-window:not(.hide-mobile) .chat-quick { flex-shrink: 0; background: var(--card); }
+  .chat-window:not(.hide-mobile) .chat-input {
+    flex-shrink: 0;
+    padding-bottom: calc(12px + env(safe-area-inset-bottom));
+    background: var(--card);
+  }
+
   /* панель Дианы — bottom-sheet на мобиле.
      Высота привязана к VISUAL viewport (--vvh, выставляется из JS) — так панель
      никогда не уходит под клавиатуру, инпут всегда на виду, и iOS не проматывает

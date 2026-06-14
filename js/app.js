@@ -1535,6 +1535,31 @@ function renderChats(activeId) {
   if (msgs) msgs.scrollTop = msgs.scrollHeight;
   const input = $('#chatText');
   if (input && window.innerWidth > 920) input.focus();
+
+  // открытый диалог на мобиле — полноэкранный оверлей: блокируем прокрутку фона
+  // и привязываем высоту к visual viewport (клавиатура не утаскивает шапку)
+  if (active && window.innerWidth <= 920) {
+    lockScroll('chat');
+    syncChatViewport();
+  } else {
+    unlockScroll('chat');
+  }
+}
+
+/* высота оверлея диалога = visual viewport (видимая область над клавиатурой).
+   Без этого на iOS при подъёме клавиатуры шапка чата и сообщения уезжают за экран. */
+function syncChatViewport() {
+  const vv = window.visualViewport;
+  if (!vv) return;
+  const root = document.documentElement.style;
+  root.setProperty('--vvh', vv.height + 'px');
+  root.setProperty('--vvtop', vv.offsetTop + 'px');
+  const msgs = $('#chatMsgs');
+  if (msgs && document.querySelector('.chat-window:not(.hide-mobile)')) msgs.scrollTop = msgs.scrollHeight;
+}
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', syncChatViewport);
+  window.visualViewport.addEventListener('scroll', syncChatViewport);
 }
 
 function sendChatMessage(itemId, text) {
@@ -1758,6 +1783,7 @@ function router() {
   closeModal();
   closeFilterSheet();
   hideSuggest();
+  unlockScroll('chat'); // уходим с диалога — снять блокировку прокрутки (re-lock в renderChats)
   if (!path.startsWith('/sell') && typeof visionStopCamera === 'function') visionStopCamera();
 
   if (path === '/' || path === '') {
@@ -2085,7 +2111,7 @@ window.addEventListener('hashchange', e => {
 
 // при выходе из мобильного диапазона шит фильтров и его скролл-лок не должны зависнуть
 onMediaChange('(min-width: 921px)', e => {
-  if (e.matches) closeFilterSheet();
+  if (e.matches) { closeFilterSheet(); unlockScroll('chat'); } // на десктоп диалог в потоке — снять блок
 });
 
 // подсказки поиска прячем при скролле страницы (нативный паттерн)
