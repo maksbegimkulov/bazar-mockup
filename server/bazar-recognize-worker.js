@@ -71,13 +71,21 @@ ${catList}
     };
 
     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${env.GEMINI_KEY}`;
-    let g;
-    try {
-      g = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-    } catch (e) {
-      return json({ error: 'upstream fetch failed' }, 502);
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    // авто-повтор при временной перегрузке Gemini (429/500/503), чтобы юзер не ловил сбой
+    let g = null, lastStatus = 0;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        g = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      } catch (e) {
+        g = null; lastStatus = 0; await sleep(600 * (attempt + 1)); continue;
+      }
+      if (g.ok) break;
+      lastStatus = g.status;
+      if (g.status === 429 || g.status === 500 || g.status === 503) { g = null; await sleep(600 * (attempt + 1)); continue; }
+      break; // 400/401/403 и пр. — повтор не поможет
     }
-    if (!g.ok) return json({ error: 'gemini ' + g.status }, 502);
+    if (!g || !g.ok) return json({ error: 'gemini ' + (g ? g.status : lastStatus) }, 502);
 
     const data = await g.json();
     const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
