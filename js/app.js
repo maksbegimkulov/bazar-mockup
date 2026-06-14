@@ -300,13 +300,23 @@ function renderHome() {
       <div class="section-title"><h2>${t('home.cats')}</h2></div>
       <div class="cat-grid">${tiles}</div>
     </section>
-    <div class="ai-banner">
-      <span class="ai-banner-icon">✨</span>
-      <div class="ai-banner-text">
-        <div class="ai-banner-title">${t('ai.banner.title')}</div>
-        <div class="ai-banner-sub">${t('ai.banner.sub')}</div>
+    <div class="home-ai-row">
+      <div class="ai-banner">
+        <span class="ai-banner-icon">✨</span>
+        <div class="ai-banner-text">
+          <div class="ai-banner-title">${t('ai.banner.title')}</div>
+          <div class="ai-banner-sub">${t('ai.banner.sub')}</div>
+        </div>
+        <button class="btn btn-primary" data-ai-ask="">${t('ai.banner.btn')}</button>
       </div>
-      <button class="btn btn-primary" data-ai-ask="">${t('ai.banner.btn')}</button>
+      <a class="ai-banner sell-banner" href="#/sell" data-link>
+        <span class="ai-banner-icon sell-banner-icon">📷</span>
+        <div class="ai-banner-text">
+          <div class="ai-banner-title">${t('sell.cta')}</div>
+          <div class="ai-banner-sub">${t('sell.ctaSub')}</div>
+        </div>
+        <span class="btn btn-secondary sell-banner-btn">${t('nav.post')}</span>
+      </a>
     </div>
     ${viewed.length ? `
     <section>
@@ -611,6 +621,8 @@ function renderItem(id) {
     [t('item.cat'), catName(cat) || l.category],
     [t('item.section'), subName(l.subcategory)],
     l.condition ? [t('item.cond'), l.condition === 'new' ? t('cond.new') : t('cond.used')] : null,
+    // характеристики, распознанные ИИ при «продаже за 30 секунд»
+    ...(Array.isArray(l.specs) ? l.specs.map(([k, v]) => [t(k), v]) : []),
     [t('item.city'), l.city + (l.district ? ', ' + l.district : '')],
     [t('item.delivery'), l.hasDelivery ? t('item.yes') : t('item.no')],
     [t('item.views'), fmtNum(l.views)],
@@ -783,12 +795,186 @@ function renderFavorites() {
     </div>`;
 }
 
+/* ---------------- продажа за 30 секунд (ИИ) ---------------- */
+
+const DEFAULT_PHONE = '+996 700 123 456';
+state.sell = { step: 'pick', product: null };
+
+function sellPhoto(p) { return photoURL(p.category, p.photoSeed, p.subcategory); }
+
+function renderSell() {
+  if (state.sell._scanTimer) { clearTimeout(state.sell._scanTimer); state.sell._scanTimer = null; }
+  if (state.sell.step === 'scan') renderSellScan();
+  else if (state.sell.step === 'draft') renderSellDraft();
+  else renderSellPick();
+}
+
+function renderSellPick() {
+  const grid = DEMO_PRODUCTS.map(p =>
+    `<button class="sell-sample" data-sell-pick="${p.id}" aria-label="${esc(p.title)}"><img src="${sellPhoto(p)}" loading="lazy" alt=""></button>`).join('');
+  app.innerHTML = `
+    <div class="form-page">
+      <div class="sell-head">
+        <div class="sell-head-icon">✨</div>
+        <h1>${t('sell.title')}</h1>
+        <p>${t('sell.step1sub')}</p>
+      </div>
+      <button class="sell-snap" data-sell-pick="random">
+        <span class="sell-snap-cam">📷</span>
+        <span>${t('sell.snap')}</span>
+      </button>
+      <div class="sell-or">${t('sell.or')}</div>
+      <div class="sell-samples">${grid}</div>
+      <a class="sell-manual-link" href="#/post" data-link>${t('post.choice.manual')} ›</a>
+    </div>`;
+}
+
+function renderSellScan() {
+  const p = state.sell.product;
+  app.innerHTML = `
+    <div class="form-page sell-scan-page">
+      <div class="sell-scan-card">
+        <div class="sell-scan-photo">
+          <img src="${sellPhoto(p)}" alt="">
+          <div class="sell-scan-grid"></div>
+          <div class="sell-scan-line"></div>
+        </div>
+        <div class="sell-scan-status">
+          <span class="ai-avatar">✨</span>
+          <span id="sellScanText">${t('sell.scanning')}</span>
+        </div>
+        <div class="ai-bubble sell-scan-dots"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+      </div>
+    </div>`;
+  const steps = [t('sell.scan1'), t('sell.scan2'), t('sell.scan3')];
+  let i = 0;
+  const tick = setInterval(() => {
+    const el = $('#sellScanText');
+    if (el && steps[i]) el.textContent = steps[i++];
+  }, 540);
+  state.sell._scanTimer = setTimeout(() => {
+    clearInterval(tick);
+    state.sell._scanTimer = null;
+    if (!parseHash().path.startsWith('/sell')) return; // ушли со страницы — не перерисовываем
+    state.sell.step = 'draft';
+    renderSell();
+  }, 1850);
+}
+
+function renderSellDraft() {
+  const p = state.sell.product;
+  let condition = p.condition || '';
+  const cityOptions = CITIES.map(c => `<option ${c === (state.city !== 'all' ? state.city : 'Бишкек') ? 'selected' : ''}>${esc(c)}</option>`).join('');
+  const specs = (p.specs || []).map(([k, v]) => `<div class="prow"><span>${t(k)}</span><span>${esc(v)}</span></div>`).join('');
+  const condChip = (val, label) =>
+    `<button type="button" class="fchip ${condition === val ? 'active' : ''}" data-scond="${val}">${label}</button>`;
+
+  app.innerHTML = `
+    <div class="form-page">
+      <div class="sell-draft-top">
+        <img class="sell-draft-photo" src="${sellPhoto(p)}" alt="">
+        <div class="sell-draft-meta">
+          <div class="sell-ready"><span class="sell-ready-check">✓</span> ${t('sell.title')}</div>
+          <div class="sell-confidence">${t('sell.recognized').replace('{c}', p.confidence)}</div>
+        </div>
+      </div>
+      <form id="sellForm" class="form-card">
+        <div class="fgroup">
+          <label class="flabel">${t('form.title')}</label>
+          <input class="finput" id="sTitle" maxlength="80" value="${esc(p.title)}">
+        </div>
+        <div class="fgroup sell-price-group">
+          <label class="flabel">${t('sell.priceSuggested')}</label>
+          <input class="finput sell-price-input" id="sPrice" type="number" inputmode="numeric" min="0" value="${p.suggested}">
+          <div class="sell-market">📊 ${t('sell.market').replace('{min}', fmtNum(p.market[0])).replace('{max}', fmtNum(p.market[1])).replace('{som}', t('som'))}</div>
+          <div class="sell-price-why">💡 ${t('sell.priceWhy')}</div>
+        </div>
+        <div class="form-row">
+          <div class="fgroup">
+            <label class="flabel">${t('form.cond')}</label>
+            <div class="chip-row" id="sCond">
+              ${condChip('', t('form.condNone'))}
+              ${condChip('new', t('cond.new'))}
+              ${condChip('used', t('cond.used'))}
+            </div>
+          </div>
+          <div class="fgroup">
+            <label class="flabel">${t('form.city')}</label>
+            <select class="fselect" id="sCity">${cityOptions}</select>
+          </div>
+        </div>
+        ${specs ? `<div class="fgroup">
+          <label class="flabel">${t('item.specs')}</label>
+          <div class="params-table sell-specs">${specs}</div>
+        </div>` : ''}
+        <div class="fgroup">
+          <label class="flabel">${t('form.desc')}</label>
+          <textarea class="ftextarea" id="sDesc" maxlength="2000">${esc(p.desc)}</textarea>
+        </div>
+        <div class="sell-hint">${t('sell.manualHint')}</div>
+        <button type="submit" class="btn btn-primary btn-block btn-lg">${t('sell.publish')}</button>
+      </form>
+      <div class="sell-draft-actions">
+        <button class="btn btn-outline" data-action="sell-to-manual">✏️ ${t('sell.edit')}</button>
+        <button class="btn btn-outline" data-sell-pick="random">📷 ${t('sell.retake')}</button>
+      </div>
+    </div>`;
+
+  $('#sCond').addEventListener('click', e => {
+    const b = e.target.closest('[data-scond]');
+    if (!b) return;
+    condition = b.dataset.scond;
+    document.querySelectorAll('#sCond .fchip').forEach(x => x.classList.toggle('active', x === b));
+  });
+
+  const collect = () => ({
+    category: p.category,
+    subcategory: p.subcategory,
+    title: $('#sTitle').value.trim(),
+    description: $('#sDesc').value.trim(),
+    price: +$('#sPrice').value || 0,
+    negotiable: false,
+    city: $('#sCity').value,
+    condition: condition || null,
+    phone: DEFAULT_PHONE,
+    hasDelivery: false,
+    pickedSeeds: [p.photoSeed, p.photoSeed + 7, p.photoSeed + 13],
+    specs: p.specs,
+  });
+  state.sell._collect = collect;
+
+  $('#sellForm').addEventListener('submit', e => {
+    e.preventDefault();
+    const d = collect();
+    if (d.title.length < 5 || d.price <= 0) { showToast(t('toast.checkFields')); return; }
+    const listing = {
+      id: 'm' + Date.now(),
+      title: d.title, price: d.price, priceSuffix: '', negotiable: false,
+      category: d.category, subcategory: d.subcategory, city: d.city, district: null,
+      condition: d.condition, description: d.description,
+      pickedSeeds: d.pickedSeeds, photoCount: d.pickedSeeds.length, photoSeed: p.photoSeed,
+      specs: d.specs,
+      sellerName: USER_NAME, sellerType: 'private', sellerRating: 5.0,
+      sellerAds: state.myListings.length + 1, sellerSinceYear: 2026,
+      createdAt: Date.now(), views: 1, isVip: false, isUrgent: false,
+      hasDelivery: false, phone: DEFAULT_PHONE,
+    };
+    state.myListings.unshift(listing);
+    lsSave(LS.my, state.myListings);
+    state.sell = { step: 'pick', product: null };
+    showToast(t('toast.published'), 'success');
+    location.hash = '#/item/' + listing.id;
+  });
+}
+
 /* ---------------- подача объявления ---------------- */
 
 function renderPost(params) {
   const editId = params.get('edit');
   const editing = editId ? state.myListings.find(l => l.id === editId) : null;
-  const f = editing || {};
+  const prefill = state._prefill;
+  state._prefill = null;
+  const f = editing || prefill || {};
   const selCat = f.category || '';
   const cat = catById(selCat);
 
@@ -797,8 +983,20 @@ function renderPost(params) {
   const cityOptions = [`<option value="">${t('form.chooseCity')}</option>`]
     .concat(CITIES.map(c => `<option value="${esc(c)}" ${f.city === c ? 'selected' : ''}>${esc(c)}</option>`)).join('');
 
+  const aiChoice = (editing || prefill) ? '' : `
+    <a class="sell-promo" href="#/sell" data-link>
+      <span class="sell-promo-icon">✨</span>
+      <span class="sell-promo-text">
+        <span class="sell-promo-title">${t('post.choice.ai')}</span>
+        <span class="sell-promo-sub">${t('post.choice.aiSub')}</span>
+      </span>
+      <span class="ai-item-arrow">›</span>
+    </a>
+    <div class="sell-or sell-or-post">${t('post.choice.manual')}</div>`;
+
   app.innerHTML = `
     <div class="form-page">
+      ${aiChoice}
       <div class="form-card">
         <h1>${editing ? t('form.edit') : t('form.new')}</h1>
         <form id="postForm" novalidate>
@@ -1425,6 +1623,8 @@ function router() {
     renderItem(path.slice('/item/'.length));
   } else if (path.startsWith('/favorites')) {
     renderFavorites();
+  } else if (path.startsWith('/sell')) {
+    renderSell();
   } else if (path.startsWith('/post')) {
     renderPost(params);
   } else if (path.startsWith('/chats/')) {
@@ -1525,6 +1725,21 @@ document.addEventListener('click', e => {
   const themeOpt = e.target.closest('[data-set-theme]');
   if (themeOpt) { setTheme(themeOpt.dataset.setTheme); renderProfile(); return; }
 
+  /* продажа за 30 секунд: выбор/съёмка товара → распознавание */
+  const sellPickBtn = e.target.closest('[data-sell-pick]');
+  if (sellPickBtn) {
+    const id = sellPickBtn.dataset.sellPick;
+    const p = id === 'random'
+      ? DEMO_PRODUCTS[Math.floor(Math.random() * DEMO_PRODUCTS.length)]
+      : DEMO_PRODUCTS.find(x => x.id === id);
+    if (p) {
+      state.sell = { step: 'scan', product: p };
+      if (parseHash().path.startsWith('/sell')) renderSell();
+      else location.hash = '#/sell';
+    }
+    return;
+  }
+
   /* чаты */
   const chatRow = e.target.closest('[data-chat]');
   if (chatRow) { location.hash = '#/chats/' + chatRow.dataset.chat; return; }
@@ -1613,6 +1828,17 @@ document.addEventListener('click', e => {
         break;
       }
       case 'chat-back': location.hash = '#/chats'; break;
+      case 'sell-to-manual': {
+        if (state.sell._collect) {
+          const pf = state.sell._collect();
+          delete pf.pickedSeeds; // в ручной форме фото выбираются заново
+          delete pf.specs;
+          state._prefill = pf;
+        }
+        state.sell = { step: 'pick', product: null };
+        location.hash = '#/post';
+        break;
+      }
       case 'modal-close': closeModal(); break;
     }
     return;
