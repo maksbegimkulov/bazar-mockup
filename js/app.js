@@ -906,35 +906,34 @@ function renderSellAnalyze() {
           <span id="sellScanText">${firstStatus}</span>
         </div>
         <div class="ai-bubble sell-scan-dots"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+        <button class="btn btn-outline sell-scan-cancel" data-sell-restart>✕ ${t('sell.cancel')}</button>
       </div>
     </div>`;
 
-  const toDraft = () => {
-    if (!parseHash().path.startsWith('/sell') || state.sell.step !== 'analyze') return;
-    state.sell.step = 'draft';
-    renderSell();
-  };
+  const self = state.sell; // идентичность сессии: отменённое/устаревшее распознавание не применяется
+  const live = () => state.sell === self && self.step === 'analyze' && parseHash().path.startsWith('/sell');
+  const toDraft = () => { if (!live()) return; self.step = 'draft'; renderSell(); };
 
   if (isDemo) {
     // демо: анимация распознавания, данные предзаписаны
     const steps = [t('sell.scan1'), t('sell.scan2'), t('sell.scan3')];
     let i = 0;
     const tick = setInterval(() => { const el = $('#sellScanText'); if (el && steps[i]) el.textContent = steps[i++]; }, 540);
-    state.sell._scanTimer = setTimeout(() => { clearInterval(tick); state.sell._scanTimer = null; toDraft(); }, 1850);
+    self._scanTimer = setTimeout(() => { clearInterval(tick); self._scanTimer = null; toDraft(); }, 1850);
     return;
   }
 
-  // реальное фото: классификация on-device (модель грузится лениво)
+  // реальное фото: классификация on-device (CLIP грузится лениво)
   visionClassifyDataURL(photo).then(det => {
-    if (state.sell.step !== 'analyze') return;
-    state.sell.detection = det;
+    if (!live()) return;
+    self.detection = det;
     toDraft();
   }).catch(() => {
-    if (state.sell.step !== 'analyze') return;
-    state.sell.detection = { category: null, subcategory: null, label: '', confidence: 0, failed: true };
+    if (!live()) return;
+    self.detection = { category: null, subcategory: null, label: '', confidence: 0, failed: true };
     toDraft();
   });
-  setTimeout(() => { const el = $('#sellScanText'); if (el && state.sell.step === 'analyze') el.textContent = t('sell.analyzing'); }, 800);
+  setTimeout(() => { const el = $('#sellScanText'); if (live() && el) el.textContent = t('sell.analyzing'); }, 1500);
 }
 
 /* единый черновик: демо-товар ИЛИ реальное фото с распознаванием */
