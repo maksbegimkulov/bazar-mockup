@@ -143,6 +143,7 @@ function normalizeSmart(p) {
     condition: p.condition === 'new' ? 'new' : 'used',
     price: Math.max(0, Math.round(Number(p.priceKGS) || 0)),
     confidence: Math.min(99, Math.max(1, Math.round(Number(p.confidence) || 90))),
+    modelCertain: p.modelCertain !== false, // false → ИИ не уверен в точной модели/поколении
     specs,
     uncertain: !cat,
   };
@@ -185,6 +186,25 @@ function visionFileToDataURL(file, maxDim, quality) {
     reader.onload = () => {
       const img = new Image();
       img.onload = () => resolve(visionDownscale(img, maxDim, quality));
+      img.onerror = reject;
+      img.src = reader.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+/* файл → пара версий: lo (для хранения/показа, ~1024) + hi (для распознавания,
+   ~1600 — на нём ИИ видит мелкие детали: разъём, кнопки, блок камер) */
+function visionFileToPair(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => resolve({
+        lo: visionDownscale(img, 1024, 0.72),
+        hi: visionDownscale(img, 1600, 0.85),
+      });
       img.onerror = reject;
       img.src = reader.result;
     };
