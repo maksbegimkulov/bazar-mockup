@@ -14,6 +14,12 @@ const sb = (window.supabase && window.supabase.createClient)
     })
   : null;
 
+/* Признак, что страница открыта возвратом с OAuth-редиректа (токены в hash
+   ИЛИ code в query). Фиксируем СИНХРОННО при загрузке — до того как
+   supabase-js (detectSessionInUrl) почистит URL. Нужен, чтобы после входа
+   увести юзера на #/profile (redirectTo теперь без хвоста-роута). */
+const _OAUTH_RETURN = /access_token=|[?&]code=/.test(location.hash + ' ' + location.search);
+
 const AUTH = { user: null, ready: false, _subs: [] };
 
 function authPublic(u) {
@@ -42,6 +48,10 @@ async function authInit() {
   } catch (e) {}
   AUTH.ready = true;
   authEmit();
+  // вернулись с OAuth и реально залогинились → на кабинет (URL уже почищен)
+  if (_OAUTH_RETURN && AUTH.user) {
+    try { location.hash = '#/profile'; } catch (e) {}
+  }
   sb.auth.onAuthStateChange((_event, session) => {
     AUTH.user = authPublic(session && session.user);
     authEmit();
@@ -93,9 +103,14 @@ const OAUTH_ENABLED = { google: true, apple: false };
 async function authSocial(provider) {
   if (!sb) throw new Error('no-backend');
   if (!OAUTH_ENABLED[provider]) throw new Error('provider-unavailable');
+  // ВАЖНО: redirectTo БЕЗ '#/profile'. Иначе провайдер возвращает токены
+  // вторым hash'ом (`/#/profile#access_token=…`) и supabase-js не может их
+  // распарсить (ключ становится `/profile#access_token`) → сессия не создаётся.
+  // Возврат на чистый путь → `…/#access_token=…`, detectSessionInUrl ловит,
+  // а на профиль уводим уже в authInit (см. _OAUTH_RETURN).
   const { error } = await sb.auth.signInWithOAuth({
     provider,
-    options: { redirectTo: location.origin + location.pathname + '#/profile' },
+    options: { redirectTo: location.origin + location.pathname },
   });
   if (error) throw new Error(mapAuthError(error));
   // при успехе страница уходит на провайдера и возвращается уже залогиненной
