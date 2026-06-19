@@ -2060,7 +2060,10 @@ function compareBarHTML() {
 function updateCompareBar() {
   let host = document.getElementById('compareBarHost');
   if (!host) { host = document.createElement('div'); host.id = 'compareBarHost'; document.body.appendChild(host); }
-  host.innerHTML = compareBarHTML();
+  // на самой /compare панель не нужна (мы уже сравниваем); иначе — если что-то выбрано
+  const show = state.compare.size > 0 && !parseHash().path.startsWith('/compare');
+  host.innerHTML = show ? compareBarHTML() : '';
+  document.body.classList.toggle('has-compare-bar', show); // прячем ai-fab на мобиле, чтобы не наезжали
 }
 
 function renderProfile() {
