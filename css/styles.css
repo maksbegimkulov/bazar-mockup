@@ -2258,3 +2258,9 @@ a.seller-card { display: flex; gap: 12px; align-items: center; text-decoration: 
 .cmp-scroll { background: var(--card); }
 .cmp-table .cmp-corner, .cmp-table .cmp-lbl { position: sticky; left: 0; z-index: 2; background: var(--card); border-right: 1px solid var(--line); }
 .cmp-table thead .cmp-corner { z-index: 3; }
+/* панель сравнения на узких экранах: компактнее, чтобы кнопки не вылезали за край */
+@media (max-width: 480px) {
+  .cmp-bar-text { display: none; }
+  .compare-bar { gap: 8px; padding: 8px 8px 8px 14px; }
+  .compare-bar .btn-sm { padding-left: 12px; padding-right: 12px; }
+}
