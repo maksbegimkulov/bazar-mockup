@@ -120,11 +120,11 @@ function dbToListing(r, names) {
 
 /* подтянуть из облака: реальные объявления + чаты пользователя (с именами участников) */
 async function loadCloudData() {
-  if (!isAuthed() || typeof sb === 'undefined' || !sb) { state.dbListings = []; return; }
-  const me = currentUser().id;
+  if (typeof sb === 'undefined' || !sb) { state.dbListings = []; return; }
+  const me = isAuthed() ? currentUser().id : null; // гость → me=null
   try {
-    const rows = await dbAllListings();
-    const chats = await dbMyChats();
+    const rows = await dbAllListings();             // реальные объявления — ВИДНЫ ВСЕМ, включая гостей
+    const chats = me ? await dbMyChats() : [];      // личные чаты — только залогиненным
     const ids = new Set();
     rows.forEach(r => ids.add(r.owner_id));
     chats.forEach(c => { ids.add(c.buyer_id); ids.add(c.seller_id); });
@@ -134,23 +134,36 @@ async function loadCloudData() {
       (data || []).forEach(p => names[p.id] = p.name);
     }
     state.dbListings = rows.map(r => dbToListing(r, names));
-    const map = {};
-    for (const c of chats) {
-      const msgs = await dbMessages(c.id);
-      const otherId = c.buyer_id === me ? c.seller_id : c.buyer_id;
-      map[c.id] = {
-        itemId: c.listing_ref, chatId: c.id, isDb: true,
-        sellerId: c.seller_id, buyerId: c.buyer_id, otherName: names[otherId] || 'Пользователь',
-        title: c.listing_title,
-        messages: msgs.map(m => ({ from: m.sender_id === me ? 'me' : 'them', text: m.text, ts: new Date(m.created_at).getTime(), id: m.id })),
-        unread: false, updatedAt: new Date(c.updated_at).getTime(),
-      };
+    if (me) { // чаты пересобираем ТОЛЬКО для залогиненного, иначе затрём гостевые мок-чаты
+      const map = {};
+      for (const c of chats) {
+        const msgs = await dbMessages(c.id);
+        const otherId = c.buyer_id === me ? c.seller_id : c.buyer_id;
+        map[c.id] = {
+          itemId: c.listing_ref, chatId: c.id, isDb: true,
+          sellerId: c.seller_id, buyerId: c.buyer_id, otherName: names[otherId] || 'Пользователь',
+          title: c.listing_title,
+          messages: msgs.map(m => ({ from: m.sender_id === me ? 'me' : 'them', text: m.text, ts: new Date(m.created_at).getTime(), id: m.id })),
+          unread: false, updatedAt: new Date(c.updated_at).getTime(),
+        };
+      }
+      state.chats = map;
     }
-    state.chats = map;
     updateBadges();
     const p = parseHash().path;
     if (p.startsWith('/chats') || p === '/' || p === '' || p.startsWith('/search') || p.startsWith('/profile') || p.startsWith('/item')) router();
   } catch (e) { /* офлайн/ошибка — оставляем что есть */ }
+}
+
+/* realtime: любое новое/изменённое объявление → перезагрузить ленту (видно всем live).
+   Дебаунс, чтобы пачка вставок не дёргала рендер. Идемпотентно — один канал. */
+let _listingsLiveT = null, _listingsLiveSub = null;
+function startListingsLive() {
+  if (_listingsLiveSub || typeof dbSubscribeListings !== 'function') return;
+  _listingsLiveSub = dbSubscribeListings(() => {
+    clearTimeout(_listingsLiveT);
+    _listingsLiveT = setTimeout(loadCloudData, 350);
+  });
 }
 
 function getListing(id) { return allListings().find(l => l.id === id); }
@@ -2548,3 +2561,6 @@ router();
 // авторизация резолвится асинхронно (Supabase) — когда сессия подтянулась
 // или сменилась (вход/выход/возврат из OAuth): перерисовываем + тянем облачные данные
 authOnChange(() => { router(); loadCloudData(); });
+
+// realtime: новые объявления появляются в ленте у всех (и у гостей) без перезагрузки
+startListingsLive();
