@@ -141,7 +141,7 @@ async function dbCreateListing(l) {
     title: l.title, price: l.price || 0, floor: l.floor || 0,
     category: l.category, subcategory: l.subcategory, city: l.city, district: l.district || null,
     condition: l.condition || null, description: l.description || '',
-    photos: l.photos || [], negotiable: !!l.negotiable,
+    photos: l.photos || [], negotiable: !!l.negotiable, attrs: l.attrs || {},
   }).select().single();
   if (error) throw error;
   return data;

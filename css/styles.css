@@ -2146,3 +2146,26 @@ main#app > .chats-layout { animation: none; }
 [data-theme="dark"] .fav-btn { background: rgba(26, 31, 38, 0.92); color: var(--text-2); }
 [data-theme="dark"] .gallery-nav { background: rgba(26, 31, 38, 0.88); color: var(--text); }
 [data-theme="dark"] .tag-vip { color: #1a1205; }
+
+/* ===== характеристики объявления: бренд→модель + спеки (форма/поиск/карточка) ===== */
+.attr-block {
+  margin: 14px 0 4px;
+  padding: 14px 14px 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(0, 0, 0, 0.015);
+}
+.attr-block-head { font-size: 13px; font-weight: 700; color: var(--text-2); margin-bottom: 12px; }
+.attr-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 14px; }
+.attr-grid .attr-field { margin-bottom: 10px; }
+.attr-grid .flabel { font-size: 12.5px; }
+.attr-other { margin-top: 8px; }
+.attr-unit { font-weight: 400; color: var(--text-3); font-size: 12px; }
+@media (max-width: 560px) { .attr-grid { grid-template-columns: 1fr; } }
+[data-theme="dark"] .attr-block { background: rgba(255, 255, 255, 0.03); }
+
+/* подзаголовок характеристик на карточке (год · пробег · память …) */
+.card-attrs {
+  font-size: 12.5px; color: var(--text-2); font-weight: 600;
+  margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
