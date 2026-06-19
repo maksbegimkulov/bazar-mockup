@@ -14,6 +14,9 @@ const LS = {
   city: 'bazar_city',
   hist: 'bazar_hist',
   viewed: 'bazar_viewed',
+  saved: 'bazar_saved',     // сохранённые поиски (Авито «Уведомлять о новых»)
+  compare: 'bazar_compare', // выбранные для сравнения id (Авто.ру «Сравнить»)
+  sold: 'bazar_sold',       // локально отмеченные «продано»/«архив» id
 };
 
 /* lsLoad / lsSave определены в i18n.js (грузится раньше) */
@@ -27,6 +30,9 @@ state.myListings.forEach(l => { delete l.__idx; });
 state.chats = lsLoad(LS.chats, {});
 state.view = lsLoad(LS.view, 'grid');
 state.viewed = lsLoad(LS.viewed, []); // недавно просмотренные id
+state.saved = lsLoad(LS.saved, []);   // сохранённые поиски [{id,name,f,seen,ts}]
+state.compare = new Set(lsLoad(LS.compare, [])); // id для сравнения
+state.soldIds = new Set(lsLoad(LS.sold, []));    // отмеченные продано/архив (мок/демо)
 state.page = 1;
 state.galleryIndex = 0;
 state.auth = { mode: 'login', method: 'email' };  // экран входа/регистрации
@@ -170,6 +176,84 @@ function startListingsLive() {
 
 function getListing(id) { return allListings().find(l => l.id === id); }
 
+/* ============================================================
+   НОВЫЕ ФИЧИ (как у Avito/Auto.ru): продавцы+рейтинги, сравнение,
+   сохранённые поиски, статус продано/архив.
+   ============================================================ */
+
+/* ключ продавца: реальный ownerId или имя (для мок-данных) */
+function sellerKey(l) { return l.ownerId || ('name:' + (l.sellerName || '')); }
+
+/* «47 отзывов» с правильным склонением */
+function ratingWord(n) {
+  if (LANG === 'en') return n + (n === 1 ? ' review' : ' reviews');
+  if (LANG === 'ky') return n + ' пикир';
+  const m10 = n % 10, m100 = n % 100;
+  let w = 'отзывов';
+  if (m10 === 1 && m100 !== 11) w = 'отзыв';
+  else if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) w = 'отзыва';
+  return n + ' ' + w;
+}
+
+/* детерминированные рейтинг/отзывы/верификация — для мок-данных выглядит как
+   у Авито (4,8 · 47 отзывов · проверен). Для реальных продавцов рейтинг
+   позже заменим на реальные отзывы из БД (stage 2). */
+function sellerStats(l) {
+  const key = sellerKey(l);
+  let h = 0; for (const ch of key) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return {
+    rating: ((40 + (h % 11)) / 10).toFixed(1),  // 4.0..5.0
+    reviews: 3 + (h % 180),                       // 3..182
+    verified: (h % 3) !== 0,                      // ~2/3 проверены
+    business: l.sellerType === 'business',
+  };
+}
+
+/* объявление продано/в архиве? (исключаем из поиска/ленты) */
+function isSold(l) { return l && (l.status === 'sold' || l.status === 'archived' || state.soldIds.has(l.id)); }
+function listingStatus(l) { return l.status || (state.soldIds.has(l.id) ? 'sold' : 'active'); }
+
+/* активные объявления продавца */
+function sellerActiveListings(key) { return allListings().filter(l => sellerKey(l) === key && !isSold(l)); }
+
+/* ---- сравнение (Авто.ру «Сравнить») ---- */
+function inCompare(id) { return state.compare.has(id); }
+function toggleCompare(id) {
+  if (state.compare.has(id)) state.compare.delete(id);
+  else {
+    if (state.compare.size >= 4) { showToast(t('cmp.max')); return false; }
+    state.compare.add(id);
+  }
+  lsSave(LS.compare, [...state.compare]);
+  return true;
+}
+function clearCompare() { state.compare.clear(); lsSave(LS.compare, []); }
+
+/* ---- сохранённые поиски (Авито «Уведомлять о новых») ---- */
+function saveCurrentSearch() {
+  const f = state.filters;
+  if (state.saved.some(s => JSON.stringify(s.f) === JSON.stringify(f))) { showToast(t('saved.dup')); return false; }
+  const name = searchTitle(f).replace(/<[^>]*>/g, '');
+  const seen = applyFilters(f).length; // база — сколько подходит сейчас
+  state.saved.unshift({ id: 's' + Date.now(), name, f: JSON.parse(JSON.stringify(f)), seen, ts: Date.now() });
+  state.saved = state.saved.slice(0, 30);
+  lsSave(LS.saved, state.saved);
+  return true;
+}
+function savedNewCount(s) { return Math.max(0, applyFilters(s.f).length - (s.seen || 0)); }
+function removeSaved(id) { state.saved = state.saved.filter(s => s.id !== id); lsSave(LS.saved, state.saved); }
+function openSavedSearch(id) {
+  const s = state.saved.find(x => x.id === id);
+  if (!s) return;
+  s.seen = applyFilters(s.f).length; // отметили просмотренным → бейдж сбрасывается
+  lsSave(LS.saved, state.saved);
+  state.filters = JSON.parse(JSON.stringify(s.f));
+  state.page = 1;
+  state._appliedQS = 'saved'; // не сбрасывать фильтры роутером
+  location.hash = '#/search';
+  if (parseHash().path.startsWith('/search')) renderSearch();
+}
+
 function avatarStyle(name) {
   let h = 0;
   for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) % 360;
@@ -234,6 +318,7 @@ function applyFilters(f) {
   const scores = new Map();
 
   const passesBase = l => {
+    if (isSold(l)) return false; // продано/архив — не показываем в поиске и ленте
     if (f.cat && l.category !== f.cat) return false;
     if (f.sub && l.subcategory !== f.sub) return false;
     if (f.city !== 'all' && l.city !== f.city) return false;
@@ -325,7 +410,9 @@ function cardHTML(l) {
         ? `<img src="${photos[0]}" loading="lazy" alt="${esc(l.title)}">`
         : `<div class="nophoto">📷&nbsp; ${t('nophoto')}</div>`}
       ${photos.length > 1 ? `<span class="photo-count">${photos.length} ${t('photo.word')}</span>` : ''}
+      ${isSold(l) ? `<div class="sold-ribbon">${t('status.sold')}</div>` : ''}
       <div class="card-tags">${tags}</div>
+      <button class="cmp-btn ${inCompare(l.id) ? 'on' : ''}" data-action="compare-card" data-id="${l.id}" title="${t('cmp.add')}" aria-label="${t('cmp.add')}">⚖️</button>
       <button class="fav-btn ${isFav ? 'active' : ''}" data-fav="${l.id}" title="${t('item.fav')}" aria-label="${t('item.fav')}">${HEART_SVG}</button>
     </div>
     <div class="card-body">
@@ -575,6 +662,7 @@ function renderSearch() {
             <option value="expensive">${t('sort.exp')}</option>
             <option value="popular">${t('sort.popular')}</option>
           </select>
+          <button class="save-search-btn ${state.saved.some(s => JSON.stringify(s.f) === JSON.stringify(state.filters)) ? 'on' : ''}" id="saveSearchBtn" data-action="save-search">🔔 ${state.saved.some(s => JSON.stringify(s.f) === JSON.stringify(state.filters)) ? t('saved.savedShort') : t('saved.save')}</button>
           <div class="view-toggle">
             <button data-view="grid" title="${t('view.grid')}" aria-label="${t('view.grid')}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></button>
             <button data-view="list" title="${t('view.list')}" aria-label="${t('view.list')}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
@@ -804,8 +892,10 @@ function renderItem(id) {
       ${verdict ? `<div class="price-verdict ${verdict.cls}" title="${esc(verdict.hint)}">${verdict.label} · ${esc(verdict.hint)}</div>` : ''}
       ${l.floor && !isMine ? `<div class="bargain-badge">🤝 ${t('item.bargainOk')}</div>` : ''}
       <div class="buy-meta">${esc(l.city)}${l.district ? ', ' + esc(l.district) : ''} · ${postedLabel(l)} · 👁️ ${fmtNum(l.views)}</div>
+      ${isMine && isSold(l) ? `<div class="sold-banner">✅ ${t('status.soldNote')}</div>` : ''}
       <div class="buy-actions">
         ${isMine ? `
+          <button class="btn ${isSold(l) ? 'btn-primary' : 'btn-secondary'}" data-action="toggle-sold" data-id="${l.id}">${isSold(l) ? '↩️ ' + t('status.reactivate') : '✅ ' + t('status.markSold')}</button>
           <a class="btn btn-secondary" href="#/post?edit=${l.id}" data-link>✏️ ${t('item.edit')}</a>
           <button class="btn btn-outline" data-action="bump" data-id="${l.id}">⬆️ ${t('item.bump')}</button>
           <button class="btn btn-danger-soft" data-action="delete-my" data-id="${l.id}">${t('item.delete')}</button>
@@ -816,18 +906,24 @@ function renderItem(id) {
           <button class="btn btn-outline" data-fav="${l.id}">${isFav ? '❤️ ' + t('item.faved') : '🤍 ' + t('item.fav')}</button>
         `}
       </div>
+      <div class="buy-mini-actions">
+        <button data-action="share" data-id="${l.id}">🔗 ${t('item.share')}</button>
+        <button data-action="compare-toggle" data-id="${l.id}" class="${inCompare(l.id) ? 'on' : ''}">⚖️ ${inCompare(l.id) ? t('cmp.inList') : t('cmp.add')}</button>
+        ${isMine ? '' : `<button data-action="report" data-id="${l.id}">⚑ ${t('item.report')}</button>`}
+      </div>
     </div>`;
 
+  const ss = sellerStats(l);
   const sideHTML = `
     ${buyCardHTML}
-    <div class="seller-card">
-      <div class="avatar" style="${avatarStyle(l.sellerName)}">${esc(l.sellerName[0])}</div>
+    <a class="seller-card" href="#/seller/${encodeURIComponent(sellerKey(l))}" data-link>
+      <div class="avatar" style="${avatarStyle(l.sellerName)}">${esc(l.sellerName[0] || 'U')}</div>
       <div class="seller-info">
-        <div class="seller-name"><span>${esc(l.sellerName)}</span> ${l.sellerType === 'business' ? `<span class="seller-badge">${t('seller.business')}</span>` : ''}</div>
-        <div class="seller-sub"><span class="seller-rating"><span class="star">★</span> ${l.sellerRating}</span> · ${t('seller.since')} ${l.sellerSinceYear} ${t('seller.sinceEnd')}</div>
-        <div class="seller-sub">${nLabel(l.sellerAds)}</div>
+        <div class="seller-name"><span>${esc(l.sellerName)}</span> ${ss.business ? `<span class="seller-badge">${t('seller.business')}</span>` : ''} ${ss.verified ? `<span class="verif-badge" title="${t('seller.verifiedHint')}">✓ ${t('seller.verified')}</span>` : ''}</div>
+        <div class="seller-sub"><span class="seller-rating"><span class="star">★</span> ${ss.rating}</span> · ${ratingWord(ss.reviews)} · ${t('seller.since')} ${l.sellerSinceYear} ${t('seller.sinceEnd')}</div>
+        <div class="seller-sub">${nLabel(sellerActiveListings(sellerKey(l)).length || l.sellerAds)} · ${t('seller.viewAll')} ›</div>
       </div>
-    </div>
+    </a>
     <div class="safety-note">
       🛡️ <b>${t('safety.t')}</b> ${t('safety.p')}
     </div>`;
@@ -1857,21 +1953,104 @@ function requireAuth(returnHash) {
   return false;
 }
 
+/* ---- страница продавца (как у Avito): все объявления + рейтинг + бейджи ---- */
+function renderSeller(rawKey) {
+  const key = decodeURIComponent(rawKey || '');
+  const listings = allListings().filter(l => sellerKey(l) === key);
+  const sample = listings[0];
+  if (!sample) { app.innerHTML = `<div class="form-page">${emptyHTML('🧑', t('seller.notFound'), '')}</div>`; return; }
+  const active = listings.filter(l => !isSold(l));
+  const ss = sellerStats(sample);
+  const name = sample.sellerName || 'Пользователь';
+  app.innerHTML = `
+    <nav class="breadcrumbs"><a href="#/" data-link>${t('nav.home')}</a> › <span>${esc(name)}</span></nav>
+    <div class="seller-hero">
+      <div class="avatar avatar-xl" style="${avatarStyle(name)}">${esc(name[0] || 'U')}</div>
+      <div class="seller-hero-info">
+        <h1>${esc(name)} ${ss.business ? `<span class="seller-badge">${t('seller.business')}</span>` : ''} ${ss.verified ? `<span class="verif-badge">✓ ${t('seller.verified')}</span>` : ''}</h1>
+        <div class="seller-hero-sub"><span class="seller-rating"><span class="star">★</span> ${ss.rating}</span> · ${ratingWord(ss.reviews)} · ${t('seller.since')} ${sample.sellerSinceYear} ${t('seller.sinceEnd')}</div>
+        <div class="seller-hero-stats"><span><b>${active.length}</b> ${t('seller.activeAds')}</span>${ss.verified ? `<span class="ok">✓ ${t('seller.verifiedHint')}</span>` : ''}</div>
+      </div>
+    </div>
+    <div class="section-title"><h2>${t('seller.allAds')} <span class="muted">${active.length}</span></h2></div>
+    ${active.length ? `<div class="grid">${active.map(cardHTML).join('')}</div>` : emptyHTML('📭', t('seller.noListings'), '')}`;
+}
+
+/* ---- сравнение (как у Auto.ru): таблица характеристик бок о бок ---- */
+function renderCompare() {
+  const items = [...state.compare].map(getListing).filter(Boolean);
+  if (items.length < 1) { app.innerHTML = `<div class="form-page">${emptyHTML('⚖️', t('cmp.empty'), t('cmp.emptyP'), `<a class="btn btn-primary" href="#/search" data-link>${t('cmp.browse')}</a>`)}</div>`; return; }
+  const first = items[0];
+  const schema = (typeof attrSchema === 'function') ? attrSchema(first.category, first.subcategory) : null;
+  const rows = [];
+  rows.push({ label: t('cmp.price'), vals: items.map(l => l.price ? fmtNum(l.price) + ' ' + t('som') : t('price.negotiable')) });
+  if (schema) schema.forEach(fld => {
+    const vals = items.map(l => { const a = getAttrs(l); return (a[fld.key] != null && a[fld.key] !== '') ? attrDisplayValue(fld, a[fld.key]) : '—'; });
+    if (vals.some(v => v !== '—')) rows.push({ label: aL(fld.label), vals });
+  });
+  rows.push({ label: t('item.cond'), vals: items.map(l => l.condition === 'new' ? t('cond.new') : l.condition === 'used' ? t('cond.used') : '—') });
+  rows.push({ label: t('item.city'), vals: items.map(l => l.city || '—') });
+  app.innerHTML = `
+    <div class="section-title"><h2>${t('cmp.title')} <span class="muted">${items.length}</span></h2>
+      <button class="btn btn-outline btn-sm" data-action="compare-clear">${t('cmp.clear')}</button></div>
+    <div class="cmp-scroll"><table class="cmp-table">
+      <thead><tr><th class="cmp-corner"></th>${items.map(l => `<th><button class="cmp-rm" data-action="compare-remove" data-id="${l.id}" aria-label="✕">✕</button><a href="#/item/${l.id}" data-link><span class="cmp-photo">${getPhotos(l).length ? `<img src="${getPhotos(l)[0]}" alt="">` : '📷'}</span><span class="cmp-name">${esc(l.title)}</span></a></th>`).join('')}</tr></thead>
+      <tbody>${rows.map(r => `<tr><td class="cmp-lbl">${esc(r.label)}</td>${r.vals.map(v => `<td>${esc(String(v))}</td>`).join('')}</tr>`).join('')}</tbody>
+    </table></div>`;
+}
+
+/* блок сохранённых поисков для кабинета */
+function savedSearchesHTML() {
+  if (!state.saved.length) return '';
+  return `<div class="panel">
+    <h2>🔔 ${t('saved.title')}</h2>
+    <div class="saved-list">${state.saved.map(s => {
+      const n = savedNewCount(s);
+      return `<div class="saved-row">
+        <button class="saved-open" data-action="open-saved" data-id="${s.id}">
+          <span class="saved-name">${esc(s.name)}</span>${n ? `<span class="saved-new">+${n} ${t('saved.new')}</span>` : `<span class="saved-none">${t('saved.noNew')}</span>`}
+        </button>
+        <button class="saved-del" data-action="remove-saved" data-id="${s.id}" aria-label="✕">✕</button>
+      </div>`;
+    }).join('')}</div>
+  </div>`;
+}
+
+/* плавающая панель сравнения (поверх любого экрана, когда что-то выбрано) */
+function compareBarHTML() {
+  const n = state.compare.size;
+  if (!n) return '';
+  return `<div class="compare-bar">
+    <span class="cmp-bar-label">⚖️ ${t('cmp.selected')}: <b>${n}</b></span>
+    <span class="cmp-bar-actions">
+      <button class="btn btn-outline btn-sm" data-action="compare-clear">${t('cmp.clear')}</button>
+      <a class="btn btn-primary btn-sm ${n < 2 ? 'is-disabled' : ''}" href="#/compare" data-link>${t('cmp.go')}</a>
+    </span>
+  </div>`;
+}
+function updateCompareBar() {
+  let host = document.getElementById('compareBarHost');
+  if (!host) { host = document.createElement('div'); host.id = 'compareBarHost'; document.body.appendChild(host); }
+  host.innerHTML = compareBarHTML();
+}
+
 function renderProfile() {
   const my = state.myListings;
   const unread = Object.values(state.chats).filter(c => c.unread).length;
 
   const rows = my.map(l => {
     const photos = getPhotos(l);
+    const sold = isSold(l);
     return `
-    <div class="my-listing-row">
+    <div class="my-listing-row ${sold ? 'is-sold' : ''}">
       ${photos.length ? `<img src="${photos[0]}" alt="">` : '<div class="thumb-fallback" style="width:92px;height:70px;font-size:20px">📷</div>'}
       <div class="info">
         <a class="title" href="#/item/${l.id}" data-link>${esc(l.title)}</a>
-        <div class="sub">${priceHTML(l).replace(/<[^>]*>/g, ' ')} · ${postedLabel(l)} · 👁️ ${fmtNum(l.views)}</div>
+        <div class="sub">${sold ? `<span class="sold-tag">✅ ${t('status.sold')}</span> · ` : ''}${priceHTML(l).replace(/<[^>]*>/g, ' ')} · ${postedLabel(l)} · 👁️ ${fmtNum(l.views)}</div>
       </div>
       <div class="actions">
-        <button class="btn btn-secondary btn-sm" data-action="bump" data-id="${l.id}">⬆️ ${t('profile.bump')}</button>
+        <button class="btn ${sold ? 'btn-primary' : 'btn-secondary'} btn-sm" data-action="toggle-sold" data-id="${l.id}">${sold ? '↩️' : '✅'}</button>
+        ${sold ? '' : `<button class="btn btn-secondary btn-sm" data-action="bump" data-id="${l.id}">⬆️ ${t('profile.bump')}</button>`}
         <a class="btn btn-outline btn-sm" href="#/post?edit=${l.id}" data-link aria-label="${t('item.edit')}">✏️</a>
         <button class="btn btn-danger-soft btn-sm" data-action="delete-my" data-id="${l.id}" aria-label="${t('item.delete')}">🗑️</button>
       </div>
@@ -1934,7 +2113,8 @@ function renderProfile() {
       </div>
       ${my.length ? rows : emptyHTML('📦', t('profile.empty.t'), t('profile.empty.p'),
         `<a class="btn btn-primary" href="#/post" data-link>${t('post.btn')}</a>`)}
-    ` : ''}
+      ${savedSearchesHTML()}
+    ` : savedSearchesHTML()}
     ${settingsHTML}`;
 }
 
@@ -1948,6 +2128,50 @@ function deleteMyListing(id) {
       <button class="btn btn-outline btn-block" data-action="modal-close">${t('del.cancel')}</button>
       <button class="btn btn-danger-soft btn-block" data-action="delete-my-confirm" data-id="${id}">${t('del.ok')}</button>
     </div>`);
+}
+
+/* ---- поделиться (копировать ссылку / WhatsApp / Telegram) ---- */
+function shareListing(id) {
+  const l = getListing(id);
+  if (!l) return;
+  const url = location.origin + location.pathname + '#/item/' + id;
+  const text = l.title + ' — ' + (l.price ? fmtNum(l.price) + ' ' + t('som') : t('price.negotiable'));
+  if (navigator.share) { navigator.share({ title: l.title, text, url }).catch(() => {}); return; }
+  openModal(`
+    <h3>🔗 ${t('share.title')}</h3>
+    <div class="share-row"><input id="shareUrl" class="finput" readonly value="${esc(url)}"></div>
+    <div class="share-btns">
+      <button class="btn btn-secondary" data-action="share-copy">📋 ${t('share.copy')}</button>
+      <a class="btn btn-primary" href="https://wa.me/?text=${encodeURIComponent(text + ' ' + url)}" target="_blank" rel="noopener">WhatsApp</a>
+      <a class="btn btn-outline" href="https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}" target="_blank" rel="noopener">Telegram</a>
+    </div>`);
+}
+
+/* ---- пожаловаться (как у Avito) ---- */
+function openReportModal(id) {
+  const reasons = ['scam', 'sold', 'wrong', 'prohibited', 'duplicate', 'offensive'];
+  openModal(`
+    <h3>⚑ ${t('report.title')}</h3>
+    <p class="modal-text">${t('report.sub')}</p>
+    <div class="report-reasons">${reasons.map(r => `<button class="report-reason" data-action="report-submit" data-id="${id}" data-reason="${r}">${t('report.r.' + r)}</button>`).join('')}</div>
+    <div class="modal-actions"><button class="btn btn-outline btn-block" data-action="modal-close">${t('del.cancel')}</button></div>`);
+}
+
+/* ---- статус продано/в продаже ---- */
+function toggleSold(id) {
+  const my = state.myListings.find(x => x.id === id);
+  let nowSold;
+  if (my) {
+    my.status = (my.status === 'sold') ? 'active' : 'sold';
+    nowSold = my.status === 'sold';
+    lsSave(LS.my, state.myListings);
+  } else {
+    if (state.soldIds.has(id)) state.soldIds.delete(id); else state.soldIds.add(id);
+    nowSold = state.soldIds.has(id);
+    lsSave(LS.sold, [...state.soldIds]);
+  }
+  showToast(nowSold ? t('status.markedSold') : t('status.reactivated'), 'success');
+  const y = window.scrollY; router(); requestAnimationFrame(() => window.scrollTo(0, y));
 }
 
 /* ---------------- чаты ---------------- */
@@ -2436,6 +2660,10 @@ function router() {
     renderAuth();
   } else if (path.startsWith('/item/')) {
     renderItem(path.slice('/item/'.length));
+  } else if (path.startsWith('/seller/')) {
+    renderSeller(path.slice('/seller/'.length));
+  } else if (path.startsWith('/compare')) {
+    renderCompare();
   } else if (path.startsWith('/favorites')) {
     renderFavorites();
   } else if (path.startsWith('/sell')) {
@@ -2453,6 +2681,7 @@ function router() {
   }
   updateNav(path);
   updateBadges();
+  updateCompareBar();
 
   // возврат «назад» к спискам — на сохранённую позицию, остальное — наверх
   const key = location.hash || '#/';
@@ -2595,6 +2824,7 @@ document.addEventListener('click', e => {
   /* действия */
   const actBtn = e.target.closest('[data-action]');
   if (actBtn) {
+    e.preventDefault(); // не дать ссылке-обёртке (карточке) увести при клике на кнопку-действие
     const act = actBtn.dataset.action;
     const id = actBtn.dataset.id;
     switch (act) {
@@ -2631,6 +2861,37 @@ document.addEventListener('click', e => {
       case 'offer-submit': submitOffer(id); break;
       case 'offer-deal': offerToChat(id, +actBtn.dataset.price); break;
       case 'logout': { authSignOut(); showToast(t('auth.bye')); location.hash = '#/'; break; }
+      case 'compare-toggle': {
+        if (toggleCompare(id)) {
+          const on = inCompare(id);
+          actBtn.classList.toggle('on', on);
+          actBtn.innerHTML = '⚖️ ' + (on ? t('cmp.inList') : t('cmp.add'));
+          updateCompareBar();
+        }
+        break;
+      }
+      case 'compare-card': { // компактная кнопка на карточке
+        if (toggleCompare(id)) { actBtn.classList.toggle('on', inCompare(id)); updateCompareBar(); }
+        break;
+      }
+      case 'compare-clear': { clearCompare(); updateCompareBar(); if (parseHash().path.startsWith('/compare')) renderCompare(); break; }
+      case 'compare-remove': { state.compare.delete(id); lsSave(LS.compare, [...state.compare]); updateCompareBar(); renderCompare(); break; }
+      case 'share': shareListing(id); break;
+      case 'share-copy': {
+        const i = $('#shareUrl');
+        if (i) { i.select(); try { document.execCommand('copy'); } catch (e) {} if (navigator.clipboard) navigator.clipboard.writeText(i.value).catch(() => {}); showToast(t('share.copied'), 'success'); }
+        break;
+      }
+      case 'report': openReportModal(id); break;
+      case 'report-submit': { closeModal(); showToast(t('report.sent'), 'success'); break; }
+      case 'toggle-sold': toggleSold(id); break;
+      case 'save-search': {
+        if (saveCurrentSearch()) showToast(t('saved.saved'), 'success');
+        const b = $('#saveSearchBtn'); if (b) { b.classList.add('on'); b.innerHTML = '🔔 ' + t('saved.savedShort'); }
+        break;
+      }
+      case 'open-saved': openSavedSearch(id); break;
+      case 'remove-saved': { removeSaved(id); if (parseHash().path.startsWith('/profile')) renderProfile(); break; }
       case 'bump': {
         const l = state.myListings.find(x => x.id === id);
         if (l) {
