@@ -2064,23 +2064,27 @@ function updateCompareBar() {
 }
 
 function renderProfile() {
-  const my = state.myListings;
+  const me = currentUser();
+  // мои объявления = локальные + мои облачные (опубликованные через форму/фото-флоу)
+  const myDb = me ? state.dbListings.filter(l => l.ownerId === me.id) : [];
+  const my = [...state.myListings, ...myDb];
   const unread = Object.values(state.chats).filter(c => c.unread).length;
 
   const rows = my.map(l => {
     const photos = getPhotos(l);
     const sold = isSold(l);
+    const cloud = !!l.ownerId; // облачное (видно всем) vs локальное
     return `
     <div class="my-listing-row ${sold ? 'is-sold' : ''}">
       ${photos.length ? `<img src="${photos[0]}" alt="">` : '<div class="thumb-fallback" style="width:92px;height:70px;font-size:20px">📷</div>'}
       <div class="info">
         <a class="title" href="#/item/${l.id}" data-link>${esc(l.title)}</a>
-        <div class="sub">${sold ? `<span class="sold-tag">✅ ${t('status.sold')}</span> · ` : ''}${priceHTML(l).replace(/<[^>]*>/g, ' ')} · ${postedLabel(l)} · 👁️ ${fmtNum(l.views)}</div>
+        <div class="sub">${sold ? `<span class="sold-tag">✅ ${t('status.sold')}</span> · ` : ''}${cloud ? `<span class="cloud-tag" title="${t('profile.cloudHint')}">☁️</span> ` : ''}${priceHTML(l).replace(/<[^>]*>/g, ' ')} · ${postedLabel(l)} · 👁️ ${fmtNum(l.views)}</div>
       </div>
       <div class="actions">
         <button class="btn ${sold ? 'btn-primary' : 'btn-secondary'} btn-sm" data-action="toggle-sold" data-id="${l.id}">${sold ? '↩️' : '✅'}</button>
-        ${sold ? '' : `<button class="btn btn-secondary btn-sm" data-action="bump" data-id="${l.id}">⬆️ ${t('profile.bump')}</button>`}
-        <a class="btn btn-outline btn-sm" href="#/post?edit=${l.id}" data-link aria-label="${t('item.edit')}">✏️</a>
+        ${(sold || cloud) ? '' : `<button class="btn btn-secondary btn-sm" data-action="bump" data-id="${l.id}">⬆️ ${t('profile.bump')}</button>`}
+        ${cloud ? '' : `<a class="btn btn-outline btn-sm" href="#/post?edit=${l.id}" data-link aria-label="${t('item.edit')}">✏️</a>`}
         <button class="btn btn-danger-soft btn-sm" data-action="delete-my" data-id="${l.id}" aria-label="${t('item.delete')}">🗑️</button>
       </div>
     </div>`;
@@ -2148,7 +2152,7 @@ function renderProfile() {
 }
 
 function deleteMyListing(id) {
-  const l = state.myListings.find(x => x.id === id);
+  const l = getListing(id); // локальное или облачное (моё)
   if (!l) return;
   openModal(`
     <h3>${t('del.t')}</h3>
@@ -2939,12 +2943,18 @@ document.addEventListener('click', e => {
       }
       case 'delete-my': deleteMyListing(id); break;
       case 'delete-my-confirm': {
-        state.myListings = state.myListings.filter(x => x.id !== id);
+        if (state.dbListings.some(x => x.id === id)) {
+          // облачное объявление → удаляем из БД (у всех пропадёт через realtime)
+          if (typeof dbDeleteListing === 'function') dbDeleteListing(id).catch(() => {});
+          state.dbListings = state.dbListings.filter(x => x.id !== id);
+        } else {
+          state.myListings = state.myListings.filter(x => x.id !== id);
+          delete state.chats[id];
+          lsSave(LS.my, state.myListings);
+          lsSave(LS.chats, state.chats);
+        }
         state.favorites.delete(id);
-        delete state.chats[id];
-        lsSave(LS.my, state.myListings);
         lsSave(LS.favs, [...state.favorites]);
-        lsSave(LS.chats, state.chats);
         closeModal();
         showToast(t('toast.deleted'));
         if (parseHash().path.startsWith('/item/')) {
