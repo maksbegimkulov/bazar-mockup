@@ -19,7 +19,29 @@ try {
   if (tc) tc.setAttribute('content', dark ? '#1a1f26' : '#ffffff');
 } catch (e) {}
 </script>
-<link rel="stylesheet" href="css/styles.css?v=37">
+<script>
+/* авто-обновление: если на сервере версия новее загруженной — сразу
+   перезагрузиться со свежим index (?fresh=N бьёт кэш index.html на GitHub
+   Pages), чтобы юзер не застревал на старом JS и его публикации долетали в
+   облако. BUILD бампается вместе с version.txt при каждом деплое. */
+(function () {
+  var BUILD = 38;
+  try {
+    fetch('version.txt?cb=' + Date.now(), { cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        if (!t) return;
+        var sv = parseInt(t.trim(), 10);
+        if (sv > BUILD && sessionStorage.getItem('bz_upd') !== String(sv)) {
+          sessionStorage.setItem('bz_upd', String(sv));
+          location.replace(location.pathname + '?fresh=' + sv + (location.hash || ''));
+        }
+      })
+      .catch(function () {});
+  } catch (e) {}
+})();
+</script>
+<link rel="stylesheet" href="css/styles.css?v=38">
 </head>
 <body>
 
@@ -120,14 +142,14 @@ try {
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="js/data.js?v=37"></script>
-<script src="js/i18n.js?v=37"></script>
-<script src="js/attributes.js?v=37"></script>
-<script src="js/search.js?v=37"></script>
-<script src="js/map.js?v=37"></script>
-<script src="js/vision.js?v=37"></script>
-<script src="js/auth.js?v=37"></script>
-<script src="js/app.js?v=37"></script>
-<script src="js/ai.js?v=37"></script>
+<script src="js/data.js?v=38"></script>
+<script src="js/i18n.js?v=38"></script>
+<script src="js/attributes.js?v=38"></script>
+<script src="js/search.js?v=38"></script>
+<script src="js/map.js?v=38"></script>
+<script src="js/vision.js?v=38"></script>
+<script src="js/auth.js?v=38"></script>
+<script src="js/app.js?v=38"></script>
+<script src="js/ai.js?v=38"></script>
 </body>
 </html>

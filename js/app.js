@@ -1727,8 +1727,16 @@ function renderPost(params) {
         showToast(t('toast.published'), 'success');
         location.hash = '#/item/' + mapped.id;
         return;
-      } catch (err) { /* офлайн/ошибка → падаем на локальное сохранение */ }
+      } catch (err) {
+        // НЕ падаем молча в local — иначе объявление видит ТОЛЬКО автор, а у
+        // других не появляется (ровно этот баг ловили). Показываем реальную ошибку.
+        console.error('Публикация в облако не удалась:', err);
+        const msg = (err && (err.message || err.hint || err.details)) ? String(err.message || err.hint || err.details) : '';
+        showToast(t('toast.publishFail') + (msg ? ': ' + msg : ''), 'error');
+        return;
+      }
     }
+    // сюда попадают только гости (на /post их не пускает гард — на всякий случай)
     state.myListings.unshift(listing);
     lsSave(LS.my, state.myListings);
     showToast(t('toast.published'), 'success');
