@@ -110,13 +110,17 @@ function allListings() { return [...state.myListings, ...state.dbListings, ...LI
 /* строка из БД → форма объявления, понятная приложению */
 function dbToListing(r, names) {
   const photos = Array.isArray(r.photos) ? r.photos : [];
+  // реальные фото (камера/ИИ) приходят как data-URI строки → userPhotos (рендерим как есть);
+  // демо-сиды (числа) → pickedSeeds (через photoURL-заглушки)
+  const realPhotos = photos.length && typeof photos[0] === 'string' && photos[0].startsWith('data:');
   return {
     id: r.id, ownerId: r.owner_id, title: r.title,
     price: Number(r.price) || 0, floor: Number(r.floor) || 0, priceSuffix: '',
     negotiable: !!r.negotiable, category: r.category, subcategory: r.subcategory,
     city: r.city, district: r.district || null, condition: r.condition || null,
     description: r.description || '',
-    pickedSeeds: photos, photoCount: photos.length, photoSeed: 11,
+    userPhotos: realPhotos ? photos : null,
+    pickedSeeds: realPhotos ? null : photos, photoCount: photos.length, photoSeed: 11,
     attrs: (r.attrs && typeof r.attrs === 'object') ? r.attrs : {},
     sellerName: (names && names[r.owner_id]) || 'Пользователь', sellerType: 'private',
     sellerRating: 5.0, sellerAds: 1, sellerSinceYear: 2026,
@@ -1458,11 +1462,41 @@ function renderSellDraft() {
   });
   state.sell._collect = collect;
 
-  $('#sellForm').addEventListener('submit', e => {
+  $('#sellForm').addEventListener('submit', async e => {
     e.preventDefault();
     const d = collect();
     if (!d.category || !d.subcategory) { showToast(t('err.cat')); return; }
     if (d.title.length < 5 || d.price <= 0) { showToast(t('toast.checkFields')); return; }
+    // фото: реальные (data-URI с камеры/ИИ) или демо-сиды (числа)
+    const photos = d.userPhotos || d.pickedSeeds || [];
+    // #/sell под гардом авторизации → юзер ЗАЛОГИНЕН → публикуем В ОБЛАКО (видно ВСЕМ,
+    // как у обычной формы). Раньше тут было только локальное сохранение — поэтому
+    // объявления из «Сделать фото» видел только автор.
+    if (isAuthed()) {
+      const btn = $('#sellForm button[type="submit"]');
+      if (btn) btn.disabled = true;
+      try {
+        const row = await dbCreateListing({
+          title: d.title, price: d.price, floor: 0,
+          category: d.category, subcategory: d.subcategory, city: d.city,
+          district: null, condition: d.condition, description: d.description || d.title,
+          photos, negotiable: false, attrs: {},
+        });
+        const mapped = dbToListing(row, { [currentUser().id]: currentUser().name });
+        state.dbListings.unshift(mapped);
+        state.sell = { step: 'pick' };
+        showToast(t('toast.published'), 'success');
+        location.hash = '#/item/' + mapped.id;
+        return;
+      } catch (err) {
+        console.error('Публикация (фото-флоу) в облако не удалась:', err);
+        if (btn) btn.disabled = false;
+        const msg = (err && (err.message || err.hint || err.details)) ? String(err.message || err.hint || err.details) : '';
+        showToast(t('toast.publishFail') + (msg ? ': ' + msg : ''), 'error');
+        return;
+      }
+    }
+    // фолбэк (теоретически недостижим — /sell под requireAuth): локально
     const listing = {
       id: 'm' + Date.now(),
       title: d.title, price: d.price, priceSuffix: '', negotiable: false,
@@ -1478,12 +1512,7 @@ function renderSellDraft() {
       hasDelivery: false, phone: DEFAULT_PHONE,
     };
     state.myListings.unshift(listing);
-    try {
-      lsSave(LS.my, state.myListings);
-    } catch {
-      // localStorage переполнен реальными фото — публикуем без сохранения фото в хранилище
-      showToast(t('toast.published'), 'success');
-    }
+    try { lsSave(LS.my, state.myListings); } catch (e2) {}
     state.sell = { step: 'pick' };
     showToast(t('toast.published'), 'success');
     location.hash = '#/item/' + listing.id;
