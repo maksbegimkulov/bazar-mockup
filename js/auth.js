@@ -89,7 +89,7 @@ async function authSignIn({ email, phone, password }) {
 /* Google / Apple через Supabase OAuth. Включаю провайдера здесь ТОЛЬКО когда
    реально настроен OAuth-клиент в проекте — иначе signInWithOAuth увёл бы на
    страницу ошибки Supabase. Пока не настроено → «скоро» (app.js покажет тост). */
-const OAUTH_ENABLED = { google: false, apple: false };
+const OAUTH_ENABLED = { google: true, apple: false };
 async function authSocial(provider) {
   if (!sb) throw new Error('no-backend');
   if (!OAUTH_ENABLED[provider]) throw new Error('provider-unavailable');
