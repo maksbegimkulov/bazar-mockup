@@ -29,6 +29,7 @@ state.view = lsLoad(LS.view, 'grid');
 state.viewed = lsLoad(LS.viewed, []); // недавно просмотренные id
 state.page = 1;
 state.galleryIndex = 0;
+state.auth = { mode: 'login', method: 'email' };  // экран входа/регистрации
 state._scroll = {};      // позиции скролла списков для возврата «назад»
 state._appliedQS = null; // последний применённый query из hash
 
@@ -1200,7 +1201,7 @@ function renderSellDraft() {
       photoCount: d.userPhotos ? d.userPhotos.length : (d.pickedSeeds ? d.pickedSeeds.length : 0),
       photoSeed: isReal ? 11 : p.photoSeed,
       specs: d.specs,
-      sellerName: USER_NAME, sellerType: 'private', sellerRating: 5.0,
+      sellerName: (currentUser() && currentUser().name) || USER_NAME, sellerType: 'private', sellerRating: 5.0,
       sellerAds: state.myListings.length + 1, sellerSinceYear: 2026,
       createdAt: Date.now(), views: 1, isVip: false, isUrgent: false,
       hasDelivery: false, phone: DEFAULT_PHONE,
@@ -1407,7 +1408,7 @@ function renderPost(params) {
       pickedSeeds: [...picked],
       photoCount: picked.size,
       photoSeed: 11,
-      sellerName: USER_NAME,
+      sellerName: (currentUser() && currentUser().name) || USER_NAME,
       sellerType: 'private',
       sellerRating: 5.0,
       sellerAds: state.myListings.length + (editing ? 0 : 1),
@@ -1435,6 +1436,107 @@ function renderPost(params) {
 }
 
 /* ---------------- профиль ---------------- */
+
+/* ---------------- вход / регистрация ---------------- */
+
+const GOOGLE_SVG = '<svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.27-4.74 3.27-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84A11 11 0 0 0 12 23z"/><path fill="#FBBC05" d="M5.84 14.1a6.6 6.6 0 0 1 0-4.2V7.06H2.18a11 11 0 0 0 0 9.88l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84C6.71 7.31 9.14 5.38 12 5.38z"/></svg>';
+const APPLE_SVG = '<svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M17.05 12.04c-.03-2.6 2.12-3.85 2.22-3.91-1.21-1.77-3.09-2.01-3.76-2.04-1.6-.16-3.12.94-3.93.94-.81 0-2.06-.92-3.39-.89-1.74.03-3.35 1.01-4.25 2.57-1.81 3.14-.46 7.78 1.3 10.33.86 1.25 1.88 2.65 3.22 2.6 1.29-.05 1.78-.83 3.34-.83 1.56 0 2 .83 3.37.81 1.39-.03 2.27-1.27 3.12-2.53.98-1.45 1.39-2.85 1.41-2.93-.03-.01-2.71-1.04-2.74-4.13zM14.47 4.34c.71-.86 1.19-2.06 1.06-3.26-1.02.04-2.26.68-2.99 1.54-.66.76-1.23 1.98-1.08 3.15 1.14.09 2.3-.58 3.01-1.43z"/></svg>';
+
+function renderAuth() {
+  if (isAuthed()) { location.hash = state.auth._return || '#/profile'; return; }
+  const a = state.auth;
+  const isReg = a.mode === 'register';
+  const isPhone = a.method === 'phone';
+  app.innerHTML = `
+    <div class="auth-page">
+      <div class="auth-card">
+        <div class="auth-brand">
+          <div class="auth-logo">B</div>
+          <h1>${isReg ? t('auth.join') : t('auth.welcome')}</h1>
+          <p>${t('auth.tagline')}</p>
+        </div>
+        <div class="auth-tabs">
+          <button class="auth-tab ${!isReg ? 'active' : ''}" data-auth-mode="login">${t('auth.login')}</button>
+          <button class="auth-tab ${isReg ? 'active' : ''}" data-auth-mode="register">${t('auth.register')}</button>
+        </div>
+        <div class="auth-social">
+          <button class="auth-soc" data-auth-social="google">${GOOGLE_SVG}<span>${t('auth.withGoogle')}</span></button>
+          <button class="auth-soc auth-apple" data-auth-social="apple">${APPLE_SVG}<span>${t('auth.withApple')}</span></button>
+        </div>
+        <div class="auth-or"><span>${t('auth.or')}</span></div>
+        <div class="auth-method">
+          <button class="auth-mbtn ${!isPhone ? 'active' : ''}" data-auth-method="email">${t('auth.byEmail')}</button>
+          <button class="auth-mbtn ${isPhone ? 'active' : ''}" data-auth-method="phone">${t('auth.byPhone')}</button>
+        </div>
+        <form id="authForm" class="auth-form" novalidate>
+          ${isReg ? `<input class="finput" id="authName" placeholder="${t('auth.name')}" autocomplete="name" value="${esc(a._name || '')}">` : ''}
+          ${isPhone
+            ? `<input class="finput" id="authPhone" type="tel" placeholder="+996 700 123 456" autocomplete="tel" inputmode="tel" value="${esc(a._phone || '')}">`
+            : `<input class="finput" id="authEmail" type="email" placeholder="you@email.com" autocomplete="email" inputmode="email" value="${esc(a._email || '')}">`}
+          <input class="finput" id="authPass" type="password" placeholder="${t('auth.password')}" autocomplete="${isReg ? 'new-password' : 'current-password'}">
+          <div class="auth-error" id="authError" hidden></div>
+          <button class="btn btn-primary btn-block btn-lg" type="submit">${isReg ? t('auth.registerBtn') : t('auth.loginBtn')}</button>
+        </form>
+        <div class="auth-foot">
+          ${isReg ? `${t('auth.hasAcc')} <a data-auth-mode="login">${t('auth.login')}</a>` : `${t('auth.noAcc')} <a data-auth-mode="register">${t('auth.register')}</a>`}
+        </div>
+        <a class="auth-skip" href="#/" data-link>${t('auth.skip')} →</a>
+      </div>
+    </div>`;
+  const form = $('#authForm');
+  if (form) form.addEventListener('submit', onAuthSubmit);
+}
+
+async function onAuthSubmit(e) {
+  e.preventDefault();
+  const a = state.auth;
+  const isReg = a.mode === 'register';
+  const isPhone = a.method === 'phone';
+  const err = $('#authError');
+  const showErr = (m) => { if (err) { err.textContent = m; err.hidden = false; } };
+  const pass = $('#authPass') ? $('#authPass').value : '';
+  const email = $('#authEmail') ? $('#authEmail').value.trim() : '';
+  const phone = $('#authPhone') ? $('#authPhone').value.trim() : '';
+  const name = $('#authName') ? $('#authName').value.trim() : '';
+  a._email = email; a._phone = phone; a._name = name;
+  if (isPhone ? phone.replace(/\D/g, '').length < 9 : !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+    showErr(isPhone ? t('auth.errPhone') : t('auth.errEmail')); return;
+  }
+  if (pass.length < 6) { showErr(t('auth.errPass')); return; }
+  try {
+    const creds = { name, email: isPhone ? '' : email, phone: isPhone ? phone : '', password: pass };
+    if (isReg) await authSignUp(creds); else await authSignIn(creds);
+    afterAuth();
+  } catch (ex) {
+    showErr({
+      'email-exists': t('auth.errEmailExists'), 'phone-exists': t('auth.errPhoneExists'),
+      'no-user': t('auth.errNoUser'), 'bad-pass': t('auth.errBadPass'),
+    }[ex.message] || t('auth.errGeneric'));
+  }
+}
+
+async function doAuthSocial(provider) {
+  try { await authSocial(provider); afterAuth(); }
+  catch (ex) { showToast(t('auth.errGeneric')); }
+}
+
+function afterAuth() {
+  const u = currentUser();
+  state.auth._email = state.auth._phone = state.auth._name = '';
+  showToast(t('auth.welcomeToast').replace('{name}', esc(u.name)), 'success');
+  const back = state.auth._return || '#/profile';
+  state.auth._return = null;
+  location.hash = back;
+}
+
+/* требуется вход — иначе уводим на экран входа и запоминаем, куда вернуть */
+function requireAuth(returnHash) {
+  if (isAuthed()) return true;
+  state.auth._return = returnHash || location.hash || '#/';
+  state.auth.mode = 'register';
+  location.hash = '#/auth';
+  return false;
+}
 
 function renderProfile() {
   const my = state.myListings;
@@ -1476,25 +1578,44 @@ function renderProfile() {
       </div>
     </div>`;
 
-  app.innerHTML = `
+  const u = currentUser();
+  const provLabel = u && u.provider === 'google' ? ' · Google' : u && u.provider === 'apple' ? ' · Apple' : '';
+  const headHTML = u ? `
     <div class="profile-head">
-      <div class="avatar avatar-lg" style="${avatarStyle(USER_NAME)}">${USER_NAME[0]}</div>
-      <div>
-        <div class="profile-name">${USER_NAME}</div>
-        <div class="profile-sub">${t('profile.city')} · ${t('seller.since')} 2026 ${t('seller.sinceEnd')} · <span class="seller-rating"><span class="star">★</span> 5.0</span></div>
+      <div class="avatar avatar-lg" style="${avatarStyle(u.name)}">${esc((u.name[0] || 'U').toUpperCase())}</div>
+      <div class="profile-id">
+        <div class="profile-name">${esc(u.name)}</div>
+        <div class="profile-sub">${esc(u.email || u.phone || '')}${provLabel}</div>
       </div>
       <div class="profile-stats">
         <div class="pstat"><b>${my.length}</b><span>${listingsWord(my.length)}</span></div>
         <div class="pstat"><b>${state.favorites.size}</b><span>${t('profile.inFavs')}</span></div>
         <div class="pstat"><b>${Object.keys(state.chats).length}</b><span>${dialogsWord(Object.keys(state.chats).length)}${unread ? ' · ' + unread + ' ' + t('profile.new') : ''}</span></div>
       </div>
-    </div>
-    <div class="page-head">
-      <h2 class="page-subtitle">${t('profile.my')}</h2>
-      <a class="btn btn-primary" href="#/post" data-link>${t('post.btnShort')}</a>
-    </div>
-    ${my.length ? rows : emptyHTML('📦', t('profile.empty.t'), t('profile.empty.p'),
-      `<a class="btn btn-primary" href="#/post" data-link>${t('post.btn')}</a>`)}
+      <button class="btn btn-outline btn-sm profile-logout" data-action="logout">${t('auth.logout')}</button>
+    </div>` : `
+    <div class="auth-cta">
+      <div class="auth-cta-ico">👋</div>
+      <div class="auth-cta-body">
+        <h2>${t('auth.ctaTitle')}</h2>
+        <p>${t('auth.ctaSub')}</p>
+        <div class="auth-cta-actions">
+          <a class="btn btn-primary btn-lg" href="#/auth" data-link data-auth-go="register">${t('auth.register')}</a>
+          <a class="btn btn-outline btn-lg" href="#/auth" data-link data-auth-go="login">${t('auth.login')}</a>
+        </div>
+      </div>
+    </div>`;
+
+  app.innerHTML = `
+    ${headHTML}
+    ${u ? `
+      <div class="page-head">
+        <h2 class="page-subtitle">${t('profile.my')}</h2>
+        <a class="btn btn-primary" href="#/post" data-link>${t('post.btnShort')}</a>
+      </div>
+      ${my.length ? rows : emptyHTML('📦', t('profile.empty.t'), t('profile.empty.p'),
+        `<a class="btn btn-primary" href="#/post" data-link>${t('post.btn')}</a>`)}
+    ` : ''}
     ${settingsHTML}`;
 }
 
@@ -1952,18 +2073,20 @@ function router() {
     }
     if (hasQuery) state._appliedQS = qs;
     renderSearch();
+  } else if (path.startsWith('/auth')) {
+    renderAuth();
   } else if (path.startsWith('/item/')) {
     renderItem(path.slice('/item/'.length));
   } else if (path.startsWith('/favorites')) {
     renderFavorites();
   } else if (path.startsWith('/sell')) {
-    renderSell();
+    if (requireAuth('#/sell')) renderSell();
   } else if (path.startsWith('/post')) {
-    renderPost(params);
+    if (requireAuth(location.hash)) renderPost(params);
   } else if (path.startsWith('/chats/')) {
-    renderChats(decodeURIComponent(path.slice('/chats/'.length)));
+    if (requireAuth(location.hash)) renderChats(decodeURIComponent(path.slice('/chats/'.length)));
   } else if (path.startsWith('/chats')) {
-    renderChats(null);
+    if (requireAuth('#/chats')) renderChats(null);
   } else if (path.startsWith('/profile')) {
     renderProfile();
   } else {
@@ -1987,6 +2110,16 @@ function router() {
 /* ---------------- глобальные обработчики ---------------- */
 
 document.addEventListener('click', e => {
+  /* экран входа/регистрации: вкладки, способ, соц-вход */
+  const authMode = e.target.closest('[data-auth-mode]');
+  if (authMode) { e.preventDefault(); state.auth.mode = authMode.dataset.authMode; renderAuth(); return; }
+  const authMethod = e.target.closest('[data-auth-method]');
+  if (authMethod) { e.preventDefault(); state.auth.method = authMethod.dataset.authMethod; renderAuth(); return; }
+  const authSoc = e.target.closest('[data-auth-social]');
+  if (authSoc) { e.preventDefault(); doAuthSocial(authSoc.dataset.authSocial); return; }
+  const authGo = e.target.closest('[data-auth-go]');
+  if (authGo) { state.auth.mode = authGo.dataset.authGo; } // ссылка сама уведёт на #/auth
+
   /* избранное: обновляем ВСЕ кнопки этого объявления (карточка может быть на странице дважды) */
   const favBtn = e.target.closest('[data-fav]');
   if (favBtn) {
@@ -2136,13 +2269,15 @@ document.addEventListener('click', e => {
       case 'show-phone': showPhoneModal(id); break;
       case 'write-seller': {
         closeModal();
+        if (!requireAuth(location.hash)) break;
         ensureChat(id);
         location.hash = '#/chats/' + id;
         break;
       }
       case 'offer-price': openOfferModal(id); break;
       case 'offer-submit': submitOffer(id); break;
-      case 'offer-deal': offerToChat(id, +actBtn.dataset.price); break;
+      case 'offer-deal': { closeModal(); if (requireAuth(location.hash)) offerToChat(id, +actBtn.dataset.price); break; }
+      case 'logout': { authSignOut(); showToast(t('auth.bye')); location.hash = '#/'; break; }
       case 'bump': {
         const l = state.myListings.find(x => x.id === id);
         if (l) {
