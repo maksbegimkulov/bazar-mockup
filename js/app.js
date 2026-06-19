@@ -2136,7 +2136,11 @@ function shareListing(id) {
   if (!l) return;
   const url = location.origin + location.pathname + '#/item/' + id;
   const text = l.title + ' — ' + (l.price ? fmtNum(l.price) + ' ' + t('som') : t('price.negotiable'));
-  if (navigator.share) { navigator.share({ title: l.title, text, url }).catch(() => {}); return; }
+  // нативный шер только на тач-устройствах (там это удобно); на десктопе — модалка
+  if (navigator.share && matchMedia('(pointer: coarse)').matches) {
+    navigator.share({ title: l.title, text, url }).catch(() => {});
+    return;
+  }
   openModal(`
     <h3>🔗 ${t('share.title')}</h3>
     <div class="share-row"><input id="shareUrl" class="finput" readonly value="${esc(url)}"></div>
