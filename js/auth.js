@@ -219,4 +219,14 @@ function dbSubscribeMyChats(onChange) {
   return () => { try { sb.removeChannel(ch); } catch (e) {} };
 }
 
+/* realtime: новые/изменённые объявления (видны ВСЕМ, включая гостей) → колбэк.
+   Требует таблицу listings в publication supabase_realtime (добавлена в схеме). */
+function dbSubscribeListings(onChange) {
+  if (!sb) return () => {};
+  const ch = sb.channel('listings-all')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'listings' }, () => onChange())
+    .subscribe();
+  return () => { try { sb.removeChannel(ch); } catch (e) {} };
+}
+
 authInit();
