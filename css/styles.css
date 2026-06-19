@@ -1756,6 +1756,48 @@ main#app > .chats-layout { animation: none; }
 .price-verdict.fair { background: var(--stripe-b); color: var(--text-2); }
 .price-verdict.high { background: var(--vip-soft); color: var(--vip-text); }
 
+/* ---------------- Культурный торг ---------------- */
+.btn-bargain {
+  background: linear-gradient(135deg, #8b5cf6, #00a06a);
+  color: #fff;
+  box-shadow: 0 6px 18px rgba(124, 58, 237, 0.28);
+}
+.bargain-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  margin: 9px 0 2px;
+  font-size: 12.5px; font-weight: 700;
+  color: #6d4bd0;
+  background: linear-gradient(135deg, rgba(124, 58, 237, 0.10), rgba(0, 160, 106, 0.10));
+  padding: 5px 12px; border-radius: var(--radius-pill);
+}
+[data-theme="dark"] .bargain-badge { color: #cabcff; background: linear-gradient(135deg, rgba(139, 92, 246, 0.16), rgba(0, 160, 106, 0.14)); }
+.card-bargain {
+  display: inline-block; margin-left: 7px; vertical-align: 1px;
+  font-size: 10px; font-weight: 800; letter-spacing: 0.2px;
+  color: #6d4bd0; background: rgba(124, 58, 237, 0.12);
+  padding: 1px 7px; border-radius: var(--radius-pill); white-space: nowrap;
+}
+[data-theme="dark"] .card-bargain { color: #cabcff; background: rgba(139, 92, 246, 0.20); }
+.offer-input {
+  font-size: 21px; font-weight: 800; text-align: center;
+  font-variant-numeric: tabular-nums; margin-bottom: 12px;
+}
+.offer-msg { padding: 13px 14px; border-radius: var(--radius-s); font-weight: 700; font-size: 14px; margin-bottom: 12px; text-align: center; line-height: 1.45; }
+.offer-ok { background: var(--accent-soft); color: var(--accent-dark); }
+.offer-ok-head { font-size: 14px; }
+.offer-deal { font-size: 27px; font-weight: 800; letter-spacing: -0.6px; margin: 5px 0 13px; font-variant-numeric: tabular-nums; }
+.offer-no { background: var(--danger-soft); color: var(--danger); }
+.offer-warn { background: var(--vip-soft); color: var(--vip-text); }
+.offer-counter { background: var(--bg); border: 1px dashed var(--accent); border-radius: var(--radius-s); padding: 14px; margin-bottom: 12px; text-align: center; }
+.offer-counter-text { font-size: 13.5px; font-weight: 600; color: var(--text-2); margin-bottom: 11px; line-height: 1.5; }
+.post-floor {
+  background: linear-gradient(135deg, rgba(124, 58, 237, 0.05), rgba(0, 160, 106, 0.06));
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+}
+.post-floor .hint { color: var(--text-2); }
+
 /* ---------------- hover (только устройства с курсором) ---------------- */
 
 @media (hover: hover) and (pointer: fine) {
