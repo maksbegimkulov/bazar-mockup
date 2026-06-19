@@ -41,6 +41,7 @@ function defaultFilters() {
     condition: 'any', sellerType: 'any',
     withPhoto: false, delivery: false,
     period: 'all', sort: 'date',
+    attrs: {}, // фильтры по характеристикам (бренд/модель/год/спеки)
   };
 }
 state.filters = defaultFilters();
@@ -110,6 +111,7 @@ function dbToListing(r, names) {
     city: r.city, district: r.district || null, condition: r.condition || null,
     description: r.description || '',
     pickedSeeds: photos, photoCount: photos.length, photoSeed: 11,
+    attrs: (r.attrs && typeof r.attrs === 'object') ? r.attrs : {},
     sellerName: (names && names[r.owner_id]) || 'Пользователь', sellerType: 'private',
     sellerRating: 5.0, sellerAds: 1, sellerSinceYear: 2026,
     createdAt: new Date(r.created_at).getTime(),
@@ -242,6 +244,7 @@ function applyFilters(f) {
     if (f.withPhoto && getPhotos(l).length === 0) return false;
     if (f.delivery && !l.hasDelivery) return false;
     if (f.period !== 'all' && hoursAgo(l) > +f.period * 24) return false;
+    if (f.attrs && !passesAttrs(l, f.attrs)) return false;
     return true;
   };
 
@@ -298,6 +301,7 @@ function activeFilterCount(f) {
   if (f.withPhoto) n++;
   if (f.delivery) n++;
   if (f.period !== 'all') n++;
+  n += attrFilterCount(f.attrs);
   return n;
 }
 
@@ -327,6 +331,7 @@ function cardHTML(l) {
     <div class="card-body">
       <div class="card-price">${priceHTML(l)}${l.floor ? `<span class="card-bargain">🤝 ${t('tag.bargain')}</span>` : ''}</div>
       <div class="card-title">${esc(l.title)}</div>
+      ${(() => { const s = attrSubtitle(l.category, l.subcategory, getAttrs(l)); return s ? `<div class="card-attrs">${esc(s)}</div>` : ''; })()}
       <div class="card-meta">${esc(l.city)}${l.district ? ', ' + esc(l.district) : ''} · ${postedLabel(l)}</div>
     </div>
   </a>`;
@@ -406,6 +411,42 @@ function renderHome() {
 
 /* ---------------- поиск ---------------- */
 
+/* — фильтры по характеристикам в поиске (бренд→модель + спеки) — */
+function filterAttrSelect(key, label, pairs, cur) {
+  const opts = [`<option value="">${aL({ ru: 'Любая', en: 'Any', ky: 'Каалаган' })}</option>`]
+    .concat(pairs.map(([v, l]) => `<option value="${esc(v)}" ${cur === v ? 'selected' : ''}>${esc(l)}</option>`)).join('');
+  return `<div class="fblock"><div class="fblock-label">${esc(label)}</div>
+    <select class="fselect" data-fattr="${key}">${opts}</select></div>`;
+}
+function filterAttrRange(fld, fa) {
+  const lbl = aL(fld.label) + (fld.unit ? ', ' + aL(fld.unit) : '');
+  return `<div class="fblock"><div class="fblock-label">${esc(lbl)}</div>
+    <div class="price-row">
+      <input type="number" inputmode="numeric" data-fattr="${fld.key}Min" placeholder="${t('filters.from')}" value="${esc(fa[fld.key + 'Min'] || '')}">
+      <input type="number" inputmode="numeric" data-fattr="${fld.key}Max" placeholder="${t('filters.to')}" value="${esc(fa[fld.key + 'Max'] || '')}">
+    </div></div>`;
+}
+function filterAttrsHTML(f) {
+  const schema = attrSchema(f.cat, f.sub);
+  if (!schema) return '';
+  const fa = f.attrs || {};
+  let html = '';
+  for (const fld of schema) {
+    if (fld.type === 'brand') {
+      html += filterAttrSelect('brand', aL(fld.label), brandsFor(fld.group).map(b => [b, b]), fa.brand);
+    } else if (fld.type === 'model') {
+      const bf = schema.find(x => x.type === 'brand');
+      const models = (bf && fa.brand) ? modelsFor(bf.group, fa.brand) : [];
+      if (models.length) html += filterAttrSelect('model', aL({ ru: 'Модель', en: 'Model', ky: 'Модель' }), models.map(m => [m, m]), fa.model);
+    } else if (fld.type === 'select') {
+      html += filterAttrSelect(fld.key, aL(fld.label), fld.options.map(o => [o.v, aL(o.l)]), fa[fld.key]);
+    } else if (fld.type === 'number') {
+      html += filterAttrRange(fld, fa);
+    }
+  }
+  return html;
+}
+
 function filterPanelHTML(f) {
   const cat = catById(f.cat);
   const catOptions = [`<option value="">${t('filters.allCats')}</option>`]
@@ -437,6 +478,7 @@ function filterPanelHTML(f) {
       <div class="fblock-label">${t('filters.sub')}</div>
       <select class="fselect" id="fSub">${subOptions}</select>
     </div>
+    <div id="fAttrs">${filterAttrsHTML(f)}</div>
     <div class="fblock">
       <div class="fblock-label">${t('filters.price')}</div>
       <div class="price-row">
@@ -500,6 +542,7 @@ function activeChipsHTML(f) {
   if (f.q.trim()) add('q', `${t('search.prefix')}: ${esc(f.q.trim())}`);
   if (f.cat) add('cat', esc(catNameById(f.cat) || f.cat));
   if (f.sub) add('sub', esc(subName(f.sub)));
+  attrFilterChips(f).forEach(c => add(c.key, esc(c.label)));
   if (f.priceMin !== '' || f.priceMax !== '') {
     add('price', `${t('chip.price')}: ${f.priceMin !== '' ? t('filters.from') + ' ' + fmtNum(f.priceMin) : ''}${f.priceMin !== '' && f.priceMax !== '' ? ' ' : ''}${f.priceMax !== '' ? t('filters.to') + ' ' + fmtNum(f.priceMax) : ''} ${t('som')}`);
   }
@@ -556,10 +599,12 @@ function renderSearch() {
 function bindFilterPanel() {
   const f = state.filters;
   const rerun = () => { state.page = 1; updateResults(); };
+  const refillAttrs = () => { const c = $('#fAttrs'); if (c) c.innerHTML = filterAttrsHTML(f); };
 
   $('#fCat').addEventListener('change', e => {
     f.cat = e.target.value;
     f.sub = '';
+    f.attrs = {}; // другая категория → сбрасываем фильтры характеристик
     const cat = catById(f.cat);
     const block = $('#fSubBlock');
     if (cat) {
@@ -569,9 +614,35 @@ function bindFilterPanel() {
     } else {
       block.hidden = true;
     }
+    refillAttrs();
     rerun();
   });
-  $('#fSub').addEventListener('change', e => { f.sub = e.target.value; rerun(); });
+  $('#fSub').addEventListener('change', e => { f.sub = e.target.value; f.attrs = {}; refillAttrs(); rerun(); });
+
+  // фильтры характеристик: select → точное совпадение, бренд каскадит модель;
+  // числовые (год/пробег/площадь) → диапазон от/до с дебаунсом
+  const faBox = $('#fAttrs');
+  if (faBox) {
+    faBox.addEventListener('change', e => {
+      const el = e.target.closest('select[data-fattr]');
+      if (!el) return;
+      const key = el.dataset.fattr, val = el.value;
+      if (val) f.attrs[key] = val; else delete f.attrs[key];
+      if (key === 'brand') { delete f.attrs.model; refillAttrs(); }
+      rerun();
+    });
+    let attrTimer;
+    faBox.addEventListener('input', e => {
+      const el = e.target.closest('input[data-fattr]');
+      if (!el) return;
+      const key = el.dataset.fattr;
+      clearTimeout(attrTimer);
+      attrTimer = setTimeout(() => {
+        if (el.value !== '') f.attrs[key] = el.value; else delete f.attrs[key];
+        rerun();
+      }, 350);
+    });
+  }
   $('#fCity').addEventListener('change', e => { f.city = e.target.value; rerun(); });
 
   let priceTimer;
@@ -631,9 +702,17 @@ function updateResults() {
 
 function clearFilter(key) {
   const f = state.filters;
+  if (key.startsWith('attr:')) {
+    const base = key.slice(5);
+    delete f.attrs[base]; delete f.attrs[base + 'Min']; delete f.attrs[base + 'Max'];
+    if (base === 'brand') delete f.attrs.model; // модель зависит от марки
+    $('#filtersPanel').innerHTML = filterPanelHTML(f);
+    bindFilterPanel(); state.page = 1; updateResults();
+    return;
+  }
   if (key === 'q') { f.q = ''; $('#searchInput').value = ''; }
-  if (key === 'cat') { f.cat = ''; f.sub = ''; }
-  if (key === 'sub') f.sub = '';
+  if (key === 'cat') { f.cat = ''; f.sub = ''; f.attrs = {}; }
+  if (key === 'sub') { f.sub = ''; f.attrs = {}; }
   if (key === 'price') { f.priceMin = ''; f.priceMax = ''; }
   if (key === 'city') f.city = 'all';
   if (key === 'condition') f.condition = 'any';
@@ -689,6 +768,8 @@ function renderItem(id) {
   const params = [
     [t('item.cat'), catName(cat) || l.category],
     [t('item.section'), subName(l.subcategory)],
+    // структурированные характеристики (бренд/модель/год/спеки)
+    ...attrPairs(l.category, l.subcategory, getAttrs(l)),
     l.condition ? [t('item.cond'), l.condition === 'new' ? t('cond.new') : t('cond.used')] : null,
     // характеристики, распознанные ИИ при «продаже за 30 секунд»
     ...(Array.isArray(l.specs) ? l.specs.map(([k, v]) => [t(k), v]) : []),
@@ -1315,6 +1396,78 @@ function renderSellDraft() {
 
 /* ---------------- подача объявления ---------------- */
 
+/* — динамические поля характеристик (бренд→модель каскад + спеки) — */
+const _L_NOTSET = { ru: 'Не указано', en: 'Not set', ky: 'Көрсөтүлгөн эмес' };
+const _L_OTHER = { ru: 'Другое…', en: 'Other…', ky: 'Башка…' };
+const _L_CUSTOM = { ru: 'Свой вариант', en: 'Custom', ky: 'Өз вариант' };
+
+function attrSelectHTML(key, label, pairs, cur, otherPh, extraData) {
+  const isOther = cur != null && cur !== '' && !pairs.some(([v]) => v === cur);
+  const sel = isOther ? OTHER_VAL : (cur || '');
+  const opts = [`<option value="">${aL(_L_NOTSET)}</option>`]
+    .concat(pairs.map(([v, l]) => `<option value="${esc(v)}" ${sel === v ? 'selected' : ''}>${esc(l)}</option>`))
+    .concat([`<option value="${OTHER_VAL}" ${isOther ? 'selected' : ''}>${aL(_L_OTHER)}</option>`])
+    .join('');
+  return `<div class="fgroup attr-field" data-attr-field="${key}" ${extraData || ''}>
+    <label class="flabel">${esc(label)}</label>
+    <select class="fselect" data-attr="${key}">${opts}</select>
+    <input class="finput attr-other" data-attr-other="${key}" placeholder="${esc(aL(otherPh || _L_CUSTOM))}" value="${isOther ? esc(String(cur)) : ''}" ${isOther ? '' : 'hidden'}>
+  </div>`;
+}
+
+function attrModelFieldHTML(catId, subName, attrs) {
+  const schema = attrSchema(catId, subName) || [];
+  const bf = schema.find(f => f.type === 'brand');
+  const group = bf ? bf.group : null;
+  const brand = attrs.brand || '';
+  const models = (group && brand) ? modelsFor(group, brand) : [];
+  const lbl = aL({ ru: 'Модель', en: 'Model', ky: 'Модель' });
+  const cur = attrs.model;
+  if (!models.length) {
+    return `<div class="fgroup attr-field" data-attr-field="model">
+      <label class="flabel">${lbl}</label>
+      <input class="finput" data-attr="model" maxlength="40" placeholder="${aL({ ru: 'Напр. Camry, iPhone 15…', en: 'e.g. Camry, iPhone 15…', ky: 'Мис. Camry…' })}" value="${cur ? esc(String(cur)) : ''}">
+    </div>`;
+  }
+  return attrSelectHTML('model', lbl, models.map(m => [m, m]), cur, { ru: 'Своя модель', en: 'Custom model', ky: 'Өз модель' });
+}
+
+function attrFieldsHTML(catId, subName, attrs) {
+  const schema = attrSchema(catId, subName);
+  if (!schema) return '';
+  attrs = attrs || {};
+  return schema.map(f => {
+    if (f.type === 'model') return attrModelFieldHTML(catId, subName, attrs);
+    if (f.type === 'number') {
+      const unit = f.unit ? ` <span class="attr-unit">(${aL(f.unit)})</span>` : '';
+      const cur = attrs[f.key];
+      return `<div class="fgroup attr-field" data-attr-field="${f.key}">
+        <label class="flabel">${aL(f.label)}${unit}</label>
+        <input class="finput" data-attr="${f.key}" type="number" inputmode="numeric" ${f.min != null ? `min="${f.min}"` : ''} ${f.max != null ? `max="${f.max}"` : ''} value="${cur != null ? esc(String(cur)) : ''}" placeholder="—">
+      </div>`;
+    }
+    const pairs = f.type === 'brand' ? brandsFor(f.group).map(b => [b, b]) : f.options.map(o => [o.v, aL(o.l)]);
+    const extra = f.type === 'brand' ? `data-attr-brand="${f.group}"` : '';
+    return attrSelectHTML(f.key, aL(f.label), pairs, attrs[f.key], _L_CUSTOM, extra);
+  }).join('');
+}
+
+/* собрать значения характеристик из контейнера формы */
+function collectAttrs(container) {
+  if (!container) return {};
+  const attrs = {};
+  container.querySelectorAll('[data-attr]').forEach(el => {
+    const key = el.dataset.attr;
+    let v = el.value;
+    if (v === OTHER_VAL) {
+      const other = container.querySelector(`[data-attr-other="${key}"]`);
+      v = other ? other.value.trim() : '';
+    }
+    if (v != null && String(v).trim() !== '') attrs[key] = el.type === 'number' ? +v : String(v).trim();
+  });
+  return attrs;
+}
+
 function renderPost(params) {
   const editId = params.get('edit');
   const editing = editId ? state.myListings.find(l => l.id === editId) : null;
@@ -1353,6 +1506,10 @@ function renderPost(params) {
           <div class="fgroup" id="pSubWrap" ${cat ? '' : 'hidden'}>
             <label class="flabel">${t('form.sub')}</label>
             <select class="fselect" id="pSub">${cat ? cat.subs.map(s => `<option value="${esc(s)}" ${f.subcategory === s ? 'selected' : ''}>${esc(subName(s))}</option>`).join('') : ''}</select>
+          </div>
+          <div class="attr-block" id="pAttrsWrap" hidden>
+            <div class="attr-block-head">⚙️ ${t('form.specs')}</div>
+            <div class="attr-grid" id="pAttrs"></div>
           </div>
           <div class="fgroup">
             <label class="flabel">${t('form.title')}</label>
@@ -1422,6 +1579,35 @@ function renderPost(params) {
   }
   renderPicker();
 
+  // характеристики (бренд→модель + спеки), стартовые значения из edit/prefill
+  let curAttrs = Object.assign({}, f.attrs || {});
+  function renderPostAttrs() {
+    const catId = $('#pCat').value;
+    const sub = $('#pSub') ? $('#pSub').value : '';
+    const wrap = $('#pAttrsWrap');
+    if (!hasAttrs(catId, sub)) { wrap.hidden = true; $('#pAttrs').innerHTML = ''; return; }
+    wrap.hidden = false;
+    $('#pAttrs').innerHTML = attrFieldsHTML(catId, sub, curAttrs);
+  }
+  renderPostAttrs();
+
+  $('#pAttrs').addEventListener('change', e => {
+    const el = e.target.closest('[data-attr]');
+    if (!el) return;
+    const key = el.dataset.attr;
+    const val = el.value;
+    if (el.tagName === 'SELECT') { // «Другое» → раскрыть свободный ввод
+      const other = $('#pAttrs').querySelector(`[data-attr-other="${key}"]`);
+      if (other) { other.hidden = val !== OTHER_VAL; if (val === OTHER_VAL) other.focus(); }
+    }
+    if (key === 'brand') { // марка сменилась → пересобрать поле модели
+      curAttrs.brand = val === OTHER_VAL ? '' : val;
+      curAttrs.model = '';
+      const mf = $('#pAttrs').querySelector('[data-attr-field="model"]');
+      if (mf) mf.outerHTML = attrModelFieldHTML($('#pCat').value, $('#pSub').value, curAttrs);
+    }
+  });
+
   $('#photoPicker').addEventListener('click', e => {
     const slot = e.target.closest('[data-seed]');
     if (!slot) return;
@@ -1436,9 +1622,10 @@ function renderPost(params) {
     const c = catById($('#pCat').value);
     $('#pSubWrap').hidden = !c;
     $('#pSub').innerHTML = c ? c.subs.map(s => `<option value="${esc(s)}">${esc(subName(s))}</option>`).join('') : '';
-    renderPicker();
+    curAttrs = {}; // другая категория → другие характеристики
+    renderPicker(); renderPostAttrs();
   });
-  $('#pSub').addEventListener('change', renderPicker);
+  $('#pSub').addEventListener('change', () => { curAttrs = {}; renderPicker(); renderPostAttrs(); });
 
   $('#pNegotiable').addEventListener('change', e => {
     $('#pPrice').disabled = e.target.checked;
@@ -1513,6 +1700,7 @@ function renderPost(params) {
       isUrgent: false,
       hasDelivery: $('#pDelivery').checked,
       phone,
+      attrs: collectAttrs($('#pAttrs')),
     };
 
     if (editing) {
@@ -1532,7 +1720,7 @@ function renderPost(params) {
           title: listing.title, price: listing.price, floor: listing.floor,
           category: listing.category, subcategory: listing.subcategory, city: listing.city,
           district: listing.district, condition: listing.condition, description: listing.description,
-          photos: listing.pickedSeeds, negotiable: listing.negotiable,
+          photos: listing.pickedSeeds, negotiable: listing.negotiable, attrs: listing.attrs,
         });
         const mapped = dbToListing(row, { [currentUser().id]: currentUser().name });
         state.dbListings.unshift(mapped);
