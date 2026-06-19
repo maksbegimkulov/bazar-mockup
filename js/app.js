@@ -1511,13 +1511,23 @@ async function onAuthSubmit(e) {
     showErr({
       'email-exists': t('auth.errEmailExists'), 'phone-exists': t('auth.errPhoneExists'),
       'no-user': t('auth.errNoUser'), 'bad-pass': t('auth.errBadPass'),
+      'bad-creds': t('auth.errBadCreds'), 'weak-pass': t('auth.errPass'), 'bad-email': t('auth.errEmail'),
+      'phone-unavailable': t('auth.phoneSoon'), 'provider-unavailable': t('auth.socialSoon').replace('{provider}', 'Google/Apple'),
+      'no-backend': t('auth.errGeneric'),
     }[ex.message] || t('auth.errGeneric'));
   }
 }
 
 async function doAuthSocial(provider) {
-  try { await authSocial(provider); afterAuth(); }
-  catch (ex) { showToast(t('auth.errGeneric')); }
+  // при успехе Supabase сам уводит на провайдера и возвращает залогиненным —
+  // afterAuth не нужен (страница навигируется). Ошибку показываем мягко.
+  try { await authSocial(provider); }
+  catch (ex) {
+    const msg = ex.message === 'provider-unavailable'
+      ? t('auth.socialSoon').replace('{provider}', provider === 'google' ? 'Google' : 'Apple')
+      : t('auth.errGeneric');
+    showToast(msg);
+  }
 }
 
 function afterAuth() {
@@ -2400,3 +2410,7 @@ applyStaticChrome();   // перевести шапку/навигацию/па�
 applyTheme();          // синхронизировать иконку темы
 $('#cityBtnLabel').textContent = cityLabel(state.city);
 router();
+
+// авторизация резолвится асинхронно (Supabase) — когда сессия подтянулась
+// или сменилась (вход/выход/возврат из OAuth), перерисовываем текущий экран
+authOnChange(() => router());
