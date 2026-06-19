@@ -2050,7 +2050,7 @@ function compareBarHTML() {
   const n = state.compare.size;
   if (!n) return '';
   return `<div class="compare-bar">
-    <span class="cmp-bar-label">⚖️ ${t('cmp.selected')}: <b>${n}</b></span>
+    <span class="cmp-bar-label">⚖️ <span class="cmp-bar-text">${t('cmp.selected')}:</span> <b>${n}</b></span>
     <span class="cmp-bar-actions">
       <button class="btn btn-outline btn-sm" data-action="compare-clear">${t('cmp.clear')}</button>
       <a class="btn btn-primary btn-sm ${n < 2 ? 'is-disabled' : ''}" href="#/compare" data-link>${t('cmp.go')}</a>
