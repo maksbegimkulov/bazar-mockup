@@ -97,7 +97,61 @@ function getPhotos(l) {
 
 function catById(id) { return CATEGORIES.find(c => c.id === id); }
 
-function allListings() { return [...state.myListings, ...LISTINGS]; }
+state.dbListings = []; // реальные объявления из Supabase (от всех юзеров)
+function allListings() { return [...state.myListings, ...state.dbListings, ...LISTINGS]; }
+
+/* строка из БД → форма объявления, понятная приложению */
+function dbToListing(r, names) {
+  const photos = Array.isArray(r.photos) ? r.photos : [];
+  return {
+    id: r.id, ownerId: r.owner_id, title: r.title,
+    price: Number(r.price) || 0, floor: Number(r.floor) || 0, priceSuffix: '',
+    negotiable: !!r.negotiable, category: r.category, subcategory: r.subcategory,
+    city: r.city, district: r.district || null, condition: r.condition || null,
+    description: r.description || '',
+    pickedSeeds: photos, photoCount: photos.length, photoSeed: 11,
+    sellerName: (names && names[r.owner_id]) || 'Пользователь', sellerType: 'private',
+    sellerRating: 5.0, sellerAds: 1, sellerSinceYear: 2026,
+    createdAt: new Date(r.created_at).getTime(),
+    postedHoursAgo: Math.max(0, Math.round((Date.now() - new Date(r.created_at).getTime()) / 3600000)),
+    views: 1, isVip: false, isUrgent: false, hasDelivery: false, phone: '',
+  };
+}
+
+/* подтянуть из облака: реальные объявления + чаты пользователя (с именами участников) */
+async function loadCloudData() {
+  if (!isAuthed() || typeof sb === 'undefined' || !sb) { state.dbListings = []; return; }
+  const me = currentUser().id;
+  try {
+    const rows = await dbAllListings();
+    const chats = await dbMyChats();
+    const ids = new Set();
+    rows.forEach(r => ids.add(r.owner_id));
+    chats.forEach(c => { ids.add(c.buyer_id); ids.add(c.seller_id); });
+    let names = {};
+    if (ids.size) {
+      const { data } = await sb.from('profiles').select('id,name').in('id', [...ids]);
+      (data || []).forEach(p => names[p.id] = p.name);
+    }
+    state.dbListings = rows.map(r => dbToListing(r, names));
+    const map = {};
+    for (const c of chats) {
+      const msgs = await dbMessages(c.id);
+      const otherId = c.buyer_id === me ? c.seller_id : c.buyer_id;
+      map[c.id] = {
+        itemId: c.listing_ref, chatId: c.id, isDb: true,
+        sellerId: c.seller_id, buyerId: c.buyer_id, otherName: names[otherId] || 'Пользователь',
+        title: c.listing_title,
+        messages: msgs.map(m => ({ from: m.sender_id === me ? 'me' : 'them', text: m.text, ts: new Date(m.created_at).getTime(), id: m.id })),
+        unread: false, updatedAt: new Date(c.updated_at).getTime(),
+      };
+    }
+    state.chats = map;
+    updateBadges();
+    const p = parseHash().path;
+    if (p.startsWith('/chats') || p === '/' || p === '' || p.startsWith('/search') || p.startsWith('/profile') || p.startsWith('/item')) router();
+  } catch (e) { /* офлайн/ошибка — оставляем что есть */ }
+}
 
 function getListing(id) { return allListings().find(l => l.id === id); }
 
@@ -826,29 +880,56 @@ function submitOffer(id) {
   }
 }
 
-function offerToChat(id, price) {
-  const l = getListing(id);
+/* открыть чат с продавцом по объявлению: реальное (БД) → realtime-чат, мок → демо-бот */
+async function openChatForListing(listingId, prefillText) {
+  if (!requireAuth(location.hash)) return;
+  const l = getListing(listingId);
   if (!l) return;
-  closeModal();
-  const chat = ensureChat(id);
-  chat.messages.push({ from: 'me', text: t('offer.chatMsg').replace('{price}', fmtNum(price) + ' ' + t('som')), ts: Date.now() });
-  chat.updatedAt = Date.now();
-  lsSave(LS.chats, state.chats);
-  showToast(t('offer.dealDone'), 'success');
-  location.hash = '#/chats/' + id;
-  // продавец мгновенно подтверждает сделку
-  setTimeout(() => {
-    const c = state.chats[id];
-    if (!c) return;
-    const reply = { from: 'them', text: t('offer.sellerConfirm'), ts: Date.now() };
-    c.messages.push(reply);
-    c.updatedAt = Date.now();
-    const here = location.hash === '#/chats/' + id;
-    c.unread = !here;
+  if (l.ownerId) { // реальное объявление с владельцем → настоящий чат
+    if (l.ownerId === currentUser().id) { showToast(t('chat.ownListing')); return; }
+    try {
+      const chat = await dbStartChat({ listingRef: l.id, listingTitle: l.title, sellerId: l.ownerId });
+      if (!state.chats[chat.id]) {
+        state.chats[chat.id] = {
+          itemId: l.id, chatId: chat.id, isDb: true, sellerId: chat.seller_id, buyerId: chat.buyer_id,
+          otherName: l.sellerName, title: l.title, messages: [], unread: false, updatedAt: Date.now(),
+        };
+      }
+      if (prefillText) {
+        const msg = { from: 'me', text: prefillText, ts: Date.now() };
+        state.chats[chat.id].messages.push(msg);
+        const saved = await dbSendMessage(chat.id, prefillText);
+        msg.id = saved.id;
+        showToast(t('offer.dealDone'), 'success');
+      }
+      location.hash = '#/chats/' + chat.id;
+    } catch (e) { showToast(t('auth.errGeneric')); }
+    return;
+  }
+  // мок-объявление → локальный демо-чат
+  const chat = ensureChat(listingId);
+  if (prefillText) {
+    chat.messages.push({ from: 'me', text: prefillText, ts: Date.now() });
+    chat.updatedAt = Date.now();
     lsSave(LS.chats, state.chats);
-    if (here && !appendChatMsg(id, reply)) renderChats(id);
-    updateBadges();
-  }, 1200);
+    showToast(t('offer.dealDone'), 'success');
+    setTimeout(() => {
+      const c = state.chats[listingId];
+      if (!c) return;
+      const reply = { from: 'them', text: t('offer.sellerConfirm'), ts: Date.now() };
+      c.messages.push(reply); c.updatedAt = Date.now();
+      const here = location.hash === '#/chats/' + listingId;
+      c.unread = !here; lsSave(LS.chats, state.chats);
+      if (here && !appendChatMsg(listingId, reply)) renderChats(listingId);
+      updateBadges();
+    }, 1200);
+  }
+  location.hash = '#/chats/' + listingId;
+}
+
+function offerToChat(id, price) {
+  closeModal();
+  openChatForListing(id, t('offer.chatMsg').replace('{price}', fmtNum(price) + ' ' + t('som')));
 }
 
 /* ---------------- избранное ---------------- */
@@ -1361,7 +1442,7 @@ function renderPost(params) {
     document.querySelectorAll('#pCondition .fchip').forEach(x => x.classList.toggle('active', x === b));
   });
 
-  $('#postForm').addEventListener('submit', e => {
+  $('#postForm').addEventListener('submit', async e => {
     e.preventDefault();
     document.querySelectorAll('.field-error').forEach(x => x.remove());
     document.querySelectorAll('.error').forEach(x => x.classList.remove('error'));
@@ -1425,12 +1506,31 @@ function renderPost(params) {
       const i = state.myListings.findIndex(l => l.id === editing.id);
       state.myListings[i] = listing;
       LISTING_IDX.delete(listing.id); // заголовок мог измениться — индекс пересоберётся
+      lsSave(LS.my, state.myListings);
       showToast(t('toast.saved'), 'success');
-    } else {
-      state.myListings.unshift(listing);
-      showToast(t('toast.published'), 'success');
+      location.hash = '#/item/' + listing.id;
+      return;
     }
+    // новое объявление: залогинен → сохраняем в облако (с реальным владельцем,
+    // видно всем и можно писать продавцу), иначе локально как раньше
+    if (isAuthed()) {
+      try {
+        const row = await dbCreateListing({
+          title: listing.title, price: listing.price, floor: listing.floor,
+          category: listing.category, subcategory: listing.subcategory, city: listing.city,
+          district: listing.district, condition: listing.condition, description: listing.description,
+          photos: listing.pickedSeeds, negotiable: listing.negotiable,
+        });
+        const mapped = dbToListing(row, { [currentUser().id]: currentUser().name });
+        state.dbListings.unshift(mapped);
+        showToast(t('toast.published'), 'success');
+        location.hash = '#/item/' + mapped.id;
+        return;
+      } catch (err) { /* офлайн/ошибка → падаем на локальное сохранение */ }
+    }
+    state.myListings.unshift(listing);
     lsSave(LS.my, state.myListings);
+    showToast(t('toast.published'), 'success');
     location.hash = '#/item/' + listing.id;
   });
 }
@@ -1730,11 +1830,30 @@ function appendChatMsg(itemId, m) {
   return true;
 }
 
+let _chatSub = null; // отписка от realtime текущего открытого DB-чата
+
+/* пришло realtime-сообщение от собеседника */
+function onRealtimeMsg(chatKey, m) {
+  const chat = state.chats[chatKey];
+  if (!chat || !currentUser()) return;
+  if (m.sender_id === currentUser().id) return;        // своё уже показали оптимистично
+  if (chat.messages.some(x => x.id === m.id)) return;   // дедуп
+  const msg = { from: 'them', text: m.text, ts: new Date(m.created_at).getTime(), id: m.id };
+  chat.messages.push(msg);
+  chat.updatedAt = Date.now();
+  const here = location.hash === '#/chats/' + chatKey;
+  chat.unread = !here;
+  if (here && !appendChatMsg(chatKey, msg)) renderChats(chatKey);
+  updateBadges();
+}
+
 function renderChats(activeId) {
-  const chats = Object.values(state.chats)
-    .map(c => ({ ...c, listing: getListing(c.itemId) }))
-    .filter(c => c.listing)
+  const chats = Object.entries(state.chats)
+    .map(([key, c]) => ({ ...c, key, listing: getListing(c.itemId) }))
+    .filter(c => c.listing || c.isDb)
     .sort((a, b) => b.updatedAt - a.updatedAt);
+
+  if (_chatSub) { _chatSub(); _chatSub = null; } // снять старую подписку при перерисовке
 
   if (!chats.length) {
     app.innerHTML = `
@@ -1744,23 +1863,27 @@ function renderChats(activeId) {
     return;
   }
 
-  const active = activeId ? chats.find(c => c.itemId === activeId) : null;
+  const active = activeId ? chats.find(c => c.key === activeId) : null;
   if (active && active.unread) {
-    active.unread = false; // и в копии для рендера строк
-    state.chats[active.itemId].unread = false;
-    lsSave(LS.chats, state.chats);
+    active.unread = false;
+    if (state.chats[active.key]) state.chats[active.key].unread = false;
+    if (!active.isDb) lsSave(LS.chats, state.chats);
     updateBadges();
   }
 
+  const chName = (c) => c.isDb ? (c.otherName || (c.listing ? c.listing.sellerName : t('chats.title'))) : (c.listing ? c.listing.sellerName : '');
+  const chPhoto = (c) => (c.listing ? (getPhotos(c.listing)[0] || '') : '');
+  const chTitle = (c) => (c.listing ? c.listing.title : c.title) || '';
+
   const rowsHTML = chats.map(c => {
-    const photos = getPhotos(c.listing);
+    const photo = chPhoto(c);
     const last = c.messages[c.messages.length - 1];
     return `
-    <div class="chat-row ${active && c.itemId === active.itemId ? 'active' : ''}" data-chat="${c.itemId}">
-      ${photos.length ? `<img src="${photos[0]}" alt="">` : '<div class="thumb-fallback" style="width:48px;height:48px">📷</div>'}
+    <div class="chat-row ${active && c.key === active.key ? 'active' : ''}" data-chat="${esc(c.key)}">
+      ${photo ? `<img src="${photo}" alt="">` : '<div class="thumb-fallback" style="width:48px;height:48px">📷</div>'}
       <div class="info">
-        <div class="name"><span class="nm">${esc(c.listing.sellerName)}</span> ${last ? `<time>${msgTime(last.ts)}</time>` : ''}</div>
-        <div class="last">${c.unread ? '<b style="color:var(--accent-dark)">● </b>' : ''}${last ? esc(last.text) : esc(c.listing.title)}</div>
+        <div class="name"><span class="nm">${esc(chName(c))}</span> ${last ? `<time>${msgTime(last.ts)}</time>` : ''}</div>
+        <div class="last">${c.unread ? '<b style="color:var(--accent-dark)">● </b>' : ''}${last ? esc(last.text) : esc(chTitle(c))}</div>
       </div>
     </div>`;
   }).join('');
@@ -1768,10 +1891,12 @@ function renderChats(activeId) {
   const windowHTML = active ? `
     <div class="chat-head">
       <button class="icon-btn back-btn" data-action="chat-back" aria-label="${t('a11y.back')}">←</button>
-      ${getPhotos(active.listing)[0] ? `<img src="${getPhotos(active.listing)[0]}" alt="">` : ''}
+      ${chPhoto(active) ? `<img src="${chPhoto(active)}" alt="">` : ''}
       <div style="min-width:0">
-        <div class="t">${esc(active.listing.sellerName)}</div>
-        <a class="s" href="#/item/${active.listing.id}" data-link style="display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis">${esc(active.listing.title)} · ${active.listing.negotiable ? t('price.negotiable') : fmtNum(active.listing.price) + ' ' + t('som')}</a>
+        <div class="t">${esc(chName(active))}</div>
+        ${active.listing
+          ? `<a class="s" href="#/item/${active.listing.id}" data-link style="display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis">${esc(active.listing.title)} · ${active.listing.negotiable ? t('price.negotiable') : fmtNum(active.listing.price) + ' ' + t('som')}</a>`
+          : `<div class="s" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis">${esc(chTitle(active))}</div>`}
       </div>
     </div>
     <div class="chat-msgs" id="chatMsgs">
@@ -1799,8 +1924,13 @@ function renderChats(activeId) {
       <div class="chats-list ${active ? 'hide-mobile' : ''}">
         ${rowsHTML}
       </div>
-      <div class="chat-window ${active ? '' : 'hide-mobile'}" data-active-chat="${active ? active.itemId : ''}">${windowHTML}</div>
+      <div class="chat-window ${active ? '' : 'hide-mobile'}" data-active-chat="${active ? esc(active.key) : ''}">${windowHTML}</div>
     </div>`;
+
+  // живая подписка на сообщения собеседника (DB-чат)
+  if (active && active.isDb && active.chatId) {
+    _chatSub = dbSubscribeMessages(active.chatId, m => onRealtimeMsg(active.key, m));
+  }
 
   const msgs = $('#chatMsgs');
   if (msgs) msgs.scrollTop = msgs.scrollHeight;
@@ -1833,24 +1963,33 @@ if (window.visualViewport) {
   window.visualViewport.addEventListener('scroll', syncChatViewport);
 }
 
-function sendChatMessage(itemId, text) {
+function sendChatMessage(chatKey, text) {
   text = text.trim();
   if (!text) return;
-  const chat = ensureChat(itemId);
+  const existing = state.chats[chatKey];
+
+  // === реальный DB-чат: шлём в облако, отвечает живой собеседник через realtime (без бота) ===
+  if (existing && existing.isDb) {
+    const msg = { from: 'me', text, ts: Date.now() };
+    existing.messages.push(msg);
+    existing.updatedAt = Date.now();
+    const inp = $('#chatText'); if (inp) { inp.value = ''; inp.focus(); }
+    if (!appendChatMsg(chatKey, msg)) renderChats(chatKey);
+    dbSendMessage(existing.chatId, text).then(saved => { msg.id = saved.id; }).catch(() => showToast(t('auth.errGeneric')));
+    return;
+  }
+
+  // === локальный демо-чат (мок-объявление): бот-автоответ + демо анти-скама ===
+  const chat = ensureChat(chatKey);
   const msg = { from: 'me', text, ts: Date.now() };
   chat.messages.push(msg);
   chat.updatedAt = Date.now();
   lsSave(LS.chats, state.chats);
-
-  // первое сообщение — полный рендер (уходит пустое состояние и быстрые ответы),
-  // дальше — дозапись в DOM, чтобы не закрывать клавиатуру
-  if (chat.messages.length === 1 || !appendChatMsg(itemId, msg)) {
-    renderChats(itemId);
-    const inp = $('#chatText');
-    if (inp) inp.focus();
+  if (chat.messages.length === 1 || !appendChatMsg(chatKey, msg)) {
+    renderChats(chatKey);
+    const inp = $('#chatText'); if (inp) inp.focus();
   } else {
-    const inp = $('#chatText');
-    if (inp) { inp.value = ''; inp.focus(); }
+    const inp = $('#chatText'); if (inp) { inp.value = ''; inp.focus(); }
   }
 
   setTimeout(() => {
@@ -1858,13 +1997,13 @@ function sendChatMessage(itemId, text) {
     const reply = { from: 'them', text: pool[Math.floor(Math.random() * pool.length)], ts: Date.now() };
     chat.messages.push(reply);
     chat.updatedAt = Date.now();
-    const here = location.hash === '#/chats/' + itemId;
+    const here = location.hash === '#/chats/' + chatKey;
     chat.unread = !here;
     lsSave(LS.chats, state.chats);
     if (here) {
-      if (!appendChatMsg(itemId, reply)) renderChats(itemId);
+      if (!appendChatMsg(chatKey, reply)) renderChats(chatKey);
     } else if (location.hash === '#/chats') {
-      renderChats(null); // обновить список: последнее сообщение + маркер непрочитанного
+      renderChats(null);
     }
     updateBadges();
   }, 1100 + Math.random() * 1400);
@@ -2056,6 +2195,7 @@ function router() {
   closeFilterSheet();
   hideSuggest();
   unlockScroll('chat'); // уходим с диалога — снять блокировку прокрутки (re-lock в renderChats)
+  if (!path.startsWith('/chats') && _chatSub) { _chatSub(); _chatSub = null; } // снять realtime-подписку
   if (!path.startsWith('/sell') && typeof visionStopCamera === 'function') visionStopCamera();
 
   if (path === '/' || path === '') {
@@ -2277,16 +2417,10 @@ document.addEventListener('click', e => {
       case 'gallery-prev': galleryGo(-1); break;
       case 'gallery-next': galleryGo(1); break;
       case 'show-phone': showPhoneModal(id); break;
-      case 'write-seller': {
-        closeModal();
-        if (!requireAuth(location.hash)) break;
-        ensureChat(id);
-        location.hash = '#/chats/' + id;
-        break;
-      }
+      case 'write-seller': { closeModal(); openChatForListing(id); break; }
       case 'offer-price': openOfferModal(id); break;
       case 'offer-submit': submitOffer(id); break;
-      case 'offer-deal': { closeModal(); if (requireAuth(location.hash)) offerToChat(id, +actBtn.dataset.price); break; }
+      case 'offer-deal': offerToChat(id, +actBtn.dataset.price); break;
       case 'logout': { authSignOut(); showToast(t('auth.bye')); location.hash = '#/'; break; }
       case 'bump': {
         const l = state.myListings.find(x => x.id === id);
@@ -2412,5 +2546,5 @@ $('#cityBtnLabel').textContent = cityLabel(state.city);
 router();
 
 // авторизация резолвится асинхронно (Supabase) — когда сессия подтянулась
-// или сменилась (вход/выход/возврат из OAuth), перерисовываем текущий экран
-authOnChange(() => router());
+// или сменилась (вход/выход/возврат из OAuth): перерисовываем + тянем облачные данные
+authOnChange(() => { router(); loadCloudData(); });
