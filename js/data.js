@@ -402,6 +402,12 @@ function generateListings() {
         else if (price > 10000) price = Math.round(price / 500) * 500;
         else if (price > 0) price = Math.round(price / 50) * 50;
 
+        // «Культурный торг»: скрытый пол цены (минимум, за который продавец реально отдаст).
+        // Только для физических товаров с реальной ценой; ~62% таких объявлений.
+        const bargainCats = ['electronics', 'transport', 'fashion', 'home', 'hobby', 'kids', 'animals'];
+        const canBargain = price > 500 && !negotiable && bargainCats.includes(catId) && rnd() < 0.62;
+        const floor = canBargain ? Math.round((price * (0.80 + rnd() * 0.12)) / 50) * 50 : 0;
+
         const isBishkek = rnd() < 0.6;
         const city = isBishkek ? 'Бишкек' : pick(CITIES.slice(1));
         const isBusiness = catId === 'services' || catId === 'jobs' ? rnd() < 0.45 : rnd() < 0.18;
@@ -420,6 +426,7 @@ function generateListings() {
           price,
           priceSuffix: opts.suffix || '',
           negotiable: price === 0,
+          floor,
           category: catId,
           subcategory: sub,
           city,

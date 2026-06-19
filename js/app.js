@@ -257,7 +257,7 @@ function cardHTML(l) {
       <button class="fav-btn ${isFav ? 'active' : ''}" data-fav="${l.id}" title="${t('item.fav')}" aria-label="${t('item.fav')}">${HEART_SVG}</button>
     </div>
     <div class="card-body">
-      <div class="card-price">${priceHTML(l)}</div>
+      <div class="card-price">${priceHTML(l)}${l.floor ? `<span class="card-bargain">🤝 ${t('tag.bargain')}</span>` : ''}</div>
       <div class="card-title">${esc(l.title)}</div>
       <div class="card-meta">${esc(l.city)}${l.district ? ', ' + esc(l.district) : ''} · ${postedLabel(l)}</div>
     </div>
@@ -653,6 +653,7 @@ function renderItem(id) {
       <div class="buy-title">${esc(l.title)}</div>
       <div class="buy-price">${priceHTML(l)}</div>
       ${verdict ? `<div class="price-verdict ${verdict.cls}" title="${esc(verdict.hint)}">${verdict.label} · ${esc(verdict.hint)}</div>` : ''}
+      ${l.floor && !isMine ? `<div class="bargain-badge">🤝 ${t('item.bargainOk')}</div>` : ''}
       <div class="buy-meta">${esc(l.city)}${l.district ? ', ' + esc(l.district) : ''} · ${postedLabel(l)} · 👁️ ${fmtNum(l.views)}</div>
       <div class="buy-actions">
         ${isMine ? `
@@ -660,6 +661,7 @@ function renderItem(id) {
           <button class="btn btn-outline" data-action="bump" data-id="${l.id}">⬆️ ${t('item.bump')}</button>
           <button class="btn btn-danger-soft" data-action="delete-my" data-id="${l.id}">${t('item.delete')}</button>
         ` : `
+          ${l.floor ? `<button class="btn btn-bargain btn-lg" data-action="offer-price" data-id="${l.id}">🤝 ${t('item.offerPrice')}</button>` : ''}
           <button class="btn btn-primary btn-lg" data-action="show-phone" data-id="${l.id}">📞 ${t('item.showPhone')}</button>
           <button class="btn btn-secondary btn-lg" data-action="write-seller" data-id="${l.id}">💬 ${t('item.write')}</button>
           <button class="btn btn-outline" data-fav="${l.id}">${isFav ? '❤️ ' + t('item.faved') : '🤍 ' + t('item.fav')}</button>
@@ -765,6 +767,87 @@ function showPhoneModal(id) {
       <div style="height:8px"></div>
       <button class="btn btn-outline btn-block btn-lg" data-action="write-seller" data-id="${l.id}">${t('phone.chat')}</button>
     </div>`);
+}
+
+/* ---------------- «Культурный торг» (авто-переговорщик) ---------------- */
+
+function openOfferModal(id) {
+  const l = getListing(id);
+  if (!l || !l.floor) return;
+  state._offerTries = 0;
+  openModal(`
+    <h3>🤝 ${t('offer.title')}</h3>
+    <p class="modal-text">${t('offer.sub').replace('{price}', '<b>' + fmtNum(l.price) + ' ' + t('som') + '</b>')}</p>
+    <input class="finput offer-input" id="offerInput" type="number" inputmode="numeric" min="0" placeholder="${t('offer.ph')}" autocomplete="off">
+    <div id="offerResult"></div>
+    <div class="modal-actions" id="offerActions">
+      <button class="btn btn-outline btn-block" data-action="modal-close">${t('del.cancel')}</button>
+      <button class="btn btn-primary btn-block" data-action="offer-submit" data-id="${l.id}">${t('offer.submit')}</button>
+    </div>`);
+  const inp = $('#offerInput');
+  if (inp && window.innerWidth > 920) inp.focus();
+  if (inp) inp.addEventListener('keydown', ev => { if (ev.key === 'Enter') { ev.preventDefault(); submitOffer(id); } });
+}
+
+function submitOffer(id) {
+  const l = getListing(id);
+  if (!l || !l.floor) return;
+  const inp = $('#offerInput');
+  const result = $('#offerResult');
+  if (!inp || !result) return;
+  const offer = Math.round(+inp.value || 0);
+  if (offer <= 0) { result.innerHTML = `<div class="offer-msg offer-warn">${t('offer.enter')}</div>`; return; }
+  state._offerTries = (state._offerTries || 0) + 1;
+
+  if (offer >= l.floor) {
+    const deal = Math.min(offer, l.price); // не дороже витрины
+    result.innerHTML = `<div class="offer-msg offer-ok">
+        <div class="offer-ok-head">✅ ${t('offer.accepted')}</div>
+        <div class="offer-deal">${fmtNum(deal)} ${t('som')}</div>
+        <button class="btn btn-primary btn-block btn-lg" data-action="offer-deal" data-id="${id}" data-price="${deal}">💬 ${t('offer.toChat')}</button>
+      </div>`;
+    inp.disabled = true;
+    const submitBtn = document.querySelector('#offerActions [data-action="offer-submit"]');
+    if (submitBtn) submitBtn.remove();
+  } else {
+    const gap = (l.floor - offer) / l.floor;
+    const isClose = gap <= 0.07;
+    const head = isClose ? t('offer.close') : t('offer.rejected');
+    const cls = isClose ? 'offer-warn' : 'offer-no';
+    let counter = '';
+    if (state._offerTries >= 2) {
+      counter = `<div class="offer-counter">
+          <div class="offer-counter-text">${t('offer.counter').replace('{price}', '<b>' + fmtNum(l.floor) + ' ' + t('som') + '</b>')}</div>
+          <button class="btn btn-bargain btn-block" data-action="offer-deal" data-id="${id}" data-price="${l.floor}">🤝 ${t('offer.acceptCounter')}</button>
+        </div>`;
+    }
+    result.innerHTML = `<div class="offer-msg ${cls}">${head}</div>${counter}`;
+  }
+}
+
+function offerToChat(id, price) {
+  const l = getListing(id);
+  if (!l) return;
+  closeModal();
+  const chat = ensureChat(id);
+  chat.messages.push({ from: 'me', text: t('offer.chatMsg').replace('{price}', fmtNum(price) + ' ' + t('som')), ts: Date.now() });
+  chat.updatedAt = Date.now();
+  lsSave(LS.chats, state.chats);
+  showToast(t('offer.dealDone'), 'success');
+  location.hash = '#/chats/' + id;
+  // продавец мгновенно подтверждает сделку
+  setTimeout(() => {
+    const c = state.chats[id];
+    if (!c) return;
+    const reply = { from: 'them', text: t('offer.sellerConfirm'), ts: Date.now() };
+    c.messages.push(reply);
+    c.updatedAt = Date.now();
+    const here = location.hash === '#/chats/' + id;
+    c.unread = !here;
+    lsSave(LS.chats, state.chats);
+    if (here && !appendChatMsg(id, reply)) renderChats(id);
+    updateBadges();
+  }, 1200);
 }
 
 /* ---------------- избранное ---------------- */
@@ -1198,6 +1281,11 @@ function renderPost(params) {
               <select class="fselect" id="pCity">${cityOptions}</select>
             </div>
           </div>
+          <div class="fgroup post-floor" id="pFloorWrap" ${f.negotiable ? 'hidden' : ''}>
+            <label class="flabel">🤝 ${t('form.floor')}</label>
+            <input class="finput" id="pFloor" type="number" inputmode="numeric" min="0" placeholder="${t('form.floorPh')}" value="${f.floor || ''}">
+            <div class="hint">${t('form.floorHint')}</div>
+          </div>
           <div class="form-row">
             <div class="fgroup">
               <label class="flabel">${t('form.cond')}</label>
@@ -1260,6 +1348,8 @@ function renderPost(params) {
   $('#pNegotiable').addEventListener('change', e => {
     $('#pPrice').disabled = e.target.checked;
     if (e.target.checked) $('#pPrice').value = '';
+    const fw = $('#pFloorWrap');
+    if (fw) { fw.hidden = e.target.checked; if (e.target.checked) $('#pFloor').value = ''; }
   });
 
   let condition = f.condition || '';
@@ -1288,6 +1378,7 @@ function renderPost(params) {
     const desc = $('#pDesc').value.trim();
     const negotiable = $('#pNegotiable').checked;
     const price = negotiable ? 0 : +$('#pPrice').value;
+    const floorRaw = negotiable ? 0 : Math.round(+$('#pFloor').value || 0);
     const city = $('#pCity').value;
     const phone = $('#pPhone').value.trim();
 
@@ -1295,6 +1386,7 @@ function renderPost(params) {
     if (title.length < 5) mark('#pTitle', t('err.title'));
     if (desc.length < 10) mark('#pDesc', t('err.desc'));
     if (!negotiable && (!price || price <= 0)) mark('#pPrice', t('err.price'));
+    if (floorRaw > 0 && price > 0 && floorRaw >= price) mark('#pFloor', t('err.floor'));
     if (!city) mark('#pCity', t('err.city'));
     if (!/^\+?[\d\s()-]{9,}$/.test(phone)) mark('#pPhone', t('err.phone'));
     if (errs.length) { showToast(t('toast.checkFields')); return; }
@@ -1305,6 +1397,7 @@ function renderPost(params) {
       price,
       priceSuffix: '',
       negotiable,
+      floor: (floorRaw > 0 && floorRaw < price) ? floorRaw : 0,
       category: catVal,
       subcategory: $('#pSub').value || catById(catVal).subs[0],
       city,
@@ -2002,6 +2095,9 @@ document.addEventListener('click', e => {
         location.hash = '#/chats/' + id;
         break;
       }
+      case 'offer-price': openOfferModal(id); break;
+      case 'offer-submit': submitOffer(id); break;
+      case 'offer-deal': offerToChat(id, +actBtn.dataset.price); break;
       case 'bump': {
         const l = state.myListings.find(x => x.id === id);
         if (l) {
