@@ -134,10 +134,17 @@ a, button, .fchip, .fav-btn {
 main.container { padding-top: 20px; padding-bottom: 90px; min-height: 70vh; }
 
 /* мягкое появление контента при переходе между экранами — «живой» премиум-фил.
-   .chats-layout исключён: внутри fixed-оверлей диалога, а transform на предке
-   ломал бы его позиционирование. */
+   fill-mode = BACKWARDS, а НЕ both: `both`/`forwards` сохраняли финальный кадр
+   как transform: matrix(1,0,0,1,0,0) (единичная матрица — визуально none, но это
+   НЕ keyword `none`), а любой transform ≠ none создаёт containing-block для
+   position:fixed-потомков → мобильный bottom-sheet фильтра (fixed внутри
+   .search-layout) позиционировался относительно высокого слоя, рос во всю его
+   высоту, не переполнялся и НЕ скроллился (низ + «Применить» уезжали под экран).
+   `backwards` даёт тот же анти-флэш на старте, но после анимации transform
+   возвращается к none → fixed снова относительно вьюпорта и скроллится.
+   .chats-layout всё равно исключаем (внутри свой fixed-оверлей диалога). */
 @keyframes page-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
-main#app > * { animation: page-in var(--dur-3) var(--ease) both; }
+main#app > * { animation: page-in var(--dur-3) var(--ease) backwards; }
 main#app > .chats-layout { animation: none; }
 
 /* ---------------- header ---------------- */
