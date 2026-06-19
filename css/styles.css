@@ -455,12 +455,13 @@ main#app > .chats-layout { animation: none; }
 .photo-count {
   position: absolute;
   right: 8px; bottom: 8px;
-  background: rgba(0,0,0,0.55);
+  background: rgba(0,0,0,0.5);
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
   color: #fff;
   font-size: 11.5px;
-  font-weight: 600;
-  padding: 2px 8px;
-  border-radius: 20px;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: var(--radius-pill);
 }
 
 .card-tags { position: absolute; top: 8px; left: 8px; right: 48px; display: flex; gap: 5px; flex-wrap: wrap; }
@@ -634,7 +635,7 @@ main#app > .chats-layout { animation: none; }
 
 /* результаты */
 .results-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
-.results-head h1 { margin: 0; font-size: 24px; letter-spacing: -0.4px; }
+.results-head h1 { margin: 0; font-size: 24px; font-weight: 800; letter-spacing: -0.5px; }
 .results-count { color: var(--text-3); font-size: 14px; }
 
 .results-bar {
@@ -658,11 +659,13 @@ main#app > .chats-layout { animation: none; }
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%235b6470' stroke-width='2' fill='none'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 10px center;
+  transition: border-color var(--dur-1) var(--ease), box-shadow var(--dur-2) var(--ease);
 }
-.sort-select:focus-visible { border-color: var(--accent); outline: none; }
+.sort-select:hover { border-color: var(--text-3); }
+.sort-select:focus-visible { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
 
 .view-toggle { display: flex; border: 1.5px solid var(--line-2); border-radius: var(--radius-s); overflow: hidden; margin-left: auto; }
-.view-toggle button { width: 38px; height: 38px; display: grid; place-items: center; color: var(--text-3); background: var(--card); }
+.view-toggle button { width: 38px; height: 38px; display: grid; place-items: center; color: var(--text-3); background: var(--card); transition: background var(--dur-1) var(--ease), color var(--dur-1) var(--ease); }
 .view-toggle button.active { background: var(--accent-soft); color: var(--accent-dark); }
 
 .filters-open-btn {
@@ -678,9 +681,10 @@ main#app > .chats-layout { animation: none; }
   font-size: 13.5px;
 }
 .filters-open-btn .fcount {
-  background: var(--accent);
+  background: var(--accent-grad);
   color: #fff;
   font-size: 11px;
+  font-weight: 700;
   min-width: 18px;
   height: 18px;
   border-radius: 9px;
@@ -699,10 +703,13 @@ main#app > .chats-layout { animation: none; }
   background: var(--accent-soft);
   color: var(--accent-dark);
   font-size: 12.5px;
-  font-weight: 600;
-  padding: 6px 11px;
-  border-radius: 30px;
+  font-weight: 700;
+  padding: 6px 12px;
+  border-radius: var(--radius-pill);
+  border: 1px solid transparent;
+  transition: border-color var(--dur-1) var(--ease);
 }
+.achip:active { border-color: var(--accent); }
 .achip-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .achip button { color: var(--accent-dark); font-size: 15px; line-height: 1; padding: 8px; margin: -8px -6px -8px -3px; opacity: 0.7; flex-shrink: 0; }
 .achip button:active { opacity: 1; }
@@ -771,24 +778,28 @@ main#app > .chats-layout { animation: none; }
   transform: translateY(-50%);
   width: 44px; height: 44px;
   border-radius: 50%;
-  background: rgba(255,255,255,0.92);
-  color: var(--text);
+  background: rgba(255,255,255,0.82);
+  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+  color: #1c2024;
   display: grid;
   place-items: center;
   font-size: 20px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  box-shadow: 0 4px 14px rgba(0,0,0,0.18);
+  transition: background var(--dur-1) var(--ease), transform var(--dur-1) var(--ease);
 }
+.gallery-nav:active { transform: translateY(-50%) scale(0.9); }
 .gallery-nav.prev { left: 14px; }
 .gallery-nav.next { right: 14px; }
 .gallery-counter {
   position: absolute;
   bottom: 12px; right: 14px;
-  background: rgba(0,0,0,0.55);
+  background: rgba(0,0,0,0.5);
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
   color: #fff;
   font-size: 12px;
-  font-weight: 600;
-  padding: 3px 10px;
-  border-radius: 20px;
+  font-weight: 700;
+  padding: 3px 11px;
+  border-radius: var(--radius-pill);
 }
 .gallery-thumbs {
   display: flex;
@@ -875,6 +886,7 @@ main#app > .chats-layout { animation: none; }
   font-size: 19px;
   color: #fff;
   flex-shrink: 0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.14), inset 0 0 0 2px rgba(255, 255, 255, 0.18);
 }
 .avatar-lg { width: 64px; height: 64px; font-size: 25px; }
 .seller-info { min-width: 0; }
@@ -1765,7 +1777,7 @@ main#app > .chats-layout { animation: none; }
   .fchip:hover { border-color: var(--accent); color: var(--accent-dark); }
   .fchip.active:hover { color: #fff; }
   .achip button:hover { opacity: 1; }
-  .gallery-nav:hover { background: var(--card); }
+  .gallery-nav:hover { background: rgba(255,255,255,0.96); transform: translateY(-50%) scale(1.06); }
   .gallery-thumbs img:hover { opacity: 1; }
   .chat-row:hover { background: var(--bg); }
   .city-list button:hover { background: var(--bg); }
@@ -1774,6 +1786,8 @@ main#app > .chats-layout { animation: none; }
   .sell-snap:hover { transform: translateY(-2px); box-shadow: var(--shadow-hover); border-color: var(--accent-dark); }
   .sell-sample:hover { border-color: var(--accent); transform: scale(1.03); }
   .my-listing-row:hover { box-shadow: var(--shadow-hover); transform: translateY(-2px); }
+  .breadcrumbs a:hover { color: var(--accent-dark); }
+  .seller-card:hover, .buy-card:hover { box-shadow: var(--shadow-hover); }
 }
 
 /* ---------------- адаптив ---------------- */
