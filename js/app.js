@@ -1521,6 +1521,26 @@ const AUTO_REPLIES = [
   'Здравствуйте! Отвечу на любые вопросы.',
 ];
 
+/* демо: иногда «продавец» оказывается скамером — Диана это ловит */
+const SCAM_REPLIES = [
+  'Давайте лучше в WhatsApp, скину ссылку на оплату 👌',
+  'Скиньте предоплату на Каспи — и я отложу для вас 🙏',
+  'Оплатите онлайн по ссылке, доставка приедет сама.',
+  'Переведите 50% на карту, остальное при получении.',
+];
+
+/* анти-скам: ловим увод оплаты из BAZAR (предоплата, ссылки, перевод на карту,
+   переход в WhatsApp/Telegram). \b/\w кириллицу не ловят — проверяем includes. */
+function detectScam(text) {
+  const s = (text || '').toLowerCase().replace(/ё/g, 'е');
+  const flags = [
+    'предоплат', 'каспи', 'kaspi', 'номер карты', 'на карту', 'переведи', 'переведите', 'перекинь',
+    'скину ссылк', 'скиньте ссылк', 'ссылку на оплат', 'по ссылке', 'оплати онлайн', 'оплатите онлайн',
+    'онлайн оплат', 'в вотсап', 'в ватсап', 'в whatsapp', 'вацап', 'в телеграм', 'в telegram',
+  ];
+  return flags.some(f => s.includes(f));
+}
+
 function ensureChat(itemId) {
   if (!state.chats[itemId]) {
     state.chats[itemId] = { itemId, messages: [], unread: false, updatedAt: Date.now() };
@@ -1535,7 +1555,10 @@ function msgTime(ts) {
 }
 
 function msgHTML(m) {
-  return `<div class="msg ${m.from}">${esc(m.text)}<time>${msgTime(m.ts)}</time></div>`;
+  const warn = detectScam(m.text)
+    ? `<div class="chat-scam-warn"><span class="csw-ico">🛡️</span><span><b>${t('scam.who')}</b> ${t('scam.warn')}</span></div>`
+    : '';
+  return `<div class="msg ${m.from}">${esc(m.text)}<time>${msgTime(m.ts)}</time></div>${warn}`;
 }
 
 /* дописать сообщение в открытый диалог без полного ререндера (фокус и клавиатура живут) */
@@ -1679,7 +1702,8 @@ function sendChatMessage(itemId, text) {
   }
 
   setTimeout(() => {
-    const reply = { from: 'them', text: AUTO_REPLIES[Math.floor(Math.random() * AUTO_REPLIES.length)], ts: Date.now() };
+    const pool = Math.random() < 0.16 ? SCAM_REPLIES : AUTO_REPLIES; // ~16% — демо анти-скама
+    const reply = { from: 'them', text: pool[Math.floor(Math.random() * pool.length)], ts: Date.now() };
     chat.messages.push(reply);
     chat.updatedAt = Date.now();
     const here = location.hash === '#/chats/' + itemId;
