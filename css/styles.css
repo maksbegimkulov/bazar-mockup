@@ -1809,6 +1809,61 @@ main#app > .chats-layout { animation: none; }
 }
 .post-floor .hint { color: var(--text-2); }
 
+/* ---------------- вход / регистрация / кабинет ---------------- */
+.auth-page { display: grid; place-items: center; min-height: calc(100vh - var(--header-h) - 120px); min-height: calc(100dvh - var(--header-h) - 120px); padding: 8px 0 30px; }
+.auth-card {
+  width: 100%; max-width: 420px;
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: var(--radius-xl); box-shadow: var(--shadow-lg);
+  padding: 28px 26px;
+}
+.auth-brand { text-align: center; margin-bottom: 20px; }
+.auth-logo {
+  width: 54px; height: 54px; margin: 0 auto 14px;
+  border-radius: 16px; background: var(--accent-grad); color: #fff;
+  display: grid; place-items: center; font-size: 28px; font-weight: 800;
+  box-shadow: var(--accent-glow);
+}
+.auth-brand h1 { margin: 0 0 5px; font-size: 23px; font-weight: 800; letter-spacing: -0.5px; }
+.auth-brand p { margin: 0; color: var(--text-3); font-size: 13.5px; }
+.auth-tabs { display: flex; gap: 4px; background: var(--bg); border-radius: var(--radius-s); padding: 4px; margin-bottom: 18px; }
+.auth-tab { flex: 1; padding: 9px; border-radius: 8px; font-weight: 700; font-size: 14px; color: var(--text-2); transition: color var(--dur-1) var(--ease), background var(--dur-1) var(--ease); }
+.auth-tab.active { background: var(--card); color: var(--text); box-shadow: var(--shadow); }
+.auth-social { display: flex; flex-direction: column; gap: 10px; }
+.auth-soc {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  height: 48px; border-radius: var(--radius-s); border: 1.5px solid var(--line-2);
+  background: var(--card); color: var(--text); font-weight: 700; font-size: 14.5px;
+  transition: border-color var(--dur-1) var(--ease), transform var(--dur-1) var(--ease), filter var(--dur-1) var(--ease);
+}
+.auth-soc:active { transform: scale(0.98); }
+.auth-soc.auth-apple { background: #000; color: #fff; border-color: #000; }
+[data-theme="dark"] .auth-soc.auth-apple { background: #fff; color: #000; border-color: #fff; }
+.auth-or { display: flex; align-items: center; gap: 12px; margin: 18px 0; color: var(--text-3); font-size: 12.5px; }
+.auth-or::before, .auth-or::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+.auth-method { display: flex; gap: 8px; margin-bottom: 12px; }
+.auth-mbtn { flex: 1; padding: 10px; border-radius: var(--radius-s); border: 1.5px solid var(--line-2); font-weight: 700; font-size: 13.5px; color: var(--text-2); background: var(--card); transition: border-color var(--dur-1) var(--ease), color var(--dur-1) var(--ease), background var(--dur-1) var(--ease); }
+.auth-mbtn.active { border-color: var(--accent); color: var(--accent-dark); background: var(--accent-soft); }
+.auth-form { display: flex; flex-direction: column; gap: 11px; }
+.auth-error { background: var(--danger-soft); color: var(--danger); border-radius: var(--radius-s); padding: 9px 12px; font-size: 13px; font-weight: 600; }
+.auth-foot { text-align: center; margin-top: 16px; color: var(--text-2); font-size: 13.5px; }
+.auth-foot a { color: var(--accent-dark); font-weight: 700; cursor: pointer; }
+.auth-skip { display: block; text-align: center; margin-top: 14px; color: var(--text-3); font-size: 13px; font-weight: 600; }
+
+.auth-cta {
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  background: linear-gradient(120deg, var(--ai-grad-a), var(--ai-grad-b));
+  border: 1px solid var(--line); border-radius: var(--radius-lg);
+  padding: 20px; margin-bottom: 18px;
+}
+.auth-cta-ico { font-size: 40px; flex-shrink: 0; }
+.auth-cta-body { min-width: 0; flex: 1; }
+.auth-cta-body h2 { margin: 0 0 4px; font-size: 18px; font-weight: 800; letter-spacing: -0.3px; }
+.auth-cta-body p { margin: 0 0 12px; color: var(--text-2); font-size: 13.5px; }
+.auth-cta-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.profile-id { min-width: 0; }
+.profile-logout { margin-left: auto; flex-shrink: 0; align-self: center; }
+
 /* ---------------- hover (только устройства с курсором) ---------------- */
 
 @media (hover: hover) and (pointer: fine) {
