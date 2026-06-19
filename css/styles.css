@@ -2247,3 +2247,14 @@ a.seller-card { display: flex; gap: 12px; align-items: center; text-decoration: 
 .report-reason { text-align: left; background: var(--bg-soft, rgba(0,0,0,.02)); border: 1px solid var(--line); border-radius: var(--radius); padding: 13px 15px; font-size: 14px; font-weight: 600; color: var(--text); cursor: pointer; transition: all var(--dur-1) var(--ease); }
 [data-theme="dark"] .report-reason { background: rgba(255,255,255,.03); }
 @media (hover: hover) and (pointer: fine) { .report-reason:hover { border-color: var(--danger); color: var(--danger); } a.seller-card:hover { transform: translateY(-1px); } .buy-mini-actions button:hover { border-color: var(--accent); color: var(--accent); } }
+
+/* ===== UX-полировка v43: панель сравнения vs ai-fab, липкие подписи таблицы ===== */
+/* на мобиле, когда видна панель сравнения, прячем ai-fab (Диану), чтобы не наезжали */
+@media (max-width: 720px) {
+  body.has-compare-bar .ai-fab { opacity: 0; pointer-events: none; transform: scale(0.6); transition: opacity var(--dur-1) var(--ease), transform var(--dur-1) var(--ease); }
+}
+/* липкая колонка подписей в таблице сравнения — при горизонтальном скролле
+   «Цена/Марка/…» остаются видны (как у Avito/Auto.ru) */
+.cmp-scroll { background: var(--card); }
+.cmp-table .cmp-corner, .cmp-table .cmp-lbl { position: sticky; left: 0; z-index: 2; background: var(--card); border-right: 1px solid var(--line); }
+.cmp-table thead .cmp-corner { z-index: 3; }
