@@ -397,6 +397,7 @@ function activeFilterCount(f) {
 /* ---------------- карточка объявления ---------------- */
 
 const HEART_SVG = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21C8 17.5 3 13.6 3 9a5 5 0 0 1 9-3 5 5 0 0 1 9 3c0 4.6-5 8.5-9 12z"/></svg>';
+const COMPARE_SVG = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="M7 21h10"/><path d="M12 3v18"/><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/></svg>';
 
 function cardHTML(l) {
   const photos = getPhotos(l);
@@ -416,7 +417,7 @@ function cardHTML(l) {
       ${photos.length > 1 ? `<span class="photo-count">${photos.length} ${t('photo.word')}</span>` : ''}
       ${isSold(l) ? `<div class="sold-ribbon">${t('status.sold')}</div>` : ''}
       <div class="card-tags">${tags}</div>
-      <button class="cmp-btn ${inCompare(l.id) ? 'on' : ''}" data-action="compare-card" data-id="${l.id}" title="${t('cmp.add')}" aria-label="${t('cmp.add')}">⚖️</button>
+      <button class="cmp-btn ${inCompare(l.id) ? 'on' : ''}" data-action="compare-card" data-id="${l.id}" title="${t('cmp.add')}" aria-label="${t('cmp.add')}">${COMPARE_SVG}</button>
       <button class="fav-btn ${isFav ? 'active' : ''}" data-fav="${l.id}" title="${t('item.fav')}" aria-label="${t('item.fav')}">${HEART_SVG}</button>
     </div>
     <div class="card-body">
