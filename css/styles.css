@@ -1889,6 +1889,12 @@ main#app > .chats-layout { animation: none; }
   .card:hover .card-photo img { transform: scale(1.06); }
   .ai-banner:hover { box-shadow: var(--shadow-hover); transform: translateY(-2px); }
   .fav-btn:hover { transform: scale(1.1); background: #fff; color: var(--danger); }
+  /* десктоп с мышью: ⚖️ существует, скрыта до наведения на карточку
+     (или всегда видна, если товар уже в сравнении) */
+  .cmp-btn { display: grid; opacity: 0; }
+  .card:hover .cmp-btn, .cmp-btn.on { opacity: 1; }
+  .cmp-btn:hover { transform: scale(1.1); background: #fff; color: var(--accent-dark); }
+  .cmp-btn.on:hover { background: var(--accent); color: #fff; }
   .fchip:hover { border-color: var(--accent); color: var(--accent-dark); }
   .fchip.active:hover { color: #fff; }
   .achip button:hover { opacity: 1; }
@@ -2201,12 +2207,27 @@ a.seller-card { display: flex; gap: 12px; align-items: center; text-decoration: 
 .my-listing-row.is-sold { opacity: .68; }
 .sold-ribbon { position: absolute; top: 10px; left: 0; background: rgba(20,24,30,.82); color: #fff; font-size: 12px; font-weight: 700; padding: 4px 12px; border-radius: 0 var(--radius) var(--radius) 0; z-index: 2; }
 
-/* кнопка «сравнить» на карточке — в свободном левом нижнем углу фото,
-   чтобы не налезать на плашки (VIP/ДОСТАВКА) и сердечко сверху */
-.cmp-btn { position: absolute; bottom: 10px; left: 10px; top: auto; right: auto; width: 32px; height: 32px; border-radius: 50%; border: none; background: rgba(255,255,255,.9); color: var(--text-2); font-size: 14px; cursor: pointer; display: grid; place-items: center; box-shadow: var(--shadow); transition: transform var(--dur-1) var(--ease); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); }
-.cmp-btn.on { background: var(--accent); color: #fff; }
-.cmp-btn:active { transform: scale(.88); }
-[data-theme="dark"] .cmp-btn { background: rgba(26,31,38,.92); }
+/* кнопка «сравнить» на карточке.
+   На телефоне (тач) — скрыта: фото маленькое, карточке нужно дышать
+   (плашки + ❤️ + число фото), сравнение доступно со страницы товара.
+   На десктопе с мышью — показывается ровной парой под ❤️ и раскрывается
+   при наведении на карточку (см. @media hover ниже). Баланс лево↔право. */
+.cmp-btn {
+  position: absolute;
+  top: 52px; right: 9px; bottom: auto; left: auto;
+  width: 35px; height: 35px;
+  display: none; place-items: center;
+  border: none; cursor: pointer;
+  background: rgba(255,255,255,0.78);
+  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+  border-radius: 50%;
+  color: #3a4250;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.14);
+  transition: transform var(--dur-2) var(--ease-spring), background var(--dur-1) var(--ease), color var(--dur-1) var(--ease), opacity var(--dur-1) var(--ease);
+}
+.cmp-btn.on { background: var(--accent); color: #fff; box-shadow: 0 3px 10px rgba(0,160,106,0.5); }
+.cmp-btn:active { transform: scale(0.82); }
+[data-theme="dark"] .cmp-btn { background: rgba(26, 31, 38, 0.92); color: var(--text-2); }
 
 /* плавающая панель сравнения */
 .compare-bar { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(18px + env(safe-area-inset-bottom)); z-index: 80; display: flex; align-items: center; gap: 14px; background: var(--card); border: 1px solid var(--line); box-shadow: var(--shadow-lg, 0 10px 40px rgba(0,0,0,.18)); border-radius: var(--radius-pill); padding: 8px 8px 8px 18px; max-width: calc(100vw - 24px); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
