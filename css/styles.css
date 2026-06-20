@@ -2201,8 +2201,9 @@ a.seller-card { display: flex; gap: 12px; align-items: center; text-decoration: 
 .my-listing-row.is-sold { opacity: .68; }
 .sold-ribbon { position: absolute; top: 10px; left: 0; background: rgba(20,24,30,.82); color: #fff; font-size: 12px; font-weight: 700; padding: 4px 12px; border-radius: 0 var(--radius) var(--radius) 0; z-index: 2; }
 
-/* кнопка «сравнить» на карточке */
-.cmp-btn { position: absolute; top: 10px; right: 50px; width: 34px; height: 34px; border-radius: 50%; border: none; background: rgba(255,255,255,.92); color: var(--text-2); font-size: 15px; cursor: pointer; display: grid; place-items: center; box-shadow: var(--shadow); transition: transform var(--dur-1) var(--ease); }
+/* кнопка «сравнить» на карточке — в свободном левом нижнем углу фото,
+   чтобы не налезать на плашки (VIP/ДОСТАВКА) и сердечко сверху */
+.cmp-btn { position: absolute; bottom: 10px; left: 10px; top: auto; right: auto; width: 32px; height: 32px; border-radius: 50%; border: none; background: rgba(255,255,255,.9); color: var(--text-2); font-size: 14px; cursor: pointer; display: grid; place-items: center; box-shadow: var(--shadow); transition: transform var(--dur-1) var(--ease); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); }
 .cmp-btn.on { background: var(--accent); color: #fff; }
 .cmp-btn:active { transform: scale(.88); }
 [data-theme="dark"] .cmp-btn { background: rgba(26,31,38,.92); }
