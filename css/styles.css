@@ -922,9 +922,17 @@ main#app > .chats-layout { animation: none; }
   color: var(--safety-text);
   line-height: 1.5;
 }
-.safety-note .sn-head { margin-bottom: 7px; }
-.safety-note .sn-list { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 5px; }
+/* памятка — сворачиваемая (<details>), чтобы не занимать место у всех */
+.safety-note summary.sn-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; cursor: pointer; list-style: none; }
+.safety-note summary.sn-head::-webkit-details-marker { display: none; }
+.safety-note summary.sn-head::marker { content: ''; }
+.safety-note .sn-chev { transition: transform var(--dur-1) var(--ease); opacity: 0.55; font-size: 13px; }
+.safety-note[open] .sn-chev { transform: rotate(180deg); }
+.safety-note .sn-list { margin: 9px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 5px; }
 .safety-note .sn-list li { line-height: 1.45; }
+
+/* тихая заметка среднего риска — не красный баннер, чтобы не пугать без нужды */
+.scam-note { margin-top: 9px; padding: 8px 11px; border-radius: var(--radius-s); background: var(--vip-soft); color: var(--vip-text); font-size: 12px; font-weight: 600; line-height: 1.4; }
 
 /* предупреждение об «уводе оплаты» прямо в карточке покупки */
 .scam-banner {
@@ -1211,16 +1219,25 @@ main#app > .chats-layout { animation: none; }
 }
 .chat-scam-warn .csw-ico { flex-shrink: 0; font-size: 15px; line-height: 1.35; }
 .chat-scam-warn b { font-weight: 800; }
+/* критический варн (фишинг кода из СМС) — заметнее, красный */
+.chat-scam-warn.critical { background: rgba(229, 57, 53, 0.12); color: var(--danger); border: 1px solid rgba(229, 57, 53, 0.3); }
+.chat-scam-warn.critical b { color: var(--danger); }
 
-/* постоянный анти-фишинг баннер вверху открытого диалога */
+/* постоянный анти-фишинг баннер вверху открытого диалога (закрываемый) */
 .chat-phish-banner {
-  display: flex; gap: 7px; align-items: center; justify-content: center;
+  display: flex; gap: 8px; align-items: center; justify-content: center;
   text-align: center;
   background: var(--vip-soft); color: var(--vip-text);
   font-size: 11.5px; font-weight: 600; line-height: 1.4;
-  padding: 8px 14px;
+  padding: 8px 14px 8px 36px;
   border-bottom: 1px solid var(--line);
 }
+.chat-phish-banner .cpb-x {
+  flex-shrink: 0; width: 20px; height: 20px; border-radius: 50%;
+  display: grid; place-items: center; border: none; cursor: pointer;
+  background: transparent; color: inherit; opacity: 0.6; font-size: 12px;
+}
+.chat-phish-banner .cpb-x:active { transform: scale(0.85); opacity: 1; }
 
 .chat-quick { padding: 8px 14px 4px; }
 

@@ -17,6 +17,7 @@ const LS = {
   saved: 'bazar_saved',     // сохранённые поиски (Авито «Уведомлять о новых»)
   compare: 'bazar_compare', // выбранные для сравнения id (Авто.ру «Сравнить»)
   sold: 'bazar_sold',       // локально отмеченные «продано»/«архив» id
+  reported: 'bazar_reported', // id, на которые юзер пожаловался (прячем у него)
 };
 
 /* lsLoad / lsSave определены в i18n.js (грузится раньше) */
@@ -33,6 +34,7 @@ state.viewed = lsLoad(LS.viewed, []); // недавно просмотренны
 state.saved = lsLoad(LS.saved, []);   // сохранённые поиски [{id,name,f,seen,ts}]
 state.compare = new Set(lsLoad(LS.compare, [])); // id для сравнения
 state.soldIds = new Set(lsLoad(LS.sold, []));    // отмеченные продано/архив (мок/демо)
+state.reported = new Set(lsLoad(LS.reported, [])); // id с жалобой юзера — прячем у него
 state.page = 1;
 state.galleryIndex = 0;
 state.auth = { mode: 'login', method: 'email' };  // экран входа/регистрации
@@ -323,6 +325,7 @@ function applyFilters(f) {
 
   const passesBase = l => {
     if (isSold(l)) return false; // продано/архив — не показываем в поиске и ленте
+    if (state.reported.has(l.id)) return false; // на это объявление юзер пожаловался — прячем у него
     if (f.cat && l.category !== f.cat) return false;
     if (f.sub && l.subcategory !== f.sub) return false;
     if (f.city !== 'all' && l.city !== f.city) return false;
@@ -851,8 +854,11 @@ function renderItem(id) {
   const isFav = state.favorites.has(l.id);
   const isMine = l.id.startsWith('m');
   const verdict = isMine ? null : priceVerdict(l);
-  // признаки увода оплаты в самом тексте объявления (предоплата/карта/ссылки/мессенджеры)
-  const scammy = !isMine && detectScam((l.title || '') + ' ' + (l.description || ''));
+  // риск увода оплаты в тексте объявления — соразмерно (high/critical → заметный
+  // баннер, med → тихая заметка, low/none → ничего, чтобы не напрягать)
+  const risk = isMine ? { level: 'none', reasons: [] } : assessTextRisk((l.title || '') + ' ' + (l.description || ''));
+  const riskHigh = risk.level === 'high' || risk.level === 'critical';
+  const riskMed = risk.level === 'med';
 
   // история просмотров для блока «Вы недавно смотрели»
   if (!isMine) {
@@ -899,7 +905,8 @@ function renderItem(id) {
       <div class="buy-title">${esc(l.title)}</div>
       <div class="buy-price">${priceHTML(l)}</div>
       ${verdict ? `<div class="price-verdict ${verdict.cls}" title="${esc(verdict.hint)}">${verdict.label} · ${esc(verdict.hint)}</div>` : ''}
-      ${scammy ? `<div class="scam-banner"><span class="sb-ico">⚠️</span><div class="sb-text"><b>${t('safety.itemScamT')}</b><span>${t('safety.itemScamP')}</span></div></div>` : ''}
+      ${riskHigh ? `<div class="scam-banner"><span class="sb-ico">⚠️</span><div class="sb-text"><b>${t('safety.itemScamT')}</b><span>${t(risk.reasons.includes('otp') ? 'safety.itemOtpP' : 'safety.itemScamP')}</span></div></div>`
+        : riskMed ? `<div class="scam-note">⚠️ ${t('safety.itemNoteP')}</div>` : ''}
       ${l.floor && !isMine ? `<div class="bargain-badge">🤝 ${t('item.bargainOk')}</div>` : ''}
       <div class="buy-meta">${esc(l.city)}${l.district ? ', ' + esc(l.district) : ''} · ${postedLabel(l)} · 👁️ ${fmtNum(l.views)}</div>
       ${isMine && isSold(l) ? `<div class="sold-banner">✅ ${t('status.soldNote')}</div>` : ''}
@@ -934,10 +941,10 @@ function renderItem(id) {
         <div class="seller-sub">${nLabel(sellerActiveListings(sellerKey(l)).length || l.sellerAds)} · ${t('seller.viewAll')} ›</div>
       </div>
     </a>
-    <div class="safety-note">
-      <div class="sn-head">🛡️ <b>${t('safety.tipsT')}</b></div>
+    <details class="safety-note"${riskMed || riskHigh ? ' open' : ''}>
+      <summary class="sn-head"><span>🛡️ <b>${t('safety.tipsT')}</b></span><span class="sn-chev" aria-hidden="true">⌄</span></summary>
       <ul class="sn-list">${safetyTips(l.category).map(x => `<li>${esc(x)}</li>`).join('')}</ul>
-    </div>`;
+    </details>`;
 
   const panelsHTML = `
     <div class="panel">
@@ -2243,35 +2250,64 @@ const SCAM_REPLIES = [
   'Скинь номер, я в вацапе вышлю реквизиты',
 ];
 
-/* Анти-скам Диана: ловим увод оплаты из BAZAR — мессенджеры (вкл. сленг/сокращения:
-   вотс, инст, вацап, тг…), предоплату, перевод на карту/кошелёк, ссылки на оплату.
-   ВАЖНО: \b/\w кириллицу НЕ ловят → нормализуем (ё→е, схлопываем повторы букв,
-   не-буквы→пробел для границ слов) и ищем подстроки. Токены подобраны так, чтобы
-   не путать «инст(а)» с инструмент/институт/инстинкт. */
-function detectScam(text) {
-  let s = ' ' + (text || '').toLowerCase().replace(/ё/g, 'е') + ' ';
-  s = s.replace(/(.)\1{2,}/g, '$1$1');        // вотсаппп → вотсап, сссылка → ссылка
-  s = s.replace(/[^0-9a-zа-я]+/g, ' ');        // границы слов через пробелы (имо, тг…)
+/* ============ АНТИ-ФРОД РИСК-ДВИЖОК ============
+   Взвешенный скоринг вместо «да/нет». Слабый сигнал (просто увод в мессенджер)
+   САМ ПО СЕБЕ не тревожит — это часто легально, не напрягаем юзера. Но в связке
+   с предоплатой / картой / ссылкой / «кодом из СМС» / курьер-предоплатой даёт
+   высокий риск. Возвращает { score, level, reasons }.
+   level: none / low / med / high / critical (critical = фишинг кода из СМС =
+   захват аккаунта). ВАЖНО: \b/\w кириллицу не ловят → нормализуем и ищем по
+   нормализованной строке; lookbehind НЕ используем (старый iOS Safari падает). */
 
-  // «инста/инстаграм/в инста» — но НЕ «инсталляция» (частый сантех-термин)
-  if (/инста(?!лл)/.test(s)) return true;
-
-  const flags = [
-    // мессенджеры / увод с площадки (сленг, сокращения, транслит)
-    'whatsapp', 'watsap', 'votsap', 'vatsap', 'wapp', 'ватсап', 'вотсап', 'вацап', 'воцап', 'вотс', 'ватс',
-    'telegram', 'телеграм', 'телега', 'телегу', 'телеге', ' тг ', 'тгшка',
-    'instagram', ' insta', 'инсте', 'инсту', 'инстик', ' инст ', 'директе',
-    'viber', 'вайбер', ' имо ', ' imo ', 'вне сайта', 'вне приложени', 'не через приложени', 'мимо сайта',
-    // предоплата / перевод / карта / банк / кошельки
-    'предоплат', 'аванс', 'переведи', 'переведите', 'перекинь', 'перекиньте',
-    'скинь на карт', 'кинь на карт', 'отправь на карт', 'перевод на карт', 'на карту', 'номер карты', 'реквизит',
-    'каспи', 'kaspi', 'мбанк', 'mbank', 'optima', 'элсом', 'elsom', 'элкарт', 'о деньги', 'odengi', 'деньги вперед',
-    // ссылки / онлайн-оплата
-    'по ссылк', 'ссылку на', 'ссылка на опл', 'оплати по ссылк', 'перейди по ссылк', 'скину ссылк', 'скинь ссылк',
-    'оплати онлайн', 'оплата онлайн', 'онлайн оплат', 'оплатите онлайн', 'оплата по ссылк',
-  ];
-  return flags.some(f => s.includes(f));
+const _CARD_RE = /\d(?:[ \-]?\d){12,18}/;          // 13–19 цифр (карта)
+const _LINK_RE = /(?:https?:\/\/|www\.)[^\s<]+|[a-z0-9][a-z0-9-]*\.(?:ru|com|net|org|kg|io|me|app|site|online|shop|store|info|biz|xyz|top|link|pay|click)\b/i;
+function _hasCardNumber(text) {
+  const m = (text || '').match(_CARD_RE);
+  if (!m) return false;
+  const n = m[0].replace(/\D/g, '').length;
+  return n >= 13 && n <= 19;
 }
+function _hasLink(text) { return _LINK_RE.test(text || ''); }
+function _normScam(text) {
+  let s = ' ' + (text || '').toLowerCase().replace(/ё/g, 'е') + ' ';
+  s = s.replace(/(.)\1{2,}/g, '$1$1');     // вотсаппп → вотсап, сссылка → ссылка
+  s = s.replace(/[^0-9a-zа-я]+/g, ' ');     // границы слов через пробелы (имо, тг…)
+  return s;
+}
+
+function assessTextRisk(text) {
+  const s = _normScam(text);
+  let score = 0; const reasons = [];
+  const add = (pts, why) => { score += pts; reasons.push(why); };
+
+  // КРИТИЧНО: фишинг одноразового кода из СМС (захват аккаунта/банка)
+  if (/код из смс|смс код|код подтвержд|код верифик|код активац|одноразов[а-я]* код|(назов|продиктуй|скаж|сообщ|пришл)[а-я]* код|шестизначн|6 значн/.test(s)) add(100, 'otp');
+  // номер карты в тексте
+  if (_hasCardNumber(text)) add(40, 'card');
+  // предоплата / перевод / кошельки КР (бытовое «на карту памяти» НЕ ловим — нужен глагол перевода)
+  if (/предоплат|аванс|задаток|(внес|перекин|перевед|кин|скин|отправ)[а-я]* на карт|перевод на карт|номер карт|реквизит|каспи|kaspi|мбанк|mbank|optima|элсом|elsom|элкарт|odengi|деньги вперед/.test(s)) add(30, 'prepay');
+  // явная просьба оплатить по ссылке / онлайн — сильный сигнал
+  if (/оплат[а-я]* по ссылк|ссылк[а-я]* (на|для) оплат|оплат[а-я]* онлайн|онлайн оплат|перейди[а-я]*.{0,8}оплат/.test(s)) add(35, 'paylink');
+  // просто внешняя ссылка в тексте — слабее (бывает легально), но в связке копит риск
+  if (_hasLink(text)) add(22, 'link');
+  // курьер / служба доставки с предоплатой
+  if (/служб[аеуы] доставк|курьер.{0,14}оплат|оплат.{0,14}доставк|отправлю.{0,14}(проводник|водител|такси|автобус)|cdek|сдэк|деливери|доставка приедет|доставка сама/.test(s)) add(25, 'courier');
+  // приз / лотерея / фейк-поддержка BAZAR
+  if (/вы выиграл|поздравля.{0,18}приз|вы стали победител|выигр.{0,18}акци|служб[аы] поддержк.{0,18}bazar|администрац.{0,18}bazar|техподдержк.{0,18}bazar|бонус.{0,14}аккаунт/.test(s)) add(35, 'prize');
+  // увод с площадки (слабый сам по себе). «инста» с guard'ом против «инсталляция»
+  if (/инста(?!лл)/.test(s) || /whatsapp|watsap|votsap|vatsap|ватсап|вотсап|вацап|воцап| вотс | ватс |telegram|телеграм|телега|телегу|телеге| тг |тгшка|instagram|инсте|инсту|инстик| инст |вайбер|viber| имо | imo |вне сайта|вне приложени|не через приложени|мимо сайта/.test(s)) add(12, 'offplatform');
+  // срочность (усилитель)
+  if (/срочно|только сегодня|уезжаю|горит|успей|быстро заберут|последн[а-я]* шанс/.test(s)) add(8, 'urgency');
+
+  const level = reasons.includes('otp') ? 'critical'
+    : score >= 55 ? 'high'
+    : score >= 28 ? 'med'
+    : score >= 12 ? 'low' : 'none';
+  return { score, level, reasons };
+}
+
+/* булев детект (обратная совместимость): любой ненулевой риск */
+function detectScam(text) { return assessTextRisk(text).level !== 'none'; }
 
 /* Анти-фишинг: экранируем текст И глушим внешние ссылки + номера карт, чтобы
    мошенник не увёл на фейковую «оплату» прямо из описания/чата. Возвращает
@@ -2301,6 +2337,11 @@ function safetyTips(category) {
   return tips;
 }
 
+/* анти-фишинг баннер в чате — закрываемый на сессию (не напрягаем повторно) */
+function phishBannerDismissed() {
+  try { return sessionStorage.getItem('bz_phish_off') === '1'; } catch (e) { return false; }
+}
+
 function ensureChat(itemId) {
   if (!state.chats[itemId]) {
     state.chats[itemId] = { itemId, messages: [], unread: false, updatedAt: Date.now() };
@@ -2315,9 +2356,13 @@ function msgTime(ts) {
 }
 
 function msgHTML(m) {
-  const warn = detectScam(m.text)
-    ? `<div class="chat-scam-warn"><span class="csw-ico">🛡️</span><span><b>${t('scam.who')}</b> ${t('scam.warn')}</span></div>`
-    : '';
+  const r = assessTextRisk(m.text);
+  let warn = '';
+  if (r.level === 'critical') {       // фишинг кода из СМС — захват аккаунта
+    warn = `<div class="chat-scam-warn critical"><span class="csw-ico">⛔</span><span><b>${t('scam.otpWho')}</b> ${t('scam.otp')}</span></div>`;
+  } else if (r.level === 'high' || r.level === 'med') {  // реальная схема оплаты
+    warn = `<div class="chat-scam-warn"><span class="csw-ico">🛡️</span><span><b>${t('scam.who')}</b> ${t('scam.warn')}</span></div>`;
+  } // low/none (просто «вотсап» и т.п.) — НЕ тревожим, верхний баннер уже напоминает
   return `<div class="msg ${m.from}">${maskUnsafe(m.text)}<time>${msgTime(m.ts)}</time></div>${warn}`;
 }
 
@@ -2407,7 +2452,7 @@ function renderChats(activeId) {
           : `<div class="s" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis">${esc(chTitle(active))}</div>`}
       </div>
     </div>
-    <div class="chat-phish-banner">🛡️ ${t('safety.chatBanner')}</div>
+    ${phishBannerDismissed() ? '' : `<div class="chat-phish-banner"><span>🛡️ ${t('safety.chatBanner')}</span><button class="cpb-x" data-action="dismiss-phish" aria-label="${t('safety.dismiss')}">✕</button></div>`}
     <div class="chat-msgs" id="chatMsgs">
       ${active.messages.length
         ? active.messages.map(msgHTML).join('')
@@ -2959,7 +3004,19 @@ document.addEventListener('click', e => {
         break;
       }
       case 'report': openReportModal(id); break;
-      case 'report-submit': { closeModal(); showToast(t('report.sent'), 'success'); break; }
+      case 'report-submit': {
+        closeModal();
+        if (id) { state.reported.add(id); lsSave(LS.reported, [...state.reported]); }
+        showToast(t('report.sent'), 'success');
+        // если жаловались со страницы товара — увести в ленту (объявление скрыто)
+        if (parseHash().path.startsWith('/item/')) location.hash = '#/';
+        break;
+      }
+      case 'dismiss-phish': {
+        try { sessionStorage.setItem('bz_phish_off', '1'); } catch (e) {}
+        const b = actBtn.closest('.chat-phish-banner'); if (b) b.remove();
+        break;
+      }
       case 'toggle-sold': toggleSold(id); break;
       case 'save-search': {
         if (saveCurrentSearch()) showToast(t('saved.saved'), 'success');
