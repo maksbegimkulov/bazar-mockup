@@ -831,6 +831,8 @@ function priceVerdict(l) {
   const median = prices[Math.floor(prices.length / 2)];
   const r = l.price / median;
   const avg = `${t('verdict.avg')} ${fmtNum(median)} ${t('som')}`;
+  // ≤45% медианы — не «выгодно», а тревога: заниженная цена частая приманка мошенника
+  if (r <= 0.45) return { cls: 'danger', label: t('verdict.low'), hint: t('verdict.lowHint'), danger: true };
   if (r <= 0.87) return { cls: 'good', label: t('verdict.good'), hint: `${t('verdict.goodHint')} (${fmtNum(median)} ${t('som')})` };
   if (r <= 1.12) return { cls: 'fair', label: t('verdict.fair'), hint: avg };
   return { cls: 'high', label: t('verdict.high'), hint: avg };
@@ -849,6 +851,8 @@ function renderItem(id) {
   const isFav = state.favorites.has(l.id);
   const isMine = l.id.startsWith('m');
   const verdict = isMine ? null : priceVerdict(l);
+  // признаки увода оплаты в самом тексте объявления (предоплата/карта/ссылки/мессенджеры)
+  const scammy = !isMine && detectScam((l.title || '') + ' ' + (l.description || ''));
 
   // история просмотров для блока «Вы недавно смотрели»
   if (!isMine) {
@@ -895,6 +899,7 @@ function renderItem(id) {
       <div class="buy-title">${esc(l.title)}</div>
       <div class="buy-price">${priceHTML(l)}</div>
       ${verdict ? `<div class="price-verdict ${verdict.cls}" title="${esc(verdict.hint)}">${verdict.label} · ${esc(verdict.hint)}</div>` : ''}
+      ${scammy ? `<div class="scam-banner"><span class="sb-ico">⚠️</span><div class="sb-text"><b>${t('safety.itemScamT')}</b><span>${t('safety.itemScamP')}</span></div></div>` : ''}
       ${l.floor && !isMine ? `<div class="bargain-badge">🤝 ${t('item.bargainOk')}</div>` : ''}
       <div class="buy-meta">${esc(l.city)}${l.district ? ', ' + esc(l.district) : ''} · ${postedLabel(l)} · 👁️ ${fmtNum(l.views)}</div>
       ${isMine && isSold(l) ? `<div class="sold-banner">✅ ${t('status.soldNote')}</div>` : ''}
@@ -930,7 +935,8 @@ function renderItem(id) {
       </div>
     </a>
     <div class="safety-note">
-      🛡️ <b>${t('safety.t')}</b> ${t('safety.p')}
+      <div class="sn-head">🛡️ <b>${t('safety.tipsT')}</b></div>
+      <ul class="sn-list">${safetyTips(l.category).map(x => `<li>${esc(x)}</li>`).join('')}</ul>
     </div>`;
 
   const panelsHTML = `
@@ -942,7 +948,7 @@ function renderItem(id) {
     </div>
     <div class="panel">
       <h2>${t('item.desc')}</h2>
-      <div class="item-desc">${esc(l.description)}</div>
+      <div class="item-desc">${maskUnsafe(l.description)}</div>
     </div>
     <div class="panel">
       <h2>${t('item.location')}</h2>
@@ -2267,6 +2273,34 @@ function detectScam(text) {
   return flags.some(f => s.includes(f));
 }
 
+/* Анти-фишинг: экранируем текст И глушим внешние ссылки + номера карт, чтобы
+   мошенник не увёл на фейковую «оплату» прямо из описания/чата. Возвращает
+   безопасный HTML. Телефоны (≤12 цифр) не трогаем — контакт легитимен. */
+function maskUnsafe(raw) {
+  let html = esc(raw || '');
+  // ссылки: http(s)://… , www.… , или domain.tld/… по списку частых зон
+  html = html.replace(
+    /\b((?:https?:\/\/|www\.)[^\s<]+|[a-z0-9][a-z0-9-]*\.(?:ru|com|net|org|kg|io|me|app|site|online|shop|store|info|biz|xyz|top|link|pay|click)\b[^\s<]*)/gi,
+    `<span class="masked" title="${esc(t('safety.maskLinkHint'))}">🔒 ${esc(t('safety.maskLink'))}</span>`);
+  // номера карт: 13–19 цифр подряд, допускаются пробелы/дефисы между ними
+  html = html.replace(/\d(?:[ \-]?\d){12,18}/g, m => {
+    const n = m.replace(/\D/g, '').length;
+    return (n >= 13 && n <= 19)
+      ? `<span class="masked" title="${esc(t('safety.maskCardHint'))}">🔒 ${esc(t('safety.maskCard'))}</span>` : m;
+  });
+  return html;
+}
+
+/* контекстная памятка безопасной сделки: спец-совет под категорию + общие */
+function safetyTips(category) {
+  const tips = [];
+  if (category === 'transport') tips.push(t('safety.tip.auto'));
+  else if (category === 'realty') tips.push(t('safety.tip.realty'));
+  else if (category === 'electronics') tips.push(t('safety.tip.electronics'));
+  tips.push(t('safety.tip.meet'), t('safety.tip.noPrepay'), t('safety.tip.noLink'));
+  return tips;
+}
+
 function ensureChat(itemId) {
   if (!state.chats[itemId]) {
     state.chats[itemId] = { itemId, messages: [], unread: false, updatedAt: Date.now() };
@@ -2284,7 +2318,7 @@ function msgHTML(m) {
   const warn = detectScam(m.text)
     ? `<div class="chat-scam-warn"><span class="csw-ico">🛡️</span><span><b>${t('scam.who')}</b> ${t('scam.warn')}</span></div>`
     : '';
-  return `<div class="msg ${m.from}">${esc(m.text)}<time>${msgTime(m.ts)}</time></div>${warn}`;
+  return `<div class="msg ${m.from}">${maskUnsafe(m.text)}<time>${msgTime(m.ts)}</time></div>${warn}`;
 }
 
 /* дописать сообщение в открытый диалог без полного ререндера (фокус и клавиатура живут) */
@@ -2373,6 +2407,7 @@ function renderChats(activeId) {
           : `<div class="s" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis">${esc(chTitle(active))}</div>`}
       </div>
     </div>
+    <div class="chat-phish-banner">🛡️ ${t('safety.chatBanner')}</div>
     <div class="chat-msgs" id="chatMsgs">
       ${active.messages.length
         ? active.messages.map(msgHTML).join('')
