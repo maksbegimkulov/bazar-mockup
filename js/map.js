@@ -58,7 +58,7 @@ function kgMapSVG(activeCity) {
   }
 
   return `
-  <svg viewBox="0 0 690 335" xmlns="http://www.w3.org/2000/svg" class="kg-map" role="img" aria-label="Карта Кыргызстана: ${activeCity || ''}">
+  <svg viewBox="0 0 690 335" xmlns="http://www.w3.org/2000/svg" class="kg-map" role="img" aria-label="Карта Кыргызстана: ${esc(activeCity || '')}">
     <path class="land" d="${path}" stroke-width="2" stroke-linejoin="round"/>
     ${lake}
     ${dots}

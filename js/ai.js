@@ -29,7 +29,7 @@ function aiItemHTML(id) {
   const photos = getPhotos(l);
   return `
   <a class="ai-item" href="#/item/${l.id}" data-link>
-    ${photos.length ? `<img src="${photos[0]}" alt="">` : '<div class="thumb-fallback" style="width:56px;height:44px">📷</div>'}
+    ${photos.length ? `<img src="${esc(photos[0])}" alt="">` : '<div class="thumb-fallback" style="width:56px;height:44px">📷</div>'}
     <span class="ai-item-info">
       <span class="ai-item-title">${esc(l.title)}</span>
       <span class="ai-item-meta">${l.negotiable ? t('price.negotiable') : fmtNum(l.price) + ' ' + t('som') + esc(l.priceSuffix)} · ${esc(l.city)}</span>
@@ -49,7 +49,7 @@ function aiPickHTML(pick) {
   <a class="ai-pick ai-pick-${pick.kind}" href="#/item/${l.id}" data-link>
     <span class="ai-pick-badge">${DEC_ICON[pick.kind] || '•'} ${esc(pick.label)}</span>
     <span class="ai-pick-body">
-      ${photos.length ? `<img src="${photos[0]}" alt="">` : '<span class="thumb-fallback" style="width:52px;height:52px">📷</span>'}
+      ${photos.length ? `<img src="${esc(photos[0])}" alt="">` : '<span class="thumb-fallback" style="width:52px;height:52px">📷</span>'}
       <span class="ai-pick-info">
         <span class="ai-pick-title">${esc(l.title)}</span>
         <span class="ai-pick-price">${l.negotiable ? t('price.negotiable') : fmtNum(l.price) + ' ' + t('som') + esc(l.priceSuffix)}</span>

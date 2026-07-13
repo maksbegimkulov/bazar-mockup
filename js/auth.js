@@ -53,8 +53,13 @@ async function authInit() {
     try { location.hash = '#/profile'; } catch (e) {}
   }
   sb.auth.onAuthStateChange((_event, session) => {
-    AUTH.user = authPublic(session && session.user);
-    authEmit();
+    const prevId = AUTH.user && AUTH.user.id;
+    const next = authPublic(session && session.user);
+    const nextId = next && next.id;
+    AUTH.user = next;
+    // эмитим ТОЛЬКО при реальной смене личности: TOKEN_REFRESHED / повторный
+    // SIGNED_IN с тем же юзером иначе дёргали бы полный ререндер (стирая формы)
+    if (prevId !== nextId) authEmit();
   });
 }
 
@@ -221,11 +226,11 @@ function dbSubscribeMyChats(onChange) {
 
 /* realtime: новые/изменённые объявления (видны ВСЕМ, включая гостей) → колбэк.
    Требует таблицу listings в publication supabase_realtime (добавлена в схеме). */
-function dbSubscribeListings(onChange) {
+function dbSubscribeListings(onChange, onStatus) {
   if (!sb) return () => {};
   const ch = sb.channel('listings-all')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'listings' }, () => onChange())
-    .subscribe();
+    .subscribe(s => { if (onStatus) onStatus(s); });
   return () => { try { sb.removeChannel(ch); } catch (e) {} };
 }
 
