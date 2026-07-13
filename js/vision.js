@@ -153,7 +153,12 @@ function normalizeSmart(p) {
 
 async function visionStartCamera(videoEl) {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('no-getUserMedia');
+  // гонка: если юзер ушёл со страницы, пока getUserMedia ещё резолвился,
+  // visionStopCamera уже отработал вхолостую (stream был null) — камера
+  // осталась бы жить без UI. Флаг wantStop закрывает это окно.
+  VISION.wantStop = false;
   const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
+  if (VISION.wantStop) { stream.getTracks().forEach(t => t.stop()); throw new Error('aborted'); }
   VISION.stream = stream;
   videoEl.srcObject = stream;
   await videoEl.play().catch(() => {});
@@ -161,6 +166,7 @@ async function visionStartCamera(videoEl) {
 }
 
 function visionStopCamera() {
+  VISION.wantStop = true; // если getUserMedia ещё в полёте — свежий stream погасится сам
   if (VISION.stream) {
     VISION.stream.getTracks().forEach(t => t.stop());
     VISION.stream = null;

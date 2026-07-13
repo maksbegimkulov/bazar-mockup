@@ -18,6 +18,7 @@ const LS = {
   compare: 'bazar_compare', // выбранные для сравнения id (Авто.ру «Сравнить»)
   sold: 'bazar_sold',       // локально отмеченные «продано»/«архив» id
   reported: 'bazar_reported', // id, на которые юзер пожаловался (прячем у него)
+  chatRead: 'bazar_chat_read', // chatId → ts последнего прочитанного (для unread DB-чатов)
 };
 
 /* lsLoad / lsSave определены в i18n.js (грузится раньше) */
@@ -35,6 +36,7 @@ state.saved = lsLoad(LS.saved, []);   // сохранённые поиски [{i
 state.compare = new Set(lsLoad(LS.compare, [])); // id для сравнения
 state.soldIds = new Set(lsLoad(LS.sold, []));    // отмеченные продано/архив (мок/демо)
 state.reported = new Set(lsLoad(LS.reported, [])); // id с жалобой юзера — прячем у него
+state.chatRead = lsLoad(LS.chatRead, {});          // chatId → ts прочитанного
 state.page = 1;
 state.galleryIndex = 0;
 state.auth = { mode: 'login', method: 'email' };  // экран входа/регистрации
@@ -109,12 +111,23 @@ function catById(id) { return CATEGORIES.find(c => c.id === id); }
 state.dbListings = []; // реальные объявления из Supabase (от всех юзеров)
 function allListings() { return [...state.myListings, ...state.dbListings, ...LISTINGS]; }
 
+/* строгий allowlist фото из чужой БД: только настоящие base64-картинки.
+   Любая другая строка (потенциальный XSS через кавычку в src) отбрасывается. */
+const DB_PHOTO_RE = /^data:image\/(png|jpe?g|webp|gif|avif);base64,[A-Za-z0-9+/=]+$/;
+
 /* строка из БД → форма объявления, понятная приложению */
 function dbToListing(r, names) {
-  const photos = Array.isArray(r.photos) ? r.photos : [];
+  const raw = Array.isArray(r.photos) ? r.photos : [];
   // реальные фото (камера/ИИ) приходят как data-URI строки → userPhotos (рендерим как есть);
   // демо-сиды (числа) → pickedSeeds (через photoURL-заглушки)
-  const realPhotos = photos.length && typeof photos[0] === 'string' && photos[0].startsWith('data:');
+  const realPhotos = raw.length && typeof raw[0] === 'string' && String(raw[0]).startsWith('data:');
+  const photos = realPhotos
+    ? raw.filter(p => typeof p === 'string' && DB_PHOTO_RE.test(p))
+    : raw.filter(p => typeof p === 'number');
+  // служебные поля внутри attrs (телефон/спеки едут в jsonb без миграции схемы);
+  // в сами атрибуты-фильтры они не попадают — вычищаем
+  const allAttrs = (r.attrs && typeof r.attrs === 'object') ? r.attrs : {};
+  const { _phone, _specs, ...attrs } = allAttrs;
   return {
     id: r.id, ownerId: r.owner_id, title: r.title,
     price: Number(r.price) || 0, floor: Number(r.floor) || 0, priceSuffix: '',
@@ -123,12 +136,14 @@ function dbToListing(r, names) {
     description: r.description || '',
     userPhotos: realPhotos ? photos : null,
     pickedSeeds: realPhotos ? null : photos, photoCount: photos.length, photoSeed: 11,
-    attrs: (r.attrs && typeof r.attrs === 'object') ? r.attrs : {},
-    sellerName: (names && names[r.owner_id]) || 'Пользователь', sellerType: 'private',
+    attrs,
+    specs: Array.isArray(_specs) ? _specs.filter(x => Array.isArray(x) && x.length === 2) : undefined,
+    sellerName: (names && names[r.owner_id]) || t('seller.anon'), sellerType: 'private',
     sellerRating: 5.0, sellerAds: 1, sellerSinceYear: 2026,
     createdAt: new Date(r.created_at).getTime(),
     postedHoursAgo: Math.max(0, Math.round((Date.now() - new Date(r.created_at).getTime()) / 3600000)),
-    views: 1, isVip: false, isUrgent: false, hasDelivery: false, phone: '',
+    views: 1, isVip: false, isUrgent: false, hasDelivery: false,
+    phone: typeof _phone === 'string' ? _phone.slice(0, 24) : '',
   };
 }
 
@@ -148,35 +163,105 @@ async function loadCloudData() {
       (data || []).forEach(p => names[p.id] = p.name);
     }
     state.dbListings = rows.map(r => dbToListing(r, names));
-    if (me) { // чаты пересобираем ТОЛЬКО для залогиненного, иначе затрём гостевые мок-чаты
-      const map = {};
+    if (me) {
+      // МЕРЖ, а не перезапись: локальные мок/демо-чаты (без isDb) живут дальше,
+      // DB-чаты обновляются; свои сообщения «в полёте» (ещё без id) не теряем
+      const fresh = {};
       for (const c of chats) {
         const msgs = await dbMessages(c.id);
         const otherId = c.buyer_id === me ? c.seller_id : c.buyer_id;
-        map[c.id] = {
+        const messages = msgs.map(m => ({ from: m.sender_id === me ? 'me' : 'them', text: m.text, ts: new Date(m.created_at).getTime(), id: m.id }));
+        const old = state.chats[c.id];
+        if (old && Array.isArray(old.messages)) {
+          old.messages.forEach(m => { if (m.from === 'me' && !m.id) messages.push(m); });
+        }
+        const last = messages[messages.length - 1];
+        fresh[c.id] = {
           itemId: c.listing_ref, chatId: c.id, isDb: true,
-          sellerId: c.seller_id, buyerId: c.buyer_id, otherName: names[otherId] || 'Пользователь',
+          sellerId: c.seller_id, buyerId: c.buyer_id, otherName: names[otherId] || t('seller.anon'),
           title: c.listing_title,
-          messages: msgs.map(m => ({ from: m.sender_id === me ? 'me' : 'them', text: m.text, ts: new Date(m.created_at).getTime(), id: m.id })),
-          unread: false, updatedAt: new Date(c.updated_at).getTime(),
+          messages,
+          // непрочитано = последнее сообщение от собеседника новее моей отметки прочтения
+          unread: !!(last && last.from === 'them' && last.ts > (state.chatRead[c.id] || 0)),
+          updatedAt: new Date(c.updated_at).getTime(),
         };
       }
-      state.chats = map;
+      for (const k of Object.keys(state.chats)) if (state.chats[k].isDb && !fresh[k]) delete state.chats[k];
+      Object.assign(state.chats, fresh);
     }
     updateBadges();
+    // точечный рефреш: открытый чат НЕ ререндерим (сотрёт набранный текст) — только
+    // дорисовываем новые сообщения; /item не трогаем (собьёт скролл и галерею)
     const p = parseHash().path;
-    if (p.startsWith('/chats') || p === '/' || p === '' || p.startsWith('/search') || p.startsWith('/profile') || p.startsWith('/item')) router();
+    if (p === '/' || p === '' || p.startsWith('/search') || p.startsWith('/profile') || p === '/chats') router();
+    else if (p.startsWith('/chats/')) syncOpenChat(decodeURIComponent(p.slice(7)));
   } catch (e) { /* офлайн/ошибка — оставляем что есть */ }
 }
 
+/* мягкая синхронизация открытого диалога: дорисовать новые сообщения без ререндера */
+function syncOpenChat(key) {
+  const chat = state.chats[key];
+  const box = $('#chatMsgs');
+  if (!chat || !box) { updateBadges(); return; }
+  const have = box.querySelectorAll('.msg').length;
+  if (chat.messages.length > have) {
+    for (let i = have; i < chat.messages.length; i++) appendChatMsg(key, chat.messages[i]);
+    markChatRead(key);
+    chat.unread = false;
+    updateBadges();
+  }
+}
+
+/* отметка «прочитано» для DB-чата — от неё считается unread после перезагрузки */
+function markChatRead(key) {
+  const c = state.chats[key];
+  if (!c || !c.isDb) return;
+  const last = c.messages[c.messages.length - 1];
+  state.chatRead[key] = last ? last.ts : Date.now();
+  lsSave(LS.chatRead, state.chatRead);
+}
+
 /* realtime: любое новое/изменённое объявление → перезагрузить ленту (видно всем live).
-   Дебаунс, чтобы пачка вставок не дёргала рендер. Идемпотентно — один канал. */
-let _listingsLiveT = null, _listingsLiveSub = null;
+   Дебаунс, чтобы пачка вставок не дёргала рендер. Идемпотентно — один канал.
+   УСТОЙЧИВОСТЬ: если realtime-сокет не поднялся (наблюдали живьём: endpoint
+   рвёт WS с кодом 1006 при живом REST) — тихий фолбэк-поллинг раз в 60с
+   (только в видимой вкладке), чтобы лента всё равно оставалась свежей. */
+let _listingsLiveT = null, _listingsLiveSub = null, _livePoll = null, _liveUp = false;
+function _startLivePolling() {
+  if (_livePoll) return;
+  _livePoll = setInterval(() => {
+    if (document.visibilityState === 'visible' && !_liveUp) loadCloudData();
+  }, 60000);
+}
 function startListingsLive() {
   if (_listingsLiveSub || typeof dbSubscribeListings !== 'function') return;
   _listingsLiveSub = dbSubscribeListings(() => {
     clearTimeout(_listingsLiveT);
     _listingsLiveT = setTimeout(loadCloudData, 350);
+  }, status => {
+    _liveUp = status === 'SUBSCRIBED';
+    if (!_liveUp) _startLivePolling();
+    else if (_livePoll) { clearInterval(_livePoll); _livePoll = null; }
+  });
+  // если сокет умер молча (ни SUBSCRIBED, ни ошибки) — поллинг как страховка
+  setTimeout(() => { if (!_liveUp) _startLivePolling(); }, 8000);
+}
+
+/* realtime своих чатов: новые диалоги/сообщения подтягиваются live даже когда
+   нужный чат не открыт (раньше это работало только через перезагрузку) */
+let _myChatsSub = null, _myChatsT = null, _myChatsUid = null;
+function startMyChatsLive() {
+  const uid = isAuthed() ? currentUser().id : null;
+  if (!uid || typeof dbSubscribeMyChats !== 'function') {
+    if (_myChatsSub) { _myChatsSub(); _myChatsSub = null; _myChatsUid = null; }
+    return;
+  }
+  if (_myChatsSub && _myChatsUid === uid) return;
+  if (_myChatsSub) _myChatsSub();
+  _myChatsUid = uid;
+  _myChatsSub = dbSubscribeMyChats(() => {
+    clearTimeout(_myChatsT);
+    _myChatsT = setTimeout(loadCloudData, 350);
   });
 }
 
@@ -253,9 +338,11 @@ function openSavedSearch(id) {
   if (!s) return;
   s.seen = applyFilters(s.f).length; // отметили просмотренным → бейдж сбрасывается
   lsSave(LS.saved, state.saved);
-  state.filters = JSON.parse(JSON.stringify(s.f));
+  // мерж с дефолтами: старые сохранённые снимки могут не знать новых полей фильтра
+  state.filters = { ...defaultFilters(), ...JSON.parse(JSON.stringify(s.f)) };
   state.page = 1;
   state._appliedQS = 'saved'; // не сбрасывать фильтры роутером
+  const inp = $('#searchInput'); if (inp) inp.value = state.filters.q || ''; // строка поиска = активный запрос
   location.hash = '#/search';
   if (parseHash().path.startsWith('/search')) renderSearch();
 }
@@ -415,7 +502,7 @@ function cardHTML(l) {
   <a class="card ${l.isVip ? 'vip' : ''}" href="#/item/${l.id}" data-link>
     <div class="card-photo">
       ${photos.length
-        ? `<img src="${photos[0]}" loading="lazy" alt="${esc(l.title)}">`
+        ? `<img src="${esc(photos[0])}" loading="lazy" alt="${esc(l.title)}">`
         : `<div class="nophoto">📷&nbsp; ${t('nophoto')}</div>`}
       ${photos.length > 1 ? `<span class="photo-count">${photos.length} ${t('photo.word')}</span>` : ''}
       ${isSold(l) ? `<div class="sold-ribbon">${t('status.sold')}</div>` : ''}
@@ -444,6 +531,9 @@ function emptyHTML(emoji, title, text, btn = '') {
 /* ---------------- главная ---------------- */
 
 function renderHome() {
+  // ушли на главную → повторный клик той же категории/ссылки должен применить
+  // её базовые фильтры заново (back-с-/item при этом не страдает — он не через home)
+  state._appliedQS = null;
   const base = { ...defaultFilters(), city: state.city };
   const all = applyFilters(base);
   const vip = all.filter(l => l.isVip).slice(0, 4);
@@ -764,6 +854,7 @@ function bindFilterPanel() {
 }
 
 function updateResults() {
+  if (!$('#resultsTitle')) return; // вид уже размонтирован (дебаунс-таймер пережил навигацию)
   const f = state.filters;
   const res = applyFilters(f);
   const shown = res.slice(0, state.page * PAGE_SIZE);
@@ -852,7 +943,8 @@ function renderItem(id) {
   const photos = getPhotos(l);
   const cat = catById(l.category);
   const isFav = state.favorites.has(l.id);
-  const isMine = l.id.startsWith('m');
+  // моё = локальное ('m…') ИЛИ облачное с моим ownerId (у облачных id — UUID)
+  const isMine = l.id.startsWith('m') || (!!l.ownerId && isAuthed() && l.ownerId === currentUser().id);
   const verdict = isMine ? null : priceVerdict(l);
   // риск увода оплаты в тексте объявления — соразмерно (high/critical → заметный
   // баннер, med → тихая заметка, low/none → ничего, чтобы не напрягать)
@@ -887,7 +979,7 @@ function renderItem(id) {
     <div class="gallery">
       <div class="gallery-main" id="galleryMain">
         ${photos.length
-          ? `<img id="galleryImg" src="${photos[0]}" alt="${esc(l.title)}">
+          ? `<img id="galleryImg" src="${esc(photos[0])}" alt="${esc(l.title)}">
              ${photos.length > 1 ? `
              <button class="gallery-nav prev" data-action="gallery-prev" aria-label="‹">‹</button>
              <button class="gallery-nav next" data-action="gallery-next" aria-label="›">›</button>
@@ -896,7 +988,7 @@ function renderItem(id) {
       </div>
       ${photos.length > 1 ? `
       <div class="gallery-thumbs" id="galleryThumbs">
-        ${photos.map((p, i) => `<img src="${p}" data-thumb="${i}" class="${i === 0 ? 'active' : ''}" alt="">`).join('')}
+        ${photos.map((p, i) => `<img src="${esc(p)}" data-thumb="${i}" class="${i === 0 ? 'active' : ''}" alt="">`).join('')}
       </div>` : ''}
     </div>`;
 
@@ -913,13 +1005,14 @@ function renderItem(id) {
       <div class="buy-actions">
         ${isMine ? `
           <button class="btn ${isSold(l) ? 'btn-primary' : 'btn-secondary'}" data-action="toggle-sold" data-id="${l.id}">${isSold(l) ? '↩️ ' + t('status.reactivate') : '✅ ' + t('status.markSold')}</button>
+          ${l.id.startsWith('m') ? `
           <a class="btn btn-secondary" href="#/post?edit=${l.id}" data-link>✏️ ${t('item.edit')}</a>
-          <button class="btn btn-outline" data-action="bump" data-id="${l.id}">⬆️ ${t('item.bump')}</button>
+          <button class="btn btn-outline" data-action="bump" data-id="${l.id}">⬆️ ${t('item.bump')}</button>` : ''}
           <button class="btn btn-danger-soft" data-action="delete-my" data-id="${l.id}">${t('item.delete')}</button>
         ` : `
           ${l.floor ? `<button class="btn btn-bargain btn-lg" data-action="offer-price" data-id="${l.id}">🤝 ${t('item.offerPrice')}</button>` : ''}
-          <button class="btn btn-primary btn-lg" data-action="show-phone" data-id="${l.id}">📞 ${t('item.showPhone')}</button>
-          <button class="btn btn-secondary btn-lg" data-action="write-seller" data-id="${l.id}">💬 ${t('item.write')}</button>
+          ${l.phone ? `<button class="btn btn-primary btn-lg" data-action="show-phone" data-id="${l.id}">📞 ${t('item.showPhone')}</button>` : ''}
+          <button class="btn ${l.phone ? 'btn-secondary' : 'btn-primary'} btn-lg" data-action="write-seller" data-id="${l.id}">💬 ${t('item.write')}</button>
           <button class="btn btn-outline" data-fav="${l.id}">${isFav ? '❤️ ' + t('item.faved') : '🤍 ' + t('item.fav')}</button>
         `}
       </div>
@@ -1106,9 +1199,17 @@ async function openChatForListing(listingId, prefillText) {
       if (prefillText) {
         const msg = { from: 'me', text: prefillText, ts: Date.now() };
         state.chats[chat.id].messages.push(msg);
-        const saved = await dbSendMessage(chat.id, prefillText);
-        msg.id = saved.id;
-        showToast(t('offer.dealDone'), 'success');
+        try {
+          const saved = await dbSendMessage(chat.id, prefillText);
+          msg.id = saved.id;
+          showToast(t('offer.dealDone'), 'success');
+        } catch (e) {
+          // откат: сообщение не ушло — не показываем его как отправленное
+          const arr = state.chats[chat.id].messages;
+          const i = arr.indexOf(msg);
+          if (i >= 0) arr.splice(i, 1);
+          showToast(t('toast.sendFail'), 'error');
+        }
       }
       location.hash = '#/chats/' + chat.id;
     } catch (e) { showToast(t('auth.errGeneric')); }
@@ -1244,7 +1345,8 @@ function renderSellCamera() {
       </div>
     </div>`;
   const video = $('#sellVideo');
-  visionStartCamera(video).catch(() => {
+  visionStartCamera(video).catch(err => {
+    if (err && err.message === 'aborted') return; // юзер уже ушёл — молча
     showToast(t('sell.camDenied'));
     state.sell.step = 'pick';
     renderSell();
@@ -1472,7 +1574,7 @@ function renderSellDraft() {
     hasDelivery: false,
     userPhotos: isReal ? [photo] : null,
     pickedSeeds: isReal ? null : [p.photoSeed, p.photoSeed + 7, p.photoSeed + 13],
-    specs: isReal ? null : p.specs,
+    specs: specs && specs.length ? specs : null, // и демо, и smart-распознанные
   });
   state.sell._collect = collect;
 
@@ -1490,11 +1592,14 @@ function renderSellDraft() {
       const btn = $('#sellForm button[type="submit"]');
       if (btn) btn.disabled = true;
       try {
+        // распознанные спеки едут в jsonb (attrs._specs); телефона в фото-флоу нет —
+        // НЕ публикуем демо-номер, контакт = чат (кнопка телефона скроется сама)
         const row = await dbCreateListing({
           title: d.title, price: d.price, floor: 0,
           category: d.category, subcategory: d.subcategory, city: d.city,
           district: null, condition: d.condition, description: d.description || d.title,
-          photos, negotiable: false, attrs: {},
+          photos, negotiable: false,
+          attrs: d.specs && d.specs.length ? { _specs: d.specs } : {},
         });
         const mapped = dbToListing(row, { [currentUser().id]: currentUser().name });
         state.dbListings.unshift(mapped);
@@ -1854,12 +1959,16 @@ function renderPost(params) {
     // новое объявление: залогинен → сохраняем в облако (с реальным владельцем,
     // видно всем и можно писать продавцу), иначе локально как раньше
     if (isAuthed()) {
+      const pubBtn = $('#postForm button[type="submit"]');
+      if (pubBtn) pubBtn.disabled = true; // двойной тап = двойная публикация
       try {
         const row = await dbCreateListing({
           title: listing.title, price: listing.price, floor: listing.floor,
           category: listing.category, subcategory: listing.subcategory, city: listing.city,
           district: listing.district, condition: listing.condition, description: listing.description,
-          photos: listing.pickedSeeds, negotiable: listing.negotiable, attrs: listing.attrs,
+          photos: listing.pickedSeeds, negotiable: listing.negotiable,
+          // телефон продавца едет в jsonb (attrs._phone) — колонки phone в схеме нет
+          attrs: { ...listing.attrs, _phone: listing.phone || '' },
         });
         const mapped = dbToListing(row, { [currentUser().id]: currentUser().name });
         state.dbListings.unshift(mapped);
@@ -1870,6 +1979,7 @@ function renderPost(params) {
         // НЕ падаем молча в local — иначе объявление видит ТОЛЬКО автор, а у
         // других не появляется (ровно этот баг ловили). Показываем реальную ошибку.
         console.error('Публикация в облако не удалась:', err);
+        if (pubBtn) pubBtn.disabled = false;
         const msg = (err && (err.message || err.hint || err.details)) ? String(err.message || err.hint || err.details) : '';
         showToast(t('toast.publishFail') + (msg ? ': ' + msg : ''), 'error');
         return;
@@ -2004,7 +2114,7 @@ function renderSeller(rawKey) {
   if (!sample) { app.innerHTML = `<div class="form-page">${emptyHTML('🧑', t('seller.notFound'), '')}</div>`; return; }
   const active = listings.filter(l => !isSold(l));
   const ss = sellerStats(sample);
-  const name = sample.sellerName || 'Пользователь';
+  const name = sample.sellerName || t('seller.anon');
   app.innerHTML = `
     <nav class="breadcrumbs"><a href="#/" data-link>${t('nav.home')}</a> › <span>${esc(name)}</span></nav>
     <div class="seller-hero">
@@ -2037,7 +2147,7 @@ function renderCompare() {
     <div class="section-title"><h2>${t('cmp.title')} <span class="muted">${items.length}</span></h2>
       <button class="btn btn-outline btn-sm" data-action="compare-clear">${t('cmp.clear')}</button></div>
     <div class="cmp-scroll"><table class="cmp-table">
-      <thead><tr><th class="cmp-corner"></th>${items.map(l => `<th><button class="cmp-rm" data-action="compare-remove" data-id="${l.id}" aria-label="✕">✕</button><a href="#/item/${l.id}" data-link><span class="cmp-photo">${getPhotos(l).length ? `<img src="${getPhotos(l)[0]}" alt="">` : '📷'}</span><span class="cmp-name">${esc(l.title)}</span></a></th>`).join('')}</tr></thead>
+      <thead><tr><th class="cmp-corner"></th>${items.map(l => `<th><button class="cmp-rm" data-action="compare-remove" data-id="${l.id}" aria-label="✕">✕</button><a href="#/item/${l.id}" data-link><span class="cmp-photo">${getPhotos(l).length ? `<img src="${esc(getPhotos(l)[0])}" alt="">` : '📷'}</span><span class="cmp-name">${esc(l.title)}</span></a></th>`).join('')}</tr></thead>
       <tbody>${rows.map(r => `<tr><td class="cmp-lbl">${esc(r.label)}</td>${r.vals.map(v => `<td>${esc(String(v))}</td>`).join('')}</tr>`).join('')}</tbody>
     </table></div>`;
 }
@@ -2093,7 +2203,7 @@ function renderProfile() {
     const cloud = !!l.ownerId; // облачное (видно всем) vs локальное
     return `
     <div class="my-listing-row ${sold ? 'is-sold' : ''}">
-      ${photos.length ? `<img src="${photos[0]}" alt="">` : '<div class="thumb-fallback" style="width:92px;height:70px;font-size:20px">📷</div>'}
+      ${photos.length ? `<img src="${esc(photos[0])}" alt="">` : '<div class="thumb-fallback" style="width:92px;height:70px;font-size:20px">📷</div>'}
       <div class="info">
         <a class="title" href="#/item/${l.id}" data-link>${esc(l.title)}</a>
         <div class="sub">${sold ? `<span class="sold-tag">✅ ${t('status.sold')}</span> · ` : ''}${cloud ? `<span class="cloud-tag" title="${t('profile.cloudHint')}">☁️</span> ` : ''}${priceHTML(l).replace(/<[^>]*>/g, ' ')} · ${postedLabel(l)} · 👁️ ${fmtNum(l.views)}</div>
@@ -2261,11 +2371,25 @@ const SCAM_REPLIES = [
 
 const _CARD_RE = /\d(?:[ \-]?\d){12,18}/;          // 13–19 цифр (карта)
 const _LINK_RE = /(?:https?:\/\/|www\.)[^\s<]+|[a-z0-9][a-z0-9-]*\.(?:ru|com|net|org|kg|io|me|app|site|online|shop|store|info|biz|xyz|top|link|pay|click)\b/i;
+// контекст карты/перевода рядом с длинным числом — иначе это IMEI/серийник/трек
+const _CARD_CTX_RE = /карт|каспи|kaspi|мбанк|mbank|optima|элсом|elsom|элкарт|odengi|реквизит|visa|mastercard|перевед|перевод|перекин|скин|кин/;
+// длинное число, подписанное как идентификатор устройства/посылки — точно не карта
+function _idLabelBefore(text, idx) {
+  return /(?:imei|имеи|серийн[а-я]*|serial|s\s*\/?\s*n|артикул|трек[а-я]*|track[a-z]*|номер заказ[а-я]*)[:№#\s]*$/i
+    .test(text.slice(Math.max(0, idx - 24), idx));
+}
+function _isCardLike(text, m, idx) {
+  const n = m.replace(/\D/g, '').length;
+  if (n < 13 || n > 19) return false;
+  if (_idLabelBefore(text, idx)) return false;              // «IMEI: 3569…» — не карта
+  const grouped = /[ \-]/.test(m.trim());                    // 4400 4301 2345 6789
+  const ctx = _CARD_CTX_RE.test(_normScam(text));
+  return grouped || ctx;                                     // слитный без контекста = серийник
+}
 function _hasCardNumber(text) {
-  const m = (text || '').match(_CARD_RE);
-  if (!m) return false;
-  const n = m[0].replace(/\D/g, '').length;
-  return n >= 13 && n <= 19;
+  const t2 = text || '';
+  const m = t2.match(_CARD_RE);
+  return !!m && _isCardLike(t2, m[0], m.index);
 }
 function _hasLink(text) { return _LINK_RE.test(text || ''); }
 function _normScam(text) {
@@ -2276,21 +2400,32 @@ function _normScam(text) {
 }
 
 function assessTextRisk(text) {
-  const s = _normScam(text);
+  let s = _normScam(text);
+  // ЛЕГИТИМНЫЕ обороты вырезаем ДО скоринга, чтобы не пугать честных продавцов:
+  // «без предоплаты», «предоплата не нужна», «оплата при встрече/получении» —
+  // это заверения безопасности, а не схема
+  s = s.replace(/(без|нет) предоплат[а-я]*/g, ' ')
+       .replace(/предоплат[а-я]* не (нужн|треб)[а-я]*/g, ' ')
+       .replace(/(оплат[а-я]*|расчет) при (встрече|получении|осмотре)/g, ' ');
   let score = 0; const reasons = [];
   const add = (pts, why) => { score += pts; reasons.push(why); };
 
-  // КРИТИЧНО: фишинг одноразового кода из СМС (захват аккаунта/банка)
-  if (/код из смс|смс код|код подтвержд|код верифик|код активац|одноразов[а-я]* код|(назов|продиктуй|скаж|сообщ|пришл)[а-я]* код|шестизначн|6 значн/.test(s)) add(100, 'otp');
-  // номер карты в тексте
+  // КРИТИЧНО: фишинг одноразового кода из СМС (захват аккаунта/банка).
+  // «шестизначный/6-значный» — только рядом со словом код/смс (не зарплата!)
+  const otpCore = /код из смс|смс код|код подтвержд|код верифик|код активац|одноразов[а-я]* код|(назов|продиктуй|скаж|сообщ|пришл)[а-я]* код/.test(s);
+  const otpSix = /шестизначн|6 значн/.test(s) && /код|смс/.test(s);
+  if (otpCore || otpSix) add(100, 'otp');
+  // номер карты в тексте (с контекстом — IMEI/серийники не считаются)
   if (_hasCardNumber(text)) add(40, 'card');
   // предоплата / перевод / кошельки КР (бытовое «на карту памяти» НЕ ловим — нужен глагол перевода)
   if (/предоплат|аванс|задаток|(внес|перекин|перевед|кин|скин|отправ)[а-я]* на карт|перевод на карт|номер карт|реквизит|каспи|kaspi|мбанк|mbank|optima|элсом|elsom|элкарт|odengi|деньги вперед/.test(s)) add(30, 'prepay');
-  // явная просьба оплатить по ссылке / онлайн — сильный сигнал
-  if (/оплат[а-я]* по ссылк|ссылк[а-я]* (на|для) оплат|оплат[а-я]* онлайн|онлайн оплат|перейди[а-я]*.{0,8}оплат/.test(s)) add(35, 'paylink');
+  // явная просьба оплатить ПО ССЫЛКЕ / перейти и оплатить — сильный сигнал
+  if (/оплат[а-я]* по ссылк|ссылк[а-я]* (на|для) оплат|перейди[а-я]*.{0,8}оплат/.test(s)) add(35, 'paylink');
+  // «оплата онлайн» сама по себе легальна у бизнесов — слабый сигнал-накопитель
+  else if (/оплат[а-я]* онлайн|онлайн оплат/.test(s)) add(8, 'onlinepay');
   // просто внешняя ссылка в тексте — слабее (бывает легально), но в связке копит риск
   if (_hasLink(text)) add(22, 'link');
-  // курьер / служба доставки с предоплатой
+  // курьер / служба доставки с предоплатой (легитимные обороты уже вырезаны выше)
   if (/служб[аеуы] доставк|курьер.{0,14}оплат|оплат.{0,14}доставк|отправлю.{0,14}(проводник|водител|такси|автобус)|cdek|сдэк|деливери|доставка приедет|доставка сама/.test(s)) add(25, 'courier');
   // приз / лотерея / фейк-поддержка BAZAR
   if (/вы выиграл|поздравля.{0,18}приз|вы стали победител|выигр.{0,18}акци|служб[аы] поддержк.{0,18}bazar|администрац.{0,18}bazar|техподдержк.{0,18}bazar|бонус.{0,14}аккаунт/.test(s)) add(35, 'prize');
@@ -2318,12 +2453,11 @@ function maskUnsafe(raw) {
   html = html.replace(
     /\b((?:https?:\/\/|www\.)[^\s<]+|[a-z0-9][a-z0-9-]*\.(?:ru|com|net|org|kg|io|me|app|site|online|shop|store|info|biz|xyz|top|link|pay|click)\b[^\s<]*)/gi,
     `<span class="masked" title="${esc(t('safety.maskLinkHint'))}">🔒 ${esc(t('safety.maskLink'))}</span>`);
-  // номера карт: 13–19 цифр подряд, допускаются пробелы/дефисы между ними
-  html = html.replace(/\d(?:[ \-]?\d){12,18}/g, m => {
-    const n = m.replace(/\D/g, '').length;
-    return (n >= 13 && n <= 19)
-      ? `<span class="masked" title="${esc(t('safety.maskCardHint'))}">🔒 ${esc(t('safety.maskCard'))}</span>` : m;
-  });
+  // номера карт: 13–19 цифр (группировка ИЛИ платёжный контекст рядом);
+  // IMEI/серийники/трек-номера («IMEI: 3569…», слитные без контекста) не трогаем
+  html = html.replace(/\d(?:[ \-]?\d){12,18}/g, (m, idx) =>
+    _isCardLike(html, m, idx)
+      ? `<span class="masked" title="${esc(t('safety.maskCardHint'))}">🔒 ${esc(t('safety.maskCard'))}</span>` : m);
   return html;
 }
 
@@ -2396,7 +2530,10 @@ function onRealtimeMsg(chatKey, m) {
   chat.updatedAt = Date.now();
   const here = location.hash === '#/chats/' + chatKey;
   chat.unread = !here;
-  if (here && !appendChatMsg(chatKey, msg)) renderChats(chatKey);
+  if (here) {
+    if (!appendChatMsg(chatKey, msg)) renderChats(chatKey);
+    markChatRead(chatKey); // диалог открыт — сразу прочитано
+  }
   updateBadges();
 }
 
@@ -2417,6 +2554,7 @@ function renderChats(activeId) {
   }
 
   const active = activeId ? chats.find(c => c.key === activeId) : null;
+  if (active) markChatRead(active.key); // открыл диалог — отметка прочтения (для unread после перезагрузки)
   if (active && active.unread) {
     active.unread = false;
     if (state.chats[active.key]) state.chats[active.key].unread = false;
@@ -2433,7 +2571,7 @@ function renderChats(activeId) {
     const last = c.messages[c.messages.length - 1];
     return `
     <div class="chat-row ${active && c.key === active.key ? 'active' : ''}" data-chat="${esc(c.key)}">
-      ${photo ? `<img src="${photo}" alt="">` : '<div class="thumb-fallback" style="width:48px;height:48px">📷</div>'}
+      ${photo ? `<img src="${esc(photo)}" alt="">` : '<div class="thumb-fallback" style="width:48px;height:48px">📷</div>'}
       <div class="info">
         <div class="name"><span class="nm">${esc(chName(c))}</span> ${last ? `<time>${msgTime(last.ts)}</time>` : ''}</div>
         <div class="last">${c.unread ? '<b style="color:var(--accent-dark)">● </b>' : ''}${last ? esc(last.text) : esc(chTitle(c))}</div>
@@ -2444,7 +2582,7 @@ function renderChats(activeId) {
   const windowHTML = active ? `
     <div class="chat-head">
       <button class="icon-btn back-btn" data-action="chat-back" aria-label="${t('a11y.back')}">←</button>
-      ${chPhoto(active) ? `<img src="${chPhoto(active)}" alt="">` : ''}
+      ${chPhoto(active) ? `<img src="${esc(chPhoto(active))}" alt="">` : ''}
       <div style="min-width:0">
         <div class="t">${esc(chName(active))}</div>
         ${active.listing
@@ -2529,7 +2667,15 @@ function sendChatMessage(chatKey, text) {
     existing.updatedAt = Date.now();
     const inp = $('#chatText'); if (inp) { inp.value = ''; inp.focus(); }
     if (!appendChatMsg(chatKey, msg)) renderChats(chatKey);
-    dbSendMessage(existing.chatId, text).then(saved => { msg.id = saved.id; }).catch(() => showToast(t('auth.errGeneric')));
+    dbSendMessage(existing.chatId, text)
+      .then(saved => { msg.id = saved.id; })
+      .catch(() => {
+        // откат оптимистичного сообщения: не притворяемся, что доставлено
+        const i = existing.messages.indexOf(msg);
+        if (i >= 0) existing.messages.splice(i, 1);
+        showToast(t('toast.sendFail'), 'error');
+        if (location.hash === '#/chats/' + chatKey) renderChats(chatKey);
+      });
     return;
   }
 
@@ -2757,8 +2903,9 @@ function router() {
   } else if (path.startsWith('/search')) {
     const qs = location.hash.split('?')[1] || '';
     // сбрасываем фильтры только при НОВОМ запросе из ссылки —
-    // кнопка «назад» с тем же hash не должна стирать уточнения пользователя
-    if (hasQuery && qs !== state._appliedQS) {
+    // кнопка «назад» с тем же hash не должна стирать уточнения пользователя.
+    // reset=1 («Показать все») сбрасывает ВСЕГДА, даже при повторном клике
+    if (hasQuery && (qs !== state._appliedQS || params.get('reset'))) {
       const f = defaultFilters();
       if (params.get('cat')) f.cat = params.get('cat');
       if (params.get('sub')) f.sub = params.get('sub');
@@ -3051,6 +3198,9 @@ document.addEventListener('click', e => {
         }
         state.favorites.delete(id);
         lsSave(LS.favs, [...state.favorites]);
+        state.compare.delete(id); // иначе панель сравнения считает удалённое
+        lsSave(LS.compare, [...state.compare]);
+        updateCompareBar();
         closeModal();
         showToast(t('toast.deleted'));
         if (parseHash().path.startsWith('/item/')) {
@@ -3156,7 +3306,7 @@ router();
 
 // авторизация резолвится асинхронно (Supabase) — когда сессия подтянулась
 // или сменилась (вход/выход/возврат из OAuth): перерисовываем + тянем облачные данные
-authOnChange(() => { router(); loadCloudData(); });
+authOnChange(() => { router(); loadCloudData(); startMyChatsLive(); });
 
 // realtime: новые объявления появляются в ленте у всех (и у гостей) без перезагрузки
 startListingsLive();
