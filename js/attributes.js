@@ -254,6 +254,9 @@ const O_LAPSSD = ['128', '256', '512', '1024', '2048'].map(g =>
   opt(g, g >= 1024 ? (g / 1024) + ' ТБ' : g + ' ГБ', g >= 1024 ? (g / 1024) + ' TB' : g + ' GB', g >= 1024 ? (g / 1024) + ' ТБ' : g + ' ГБ'));
 const O_CPU = ['Intel Core i3', 'Intel Core i5', 'Intel Core i7', 'Intel Core i9', 'Intel Celeron', 'Intel Pentium', 'AMD Ryzen 3', 'AMD Ryzen 5', 'AMD Ryzen 7', 'AMD Ryzen 9', 'Apple M1', 'Apple M2', 'Apple M3', 'Apple M4'].map(c => opt(c, c, c, c));
 const O_SCREEN = ['13', '14', '15', '16', '17'].map(s => opt(s, s + '"', s + '"', s + '"'));
+const O_GPU = ['RTX 5090','RTX 5080','RTX 5070','RTX 4090','RTX 4080','RTX 4070','RTX 4060','RTX 4050','RTX 3080','RTX 3070','RTX 3060','RTX 3050','GTX 1660','GTX 1650','RX 7900','RX 7600','RX 6600','Apple M4','Apple M3','Apple M2','Apple M1','Встроенная'].map(g => opt(g, g, g, g));
+const O_TABSCREEN = ['8','9','10','11','12','13','14'].map(s => opt(s, s + '"', s + '"', s + '"'));
+const O_BATTERY = ['100','95','90','85','80'].map(b => opt(b, 'от ' + b + '%', b + '%+', b + '%+'));
 const O_TVSIZE = ['24', '32', '40', '43', '50', '55', '65', '75', '85'].map(s => opt(s, s + '"', s + '"', s + '"'));
 const O_TVRES = [opt('HD', 'HD', 'HD', 'HD'), opt('Full HD', 'Full HD', 'Full HD', 'Full HD'), opt('4K', '4K Ultra HD', '4K Ultra HD', '4K Ultra HD'), opt('8K', '8K', '8K', '8K')];
 const O_TVTECH = [opt('LED', 'LED', 'LED', 'LED'), opt('QLED', 'QLED', 'QLED', 'QLED'), opt('OLED', 'OLED', 'OLED', 'OLED'), opt('Plasma', 'Плазма', 'Plasma', 'Плазма')];
@@ -306,18 +309,25 @@ const ATTR_SCHEMA = {
     fBrand('phones'), fModel(),
     fSelect('storage', T3('Память', 'Storage', 'Эстутум'), O_STORAGE, true),
     fSelect('ram', T3('Оперативная память', 'RAM', 'Оперативдик эстутум'), O_RAM, true),
+    // состояние аккумулятора — ключевой критерий при покупке б/у iPhone
+    fNum('battery', T3('Аккумулятор', 'Battery health', 'Аккумулятор'), T3('%', '%', '%'), 0, 100, true),
+    fSelect('g5', T3('5G', '5G', '5G'), [opt('Есть','Есть','Yes','Бар'), opt('Нет','Нет','No','Жок')], true),
+    fSelect('esim', T3('eSIM', 'eSIM', 'eSIM'), [opt('Есть','Есть','Yes','Бар'), opt('Нет','Нет','No','Жок')], true),
     fColor(),
   ],
   'Ноутбуки': [
     fBrand('laptops'), fModel(),
     fSelect('cpu', T3('Процессор', 'Processor', 'Процессор'), O_CPU, true),
+    fSelect('gpu', T3('Видеокарта', 'Graphics', 'Видеокарта'), O_GPU, true),
     fSelect('ram', T3('Оперативная память', 'RAM', 'Оперативдик эстутум'), O_RAM, true),
     fSelect('ssd', T3('Накопитель', 'Storage', 'Сактагыч'), O_LAPSSD, true),
     fSelect('screen', T3('Экран', 'Screen', 'Экран'), O_SCREEN, true),
   ],
   'Планшеты': [
     fBrand('tablets'), fModel(),
+    fSelect('screen', T3('Диагональ', 'Screen size', 'Диагональ'), O_TABSCREEN, true),
     fSelect('storage', T3('Память', 'Storage', 'Эстутум'), O_STORAGE, true),
+    fSelect('cellular', T3('SIM-карта', 'Cellular', 'SIM-карта'), [opt('Есть','Есть','Yes','Бар'), opt('Нет','Нет','No','Жок')], true),
     fColor(),
   ],
   'ТВ и аудио': [
@@ -523,6 +533,15 @@ function passesAttrs(l, fa) {
     } else if (k.endsWith('Max')) {
       const key = k.slice(0, -3);
       if (la[key] == null || +la[key] > +val) return false;
+    } else if (k === 'gpu' || k === 'cpu' || k === 'chip') {
+      // «rtx 4070» должно ловить и «RTX 4070 Laptop», и «GeForce RTX 4070»
+      const have = String(la[k] || '').toLowerCase().replace(/\s+/g, ' ');
+      const want = String(val).toLowerCase().replace(/\s+/g, ' ');
+      if (!have.includes(want)) return false;
+    } else if (k === 'screen') {
+      // диагональ спрашивают округлённо: «12 дюймов» ловит 12.4 и 12.9
+      const have = parseFloat(la[k]);
+      if (!isFinite(have) || Math.abs(have - parseFloat(val)) > 0.95) return false;
     } else if (String(la[k] == null ? '' : la[k]) !== String(val)) {
       return false;
     }
