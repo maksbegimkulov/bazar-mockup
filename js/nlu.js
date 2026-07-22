@@ -55,8 +55,12 @@ function _idxAdd(key, payload) {
   if (!ALIAS_INDEX.has(k)) { ALIAS_INDEX.set(k, payload); ALIAS_KEYS.push(k); }
   const glued = k.replace(/\s+/g, '');
   if (glued !== k && !ALIAS_INDEX.has(glued)) { ALIAS_INDEX.set(glued, payload); ALIAS_KEYS.push(glued); }
-  const ph = phonetic(glued);
-  if (ph && ph !== glued && !ALIAS_INDEX.has(ph)) { ALIAS_INDEX.set(ph, payload); ALIAS_KEYS.push(ph); }
+  // фонетика только для буквенных ключей: у чисел она схлопывает повторы
+  // («50000» → «50»), и цена в запросе начинала матчиться как поколение
+  if (!/\d/.test(glued)) {
+    const ph = phonetic(glued);
+    if (ph && ph !== glued && !ALIAS_INDEX.has(ph)) { ALIAS_INDEX.set(ph, payload); ALIAS_KEYS.push(ph); }
+  }
 }
 
 /* строим один раз при первом обращении — каталоги к этому моменту загружены */
@@ -256,8 +260,10 @@ function matchCatalog(sNorm) {
       const cands = [phrase, phrase.replace(/\s+/g, ''), phonetic(phrase.replace(/\s+/g, ''))];
       let hit = null;
       for (const c of cands) { if (ALIAS_INDEX.has(c)) { hit = ALIAS_INDEX.get(c); break; } }
-      // одиночное короткое слово («ли», «м3») не берём — слишком шумно
-      if (hit && !(n === 1 && phrase.length <= 2)) {
+      // одиночное короткое слово («ли», «м3») и голое число («50000», «2020»)
+      // не берём: иначе цена и год превращаются в модель или поколение
+      const bareNumber = n === 1 && /^\d+$/.test(phrase);
+      if (hit && !bareNumber && !(n === 1 && phrase.length <= 2)) {
         hits.push(hit);
         for (let k = i; k < i + n; k++) used[k] = true;
       }

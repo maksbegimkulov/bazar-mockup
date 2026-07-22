@@ -231,6 +231,11 @@ function parseSearchQuery(raw) {
     }
   }
 
+  // сомы после суммы («до 50000 сом») — это валюта, а не слово запроса
+  if (filters.priceMax || filters.priceMin) {
+    s = s.replace(/ (?:сом[а-я]*|kgs|тенге|рубл[а-я]*|руб)(?= )/g, ' ');
+  }
+
   // цена в долларах/баксах/у.е. → пересчёт в сомы (жаргон «до 10000 долларов»)
   if ((filters.priceMax || filters.priceMin) && / (доллар[а-я]*|бакс[а-я]*|usd|у е)(?= )/.test(s)) {
     const USD_RATE = 88; // ориентировочный курс USD→KGS
