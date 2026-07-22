@@ -2503,3 +2503,6 @@ a.seller-card { display: flex; gap: 12px; align-items: center; text-decoration: 
   padding: 11px 14px; border: 1px solid var(--line); border-radius: var(--radius);
   background: var(--card); color: var(--text-2); font-size: 13.5px; opacity: .75;
 }
+
+/* карточка предпросмотра в форме — только для показа, не кликается */
+.preview-lock { pointer-events: none; }

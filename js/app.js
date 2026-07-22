@@ -166,6 +166,7 @@ async function loadCloudData() {
       (data || []).forEach(p => names[p.id] = p.name);
     }
     state.dbListings = rows.map(r => dbToListing(r, names));
+    state._cloudLoaded = true;
     // чистим «фантомы»: облачное объявление удалили — из избранного/сравнения тоже
     let pruned = false;
     // избранное не чистим молча: человек должен понять, что объявление сняли,
@@ -1258,7 +1259,7 @@ function renderItem(id) {
     </div>
     ${isMine ? '' : `
     <div class="item-contactbar" id="itemContactBar">
-      <button class="icon-btn cb-fav" data-fav="${l.id}" aria-label="${t('item.fav')}">${isFav ? '❤️' : '🤍'}</button>
+      <button class="icon-btn cb-fav fav-btn ${isFav ? 'active' : ''}" data-fav="${l.id}" aria-label="${t('item.fav')}">${HEART_SVG}</button>
       ${l.phone ? `<button class="btn btn-secondary cb-call" data-action="show-phone" data-id="${l.id}">📞 ${t('item.callShort')}</button>` : ''}
       <button class="btn btn-primary cb-write" data-action="write-seller" data-id="${l.id}">💬 ${t('item.writeShort')}</button>
     </div>`}
@@ -1472,8 +1473,11 @@ function renderFavorites() {
   }
   rows.sort(cmp[sort] || cmp.added);
 
+  // пока облачные объявления не подгрузились, getListing по ним вернёт пусто —
+  // объявить их «снятыми» значило бы предложить удалить живое объявление
+  const cloudReady = typeof sb === 'undefined' || !sb || state.dbListings.length > 0 || state._cloudLoaded;
   const live = rows.filter(r => r.l);
-  const gone = rows.filter(r => !r.l);
+  const gone = cloudReady ? rows.filter(r => !r.l) : [];
 
   const cardWithMeta = r => {
     const d = priceDelta(r);
@@ -1990,13 +1994,16 @@ function collectPostDraft() {
     negotiable: chk('#pNegotiable'), hasDelivery: chk('#pDelivery'),
     condition: (document.querySelector('#pCondition .fchip.active') || { dataset: {} }).dataset.cond || '',
     attrs: typeof collectAttrs === 'function' ? collectAttrs($('#pAttrs')) : {},
-    pickedSeeds: [...document.querySelectorAll('.photo-pick.picked')].map(b => +b.dataset.seed),
+    pickedSeeds: [...document.querySelectorAll('#photoPicker .photo-slot.selected[data-seed]')].map(b => +b.dataset.seed),
     userPhotos: state._postPhotos || null,
     step: (function () { const sec = document.querySelector('#postForm .pstep:not([hidden])'); return sec ? +sec.dataset.step : 1; })(),
     ts: Date.now(),
   };
 }
 function savePostDraft() {
+  // в режиме правки черновик не трогаем: иначе открытая правка затирает
+  // неоконченное новое объявление
+  if (state._postEditing) return;
   const d = collectPostDraft();
   if (!d) return;
   // пустую форму в черновик не пишем — иначе баннер «черновик» на чистой форме
@@ -2031,6 +2038,9 @@ function renderPost(params) {
 
   const prefill = state._prefill;
   state._prefill = null;
+  state._postEditing = !!editing;
+  // фото прошлой сессии формы не должны утечь в следующее объявление
+  if (editing) state._postPhotos = null;
   // черновик восстанавливаем только для НОВОГО объявления
   const draft = !editing && !prefill ? loadPostDraft() : null;
   const f = editing || prefill || draft || {};
@@ -2328,7 +2338,11 @@ function renderPost(params) {
       createdAt: Date.now(), postedHoursAgo: 0, views: 0,
       isVip: false, isUrgent: false, hasDelivery: $('#pDelivery').checked, phone: $('#pPhone').value,
     };
-    box.innerHTML = cardHTML(draftListing);
+    // карточка только для показа: ссылка и кнопки лайка/сравнения с
+    // несуществующим id увели бы в никуда
+    box.innerHTML = `<div class="preview-lock">${cardHTML(draftListing)}</div>`;
+    box.querySelectorAll('a').forEach(a => { a.removeAttribute('href'); a.removeAttribute('data-link'); });
+    box.querySelectorAll('[data-fav], [data-action]').forEach(b => b.remove());
   }
 
   function showStep(n, opts = {}) {
@@ -2353,15 +2367,11 @@ function renderPost(params) {
 
   $('#pNext').addEventListener('click', () => {
     if (!validateStep(step)) return;
-    let next = step + 1;
-    // шаг характеристик пропускаем, если у категории их нет
-    if (next === 3 && $('#pAttrsWrap').hidden) next = 4;
-    showStep(next);
+    // шаг 3 не пропускаем: даже без характеристик там выбирается состояние
+    showStep(step + 1);
   });
   $('#pPrev').addEventListener('click', () => {
-    let prev = step - 1;
-    if (prev === 3 && $('#pAttrsWrap').hidden) prev = 2;
-    showStep(prev);
+    showStep(step - 1);
   });
   // Enter в поле = «Далее», а не публикация с середины формы
   $('#postForm').addEventListener('keydown', e => {
@@ -2396,7 +2406,7 @@ function renderPost(params) {
     const form = $('#postForm');
     form.addEventListener('input', scheduleDraft);
     form.addEventListener('change', scheduleDraft);
-    form.addEventListener('click', e => { if (e.target.closest('.fchip, .photo-pick')) scheduleDraft(); });
+    form.addEventListener('click', e => { if (e.target.closest('.fchip, .photo-slot')) scheduleDraft(); });
     // уход со страницы (нижняя навигация, «назад») — сохранить немедленно
     window.addEventListener('hashchange', savePostDraft, { once: true });
   }
@@ -2501,7 +2511,7 @@ function renderPost(params) {
           const mapped = dbToListing(row, { [currentUser().id]: currentUser().name });
           const j = state.dbListings.findIndex(l => l.id === editing.id);
           if (j >= 0) state.dbListings[j] = mapped; else state.dbListings.unshift(mapped);
-          clearPostDraft();
+          clearPostDraft(); state._postPhotos = null;
           showToast(t('toast.saved'), 'success');
           location.hash = '#/item/' + mapped.id;
         } catch (err) {
@@ -2515,7 +2525,7 @@ function renderPost(params) {
       const i = state.myListings.findIndex(l => l.id === editing.id);
       state.myListings[i] = { ...editing, ...listing }; // status/userPhotos/specs переживают правку
       lsSave(LS.my, state.myListings);
-      clearPostDraft();
+      clearPostDraft(); state._postPhotos = null;
       showToast(t('toast.saved'), 'success');
       location.hash = '#/item/' + listing.id;
       return;
@@ -3792,7 +3802,7 @@ document.addEventListener('click', e => {
       case 'dym': {
         const f = state.filters;
         const d = actBtn.dataset;
-        f.q = ''; $('#searchInput').value = '';
+        f.q = ''; f.qRaw = ''; $('#searchInput').value = '';
         if (d.cat) f.cat = d.cat;
         if (d.sub) f.sub = d.sub;
         f.attrs = {};
@@ -3812,7 +3822,7 @@ document.addEventListener('click', e => {
         else if (key === 'price') { f.priceMin = ''; f.priceMax = ''; }
         else if (key === 'condition') f.condition = 'any';
         else if (key === 'delivery') f.delivery = false;
-        else if (key === 'q') { f.q = ''; $('#searchInput').value = ''; }
+        else if (key === 'q') { f.q = ''; f.qRaw = ''; $('#searchInput').value = ''; }
         else if (key.startsWith('attr:')) {
           const bare = key.slice(5);
           delete f.attrs[bare]; delete f.attrs[bare + 'Min']; delete f.attrs[bare + 'Max'];
@@ -3831,7 +3841,7 @@ document.addEventListener('click', e => {
           <h3>${t('favs.noteTitle')}</h3>
           <textarea class="ftextarea" id="favNoteInput" maxlength="200" placeholder="${t('favs.notePh')}">${esc(cur)}</textarea>
           <div class="modal-actions">
-            <button class="btn btn-secondary" data-close>${t('modal.cancel')}</button>
+            <button class="btn btn-outline" data-action="modal-close">${t('modal.cancel')}</button>
             <button class="btn btn-primary" data-action="fav-note-save" data-id="${id}">${t('modal.save')}</button>
           </div>`);
         setTimeout(() => { const i = $('#favNoteInput'); if (i) i.focus(); }, 60);
