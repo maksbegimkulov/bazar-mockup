@@ -20,6 +20,7 @@ const LS = {
   reported: 'bazar_reported', // id, на которые юзер пожаловался (прячем у него)
   chatRead: 'bazar_chat_read', // chatId → ts последнего прочитанного (для unread DB-чатов)
   postDraft: 'bazar_post_draft', // незаконченное объявление (не терять при уходе)
+  favMeta: 'bazar_fav_meta',     // по избранному: цена на момент добавления, заметка, статус
 };
 
 /* lsLoad / lsSave определены в i18n.js (грузится раньше) */
@@ -38,6 +39,7 @@ state.compare = new Set(lsLoad(LS.compare, [])); // id для сравнения
 state.soldIds = new Set(lsLoad(LS.sold, []));    // отмеченные продано/архив (мок/демо)
 state.reported = new Set(lsLoad(LS.reported, [])); // id с жалобой юзера — прячем у него
 state.chatRead = lsLoad(LS.chatRead, {});          // chatId → ts прочитанного
+state.favMeta = lsLoad(LS.favMeta, {});            // id → {price, ts, note, gone}
 state.page = 1;
 state.galleryIndex = 0;
 state.auth = { mode: 'login', method: 'email' };  // экран входа/регистрации
@@ -166,7 +168,17 @@ async function loadCloudData() {
     state.dbListings = rows.map(r => dbToListing(r, names));
     // чистим «фантомы»: облачное объявление удалили — из избранного/сравнения тоже
     let pruned = false;
-    for (const oid of [...state.favorites]) if (!getListing(oid)) { state.favorites.delete(oid); pruned = true; }
+    // избранное не чистим молча: человек должен понять, что объявление сняли,
+    // а не гадать, куда оно делось. Помечаем и показываем в списке.
+    for (const oid of [...state.favorites]) {
+      if (!getListing(oid)) {
+        state.favMeta[oid] = { ...(state.favMeta[oid] || {}), gone: true };
+        pruned = true;
+      } else if (state.favMeta[oid] && state.favMeta[oid].gone) {
+        delete state.favMeta[oid].gone; pruned = true;
+      }
+    }
+    if (pruned) lsSave(LS.favMeta, state.favMeta);
     for (const oid of [...state.compare]) if (!getListing(oid)) { state.compare.delete(oid); pruned = true; }
     if (pruned) {
       lsSave(LS.favs, [...state.favorites]);
@@ -1430,6 +1442,11 @@ function toggleFav(id) {
     showToast(t('toast.favDel'));
   } else {
     state.favorites.add(id);
+    // запоминаем цену на момент добавления — потом покажем, подешевело или нет
+    const l = getListing(id);
+    state.favMeta[id] = { ...(state.favMeta[id] || {}), price: l ? l.price : 0,
+      title: l ? l.title : '', ts: Date.now() };
+    lsSave(LS.favMeta, state.favMeta);
     showToast(t('toast.favAdd'), 'success');
   }
   lsSave(LS.favs, [...state.favorites]);
@@ -1437,18 +1454,76 @@ function toggleFav(id) {
 }
 
 function renderFavorites() {
-  const items = allListings().filter(l => state.favorites.has(l.id) && !state.reported.has(l.id));
+  const meta = state.favMeta || {};
+  const rows = [...state.favorites]
+    .filter(id => !state.reported.has(id))
+    .map(id => ({ id, l: getListing(id), m: meta[id] || {} }));
+
+  // сортировка сохраняется между заходами
+  const sort = state.favSort || 'added';
+  const cmp = {
+    added: (a, b) => (b.m.ts || 0) - (a.m.ts || 0),
+    cheap: (a, b) => (a.l ? a.l.price : Infinity) - (b.l ? b.l.price : Infinity),
+    drop: (a, b) => priceDelta(b) - priceDelta(a),
+  };
+  function priceDelta(r) { // насколько подешевело с момента добавления, %
+    if (!r.l || !r.m.price || !r.l.price) return -Infinity;
+    return (r.m.price - r.l.price) / r.m.price * 100;
+  }
+  rows.sort(cmp[sort] || cmp.added);
+
+  const live = rows.filter(r => r.l);
+  const gone = rows.filter(r => !r.l);
+
+  const cardWithMeta = r => {
+    const d = priceDelta(r);
+    let badge = '';
+    if (isFinite(d) && Math.abs(d) >= 1) {
+      const down = d > 0;
+      badge = `<div class="fav-price ${down ? 'down' : 'up'}">${down ? '↓' : '↑'} ${Math.abs(Math.round(d))}% · ${down ? t('favs.cheaper') : t('favs.pricier')}</div>`;
+    }
+    const note = r.m.note
+      ? `<div class="fav-note">📝 ${esc(r.m.note)}</div>` : '';
+    return `<div class="fav-item">
+      ${cardHTML(r.l)}
+      ${badge}${note}
+      <button class="fav-note-btn" data-action="fav-note" data-id="${r.id}">${r.m.note ? t('favs.noteEdit') : t('favs.noteAdd')}</button>
+    </div>`;
+  };
+
   app.innerHTML = `
     <div class="page-head">
       <h1>${t('favs.title')}</h1>
-      ${items.length ? `<span class="results-count">${nLabel(items.length)}</span>` : ''}
+      ${live.length ? `<span class="results-count">${nLabel(live.length)}</span>` : ''}
     </div>
+    ${rows.length ? `
+    <div class="fav-tools">
+      <select class="fselect fav-sort" id="favSort">
+        <option value="added" ${sort === 'added' ? 'selected' : ''}>${t('favs.sortAdded')}</option>
+        <option value="cheap" ${sort === 'cheap' ? 'selected' : ''}>${t('favs.sortCheap')}</option>
+        <option value="drop" ${sort === 'drop' ? 'selected' : ''}>${t('favs.sortDrop')}</option>
+      </select>
+    </div>` : ''}
     <div class="grid">
-      ${items.length
-        ? items.map(cardHTML).join('')
-        : emptyHTML('💔', t('favs.empty.t'), t('favs.empty.p'),
-            `<a class="btn btn-primary" href="#/search?reset=1" data-link>${t('favs.empty.btn')}</a>`)}
-    </div>`;
+      ${live.length
+        ? live.map(cardWithMeta).join('')
+        : (gone.length ? '' : emptyHTML('💔', t('favs.empty.t'), t('favs.empty.p'),
+            `<a class="btn btn-primary" href="#/search?reset=1" data-link>${t('favs.empty.btn')}</a>`))}
+    </div>
+    ${gone.length ? `
+    <section class="fav-gone">
+      <div class="section-title"><h2>${t('favs.goneTitle')}</h2></div>
+      <p class="fav-gone-sub">${t('favs.goneSub')}</p>
+      <div class="fav-gone-list">
+        ${gone.map(r => `<div class="fav-gone-row">
+          <span>${esc((r.m.title) || t('favs.goneItem'))}${r.m.price ? ' · ' + fmtNum(r.m.price) + ' ' + t('som') : ''}</span>
+          <button class="btn-ghost" data-action="fav-forget" data-id="${r.id}">${t('favs.forget')}</button>
+        </div>`).join('')}
+      </div>
+    </section>` : ''}`;
+
+  const sortSel = $('#favSort');
+  if (sortSel) sortSel.addEventListener('change', e => { state.favSort = e.target.value; renderFavorites(); });
 }
 
 /* ---------------- продажа за 30 секунд (реальная камера + ИИ) ---------------- */
@@ -3748,6 +3823,36 @@ document.addEventListener('click', e => {
         const p2 = $('#filtersPanel');
         if (p2) { p2.innerHTML = filterPanelHTML(f); bindFilterPanel(); }
         updateResults();
+        break;
+      }
+      case 'fav-note': {
+        const cur = (state.favMeta[id] || {}).note || '';
+        openModal(`
+          <h3>${t('favs.noteTitle')}</h3>
+          <textarea class="ftextarea" id="favNoteInput" maxlength="200" placeholder="${t('favs.notePh')}">${esc(cur)}</textarea>
+          <div class="modal-actions">
+            <button class="btn btn-secondary" data-close>${t('modal.cancel')}</button>
+            <button class="btn btn-primary" data-action="fav-note-save" data-id="${id}">${t('modal.save')}</button>
+          </div>`);
+        setTimeout(() => { const i = $('#favNoteInput'); if (i) i.focus(); }, 60);
+        break;
+      }
+      case 'fav-note-save': {
+        const v = ($('#favNoteInput') || {}).value || '';
+        state.favMeta[id] = { ...(state.favMeta[id] || {}), note: v.trim() };
+        if (!state.favMeta[id].note) delete state.favMeta[id].note;
+        lsSave(LS.favMeta, state.favMeta);
+        closeModal();
+        renderFavorites();
+        break;
+      }
+      case 'fav-forget': {
+        state.favorites.delete(id);
+        delete state.favMeta[id];
+        lsSave(LS.favs, [...state.favorites]);
+        lsSave(LS.favMeta, state.favMeta);
+        updateBadges();
+        renderFavorites();
         break;
       }
       case 'draft-discard': {

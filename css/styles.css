@@ -2471,3 +2471,35 @@ a.seller-card { display: flex; gap: 12px; align-items: center; text-decoration: 
 .preview-note { font-size: 13px; color: var(--text-2); margin-bottom: 10px; font-weight: 600; }
 #pPreview { grid-template-columns: minmax(0, 260px); }
 @media (prefers-reduced-motion: reduce) { .pstep { animation: none; } }
+
+/* ============================================================
+   Избранное: следим за ценой, храним заметки, честно показываем
+   снятые объявления (раньше они молча исчезали из списка).
+   ============================================================ */
+.fav-tools { display: flex; justify-content: flex-end; margin-bottom: 12px; }
+.fav-sort { max-width: 240px; }
+.fav-item { display: flex; flex-direction: column; }
+.fav-price {
+  margin-top: 8px; padding: 5px 10px; border-radius: var(--radius-s);
+  font-size: 12px; font-weight: 700; text-align: center;
+}
+.fav-price.down { background: var(--accent-soft, rgba(0,160,106,.1)); color: var(--accent-dark); }
+.fav-price.up { background: var(--vip-soft); color: var(--vip-text); }
+.fav-note {
+  margin-top: 6px; padding: 7px 10px; border-radius: var(--radius-s);
+  background: var(--stripe-b); color: var(--text-2); font-size: 12px; line-height: 1.4;
+}
+.fav-note-btn {
+  margin-top: 6px; border: 1px dashed var(--line); background: transparent;
+  color: var(--text-3); border-radius: var(--radius-s); padding: 6px 10px;
+  font-size: 12px; font-weight: 600; cursor: pointer;
+}
+.fav-note-btn:hover { color: var(--accent-dark); border-color: var(--accent); }
+.fav-gone { margin-top: 26px; }
+.fav-gone-sub { color: var(--text-3); font-size: 13px; margin: -4px 0 10px; }
+.fav-gone-list { display: flex; flex-direction: column; gap: 8px; }
+.fav-gone-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 11px 14px; border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--card); color: var(--text-2); font-size: 13.5px; opacity: .75;
+}
