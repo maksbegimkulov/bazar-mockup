@@ -18,6 +18,7 @@ const LS = {
   compare: 'bazar_compare', // выбранные для сравнения id (Авто.ру «Сравнить»)
   sold: 'bazar_sold',       // локально отмеченные «продано»/«архив» id
   reported: 'bazar_reported', // id, на которые юзер пожаловался (прячем у него)
+  reportLog: 'bazar_report_log', // причина жалобы: копится до появления серверной модерации
   chatRead: 'bazar_chat_read', // chatId → ts последнего прочитанного (для unread DB-чатов)
   postDraft: 'bazar_post_draft', // незаконченное объявление (не терять при уходе)
   favMeta: 'bazar_fav_meta',     // по избранному: цена на момент добавления, заметка, статус
@@ -595,7 +596,10 @@ function renderHome() {
     </a>`;
   }).join('');
 
-  const viewed = state.viewed.map(getListing).filter(Boolean).slice(0, 4);
+  // блок «вы смотрели» шёл мимо applyFilters, и объявление, на которое
+  // юзер только что пожаловался (или которое продано), возвращалось на главную
+  const viewed = state.viewed.map(getListing).filter(Boolean)
+    .filter(l => !state.reported.has(l.id) && !isSold(l)).slice(0, 4);
 
   app.innerHTML = `
     <section>
@@ -3928,6 +3932,14 @@ document.addEventListener('click', e => {
       case 'report-submit': {
         closeModal();
         if (id) {
+          // причина раньше терялась: кнопка несёт data-reason, но её никто не читал.
+          // Пока нет серверной модерации — копим локально, чтобы было что отправить.
+          const reason = actBtn.dataset.reason || 'other';
+          const log = lsLoad(LS.reportLog, []);
+          if (!log.some(r => r.id === id)) {
+            log.push({ id, reason, ts: Date.now() });
+            lsSave(LS.reportLog, log.slice(-200));
+          }
           state.reported.add(id); lsSave(LS.reported, [...state.reported]);
           state.favorites.delete(id); lsSave(LS.favs, [...state.favorites]);
           state.compare.delete(id); lsSave(LS.compare, [...state.compare]);
