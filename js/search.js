@@ -319,7 +319,36 @@ function parseSearchQuery(raw) {
   // «снять/аренда» без слова «квартира»
   if (!filters.cat && wantsRent) { filters.cat = 'realty'; filters.sub = 'Аренда квартир'; }
 
-  return { q: rest.join(' ').trim(), filters };
+  let qRest = rest.join(' ').trim();
+
+  /* --- NLU поверх базового парсера: бренд/модель/поколение из справочника
+     + числовые характеристики (память, диагональ, батарея, видеокарта,
+     пробег, год, запас хода) + исключения «не самсунг». Работает по остатку,
+     чтобы не спорить с уже снятыми ценой/городом/состоянием. --- */
+  if (typeof nluParse === 'function' && qRest) {
+    try {
+      // NLU получает ИСХОДНУЮ строку: базовый парсер вычищает служебные слова
+      // (включая «не»), а без них ломались отрицания «не самсунг»
+      const n = nluParse(raw);
+      if (n.cat && !filters.cat) { filters.cat = n.cat; if (n.sub) filters.sub = n.sub; }
+      if (n.sub && !filters.sub && filters.cat === n.cat) filters.sub = n.sub;
+
+      const attrs = Object.assign({}, filters.attrs || {}, n.attrs || {});
+      if (n.brand) attrs.brand = n.brand;
+      if (n.model) attrs.model = n.model;
+      if (n.gen) attrs.gen = n.gen;
+      if (Object.keys(attrs).length) filters.attrs = attrs;
+
+      if (n.exclude && n.exclude.length) filters.exclude = n.exclude;
+      if (n.layoutFixed) filters._layoutFixed = n.layoutFixed;
+      // текстом для скоринга оставляем только то, что НЕ распознал ни базовый
+      // парсер (цена/город/состояние), ни NLU (бренд/модель/характеристики)
+      const keep = new Set(String(n.rest || '').split(/\s+/).filter(Boolean));
+      qRest = qRest.split(/\s+/).filter(w => keep.has(w)).join(' ');
+    } catch (e) { /* NLU не должен ломать обычный поиск */ }
+  }
+
+  return { q: qRest, filters };
 }
 
 /* --- скоринг объявления по токенам запроса --- */

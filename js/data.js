@@ -453,7 +453,9 @@ function generateListings() {
   return listings;
 }
 
-const LISTINGS = generateListings();
+/* let, а не const: generate.js дольёт сюда объявления из справочников
+   (марки/модели/поколения) сразу после загрузки — см. конец generate.js */
+let LISTINGS = generateListings();
 
 /* ============================================================
    Демо-товары для флоу «Продажа за 30 секунд»:

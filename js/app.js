@@ -442,6 +442,16 @@ function applyFilters(f) {
     if (f.delivery && !l.hasDelivery) return false;
     if (f.period !== 'all' && hoursAgo(l) > +f.period * 24) return false;
     if (f.attrs && !passesAttrs(l, f.attrs)) return false;
+    // отрицательные условия из запроса: «телефон не самсунг и не айфон»
+    if (f.exclude && f.exclude.length) {
+      const la = getAttrs(l);
+      const hay = ((l.title || '') + ' ' + (la.brand || '') + ' ' + (la.model || '')).toLowerCase();
+      for (const ex of f.exclude) {
+        if (ex.brand && String(la.brand || '').toLowerCase() === ex.brand.toLowerCase()) return false;
+        if (ex.model && String(la.model || '').toLowerCase() === ex.model.toLowerCase()) return false;
+        if (ex.brand && hay.includes(ex.brand.toLowerCase())) return false;
+      }
+    }
     return true;
   };
 
