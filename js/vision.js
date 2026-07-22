@@ -110,7 +110,7 @@ async function visionClassify(input) {
    Браузер шлёт только фото → сервер распознаёт → возвращает готовое объявление.
    Работает для ВСЕХ пользователей без ввода ключа. Пусто = выключено (тогда
    используется встроенный on-device движок CLIP, тоже без ключа). */
-const SMART_ENDPOINT = 'https://bazar-recognize.bazar-kg-26106bazar-kg-26106bazar-kg-26106bazar-kg-26106.workers.dev';
+const SMART_ENDPOINT = 'https://bazar-recognize.bazar-kg-26106.workers.dev';
 function smartOn() { return !!SMART_ENDPOINT; }
 
 async function smartRecognize(dataURL) {

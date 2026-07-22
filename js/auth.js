@@ -178,7 +178,9 @@ async function dbAllListings() {
 
 async function dbDeleteListing(id) {
   if (!sb || !AUTH.user) return;
-  await sb.from('listings').delete().eq('id', id);
+  // owner_id обязателен: на RLS одной надежды мало, а промах здесь стоит
+  // чужого объявления (см. dbUpdateListing — там условие уже стоит)
+  await sb.from('listings').delete().eq('id', id).eq('owner_id', AUTH.user.id);
 }
 
 /* найти существующий или создать чат покупатель→продавец по объявлению */
