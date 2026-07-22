@@ -2012,6 +2012,7 @@ function renderPost(params) {
             <div class="fgroup">
               <label class="flabel">${t('form.price')}</label>
               <input class="finput" id="pPrice" type="number" inputmode="numeric" min="0" placeholder="0" value="${f.price || ''}" ${f.negotiable ? 'disabled' : ''}>
+              <div class="price-hint" id="pPriceHint" hidden></div>
               <label class="fcheck" style="margin-top:6px"><input type="checkbox" id="pNegotiable" ${f.negotiable ? 'checked' : ''}>
                 <span class="box"><svg width="12" height="10" viewBox="0 0 12 10" fill="none" stroke="#fff" stroke-width="2.4"><path d="M1 5l3.5 3.5L11 1"/></svg></span>
                 ${t('price.negotiable')}</label>
@@ -2131,15 +2132,39 @@ function renderPost(params) {
     $('#pSubWrap').hidden = !c;
     $('#pSub').innerHTML = c ? c.subs.map(s => `<option value="${esc(s)}">${esc(subName(s))}</option>`).join('') : '';
     curAttrs = {}; // другая категория → другие характеристики
-    renderPicker(); renderPostAttrs();
+    renderPicker(); renderPostAttrs(); updatePriceHint();
   });
-  $('#pSub').addEventListener('change', () => { curAttrs = {}; renderPicker(); renderPostAttrs(); });
+  $('#pSub').addEventListener('change', () => { curAttrs = {}; renderPicker(); renderPostAttrs(); updatePriceHint(); });
+
+  /* Подсказка по рынку прямо в форме: раньше продавец вводил цену вслепую,
+     публиковал — и приложение само же вешало покупателю «Дорого» или
+     «Подозрительно дёшево». Теперь он видит вилку заранее. */
+  function updatePriceHint() {
+    const box = $('#pPriceHint');
+    if (!box) return;
+    const sub = $('#pSub') ? $('#pSub').value : '';
+    const st = (sub && typeof subPriceStats === 'function') ? subPriceStats(sub) : null;
+    if (!st || $('#pNegotiable').checked) { box.hidden = true; return; }
+    const val = +$('#pPrice').value || 0;
+    let verdict = '';
+    if (val > 0) {
+      const r = val / st.median;
+      if (r <= 0.6) verdict = `<span class="ph-v low">${t('form.priceLow')}</span>`;
+      else if (r <= 1.15) verdict = `<span class="ph-v ok">${t('form.priceOk')}</span>`;
+      else verdict = `<span class="ph-v high">${t('form.priceHigh')}</span>`;
+    }
+    box.innerHTML = `📊 ${t('form.priceMarket')} ${fmtNum(st.min)}–${fmtNum(st.max)} ${t('som')} · ${t('form.priceMedian')} ${fmtNum(st.median)} ${verdict}`;
+    box.hidden = false;
+  }
+  $('#pPrice').addEventListener('input', updatePriceHint);
+  updatePriceHint();
 
   $('#pNegotiable').addEventListener('change', e => {
     $('#pPrice').disabled = e.target.checked;
     if (e.target.checked) $('#pPrice').value = '';
     const fw = $('#pFloorWrap');
     if (fw) { fw.hidden = e.target.checked; if (e.target.checked) $('#pFloor').value = ''; }
+    updatePriceHint();
   });
 
   let condition = f.condition || '';
