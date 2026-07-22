@@ -1953,7 +1953,18 @@ function attrFieldsHTML(catId, subName, attrs) {
         <input class="finput" data-attr="${f.key}" type="number" inputmode="numeric" ${f.min != null ? `min="${f.min}"` : ''} ${f.max != null ? `max="${f.max}"` : ''} value="${cur != null ? esc(String(cur)) : ''}" placeholder="—">
       </div>`;
     }
-    const pairs = f.type === 'brand' ? brandsFor(f.group).map(b => [b, b]) : f.options.map(o => [o.v, aL(o.l)]);
+    // поколение приходит из каталога и зависит от выбранных марки+модели,
+    // своего списка options у него нет — без этой ветки форма авто падала
+    let pairs;
+    if (f.type === 'brand') pairs = brandsFor(f.group).map(b => [b, b]);
+    else if (f.type === 'gen') {
+      const bf = schema.find(x => x.type === 'brand');
+      const sub = (bf && typeof GROUP_TO_SUB !== 'undefined') ? GROUP_TO_SUB[bf.group] : null;
+      const gens = (sub && attrs.brand && attrs.model && typeof catalogGens === 'function')
+        ? catalogGens(sub, attrs.brand, attrs.model) : [];
+      if (!gens.length) return ''; // марка/модель ещё не выбраны — поле не нужно
+      pairs = gens.map(g => [g.name, g.ru ? `${g.name} (${g.ru})` : g.name]);
+    } else pairs = f.options.map(o => [o.v, aL(o.l)]);
     const extra = f.type === 'brand' ? `data-attr-brand="${f.group}"` : '';
     return attrSelectHTML(f.key, aL(f.label), pairs, attrs[f.key], _L_CUSTOM, extra);
   }).join('');
