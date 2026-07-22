@@ -361,7 +361,7 @@ function openSavedSearch(id) {
   state.filters = { ...defaultFilters(), ...JSON.parse(JSON.stringify(s.f)) };
   state.page = 1;
   state._appliedQS = 'saved'; // не сбрасывать фильтры роутером
-  const inp = $('#searchInput'); if (inp) inp.value = state.filters.q || ''; // строка поиска = активный запрос
+  const inp = $('#searchInput'); if (inp) inp.value = state.filters.qRaw || state.filters.q || ''; // строка = активный запрос
   location.hash = '#/search';
   if (parseHash().path.startsWith('/search')) renderSearch();
 }
@@ -827,6 +827,13 @@ function filterPanelHTML(f) {
 }
 
 function searchTitle(f) {
+  // человек должен видеть СВОЙ запрос: раньше «камри» превращалось в
+  // «Легковые авто», и было непонятно, что вообще искали
+  const raw = (f.qRaw || '').trim();
+  if (raw) {
+    const scope = f.sub ? subName(f.sub) : (catById(f.cat) ? catName(catById(f.cat)) : '');
+    return `«${esc(raw)}»` + (scope ? `<span class="rt-scope"> · ${esc(scope)}</span>` : '');
+  }
   if (f.sub) return esc(subName(f.sub));
   const cat = catById(f.cat);
   if (cat) return esc(catName(cat));
@@ -837,7 +844,8 @@ function searchTitle(f) {
 function activeChipsHTML(f) {
   const chips = [];
   const add = (key, label) => chips.push(`<span class="achip"><span class="achip-label">${label}</span><button data-clear="${key}" aria-label="${t('a11y.remove')}">✕</button></span>`);
-  if (f.q.trim()) add('q', `${t('search.prefix')}: ${esc(f.q.trim())}`);
+  const rawChip = (f.qRaw || f.q || '').trim();
+  if (rawChip) add('q', `${t('search.prefix')}: ${esc(rawChip)}`);
   if (f.cat) add('cat', esc(catNameById(f.cat) || f.cat));
   if (f.sub) add('sub', esc(subName(f.sub)));
   attrFilterChips(f).forEach(c => add(c.key, esc(c.label)));
@@ -1062,7 +1070,7 @@ function clearFilter(key) {
     bindFilterPanel(); state.page = 1; updateResults();
     return;
   }
-  if (key === 'q') { f.q = ''; $('#searchInput').value = ''; }
+  if (key === 'q') { f.q = ''; f.qRaw = ''; $('#searchInput').value = ''; }
   if (key === 'cat') { f.cat = ''; f.sub = ''; f.attrs = {}; }
   if (key === 'sub') { f.sub = ''; f.attrs = {}; }
   if (key === 'price') { f.priceMin = ''; f.priceMax = ''; }
@@ -3101,9 +3109,12 @@ function doHeaderSearch() {
   const f = { ...defaultFilters(), city: state.city };
   Object.assign(f, parsed.filters);
   f.q = parsed.q;
+  f.qRaw = raw; // то, что человек набрал руками
   state.filters = f;
   state.page = 1;
-  input.value = parsed.q; // распознанное ушло в чипы фильтров
+  // строку НЕ очищаем: когда NLU разобрал запрос целиком («камри»), parsed.q
+  // пуст, и поле обнулялось — уточнить запрос можно было только набрав заново
+  input.value = raw;
 
   if (parseHash().path.startsWith('/search')) {
     renderSearch(); // полный рендер: панель и сортировка должны отразить новые фильтры
@@ -3114,45 +3125,116 @@ function doHeaderSearch() {
 
 const POPULAR_QUERIES = ['iPhone', 'Снять квартиру', 'Toyota Camry', 'Велосипед', 'Диван', 'Ноутбук'];
 
+/* ============================================================
+   Подсказки поиска.
+   Раньше был плоский список заголовков объявлений: каталог из 608 моделей
+   не использовался, подкатегории не искались, счётчиков не было, а сверху
+   всегда висел баннер ИИ. Теперь — сгруппировано и с числами, чтобы можно
+   было выбрать нужное, не читая шесть длинных заголовков подряд.
+   ============================================================ */
+function suggestCatalogRows(q) {
+  if (typeof CATALOG === 'undefined') return [];
+  const rows = [];
+  const push = (sub, brand, model) => {
+    const attrs = model ? { brand, model } : { brand };
+    const n = applyFilters({ ...defaultFilters(), sub, attrs, _skipSort: true }).length;
+    if (!n) return;
+    rows.push({ sub, brand, model, n, label: model ? brand + ' ' + model : brand });
+  };
+  const subs = ['Легковые авто', 'Телефоны', 'Ноутбуки', 'Планшеты'];
+  for (const sub of subs) {
+    if (rows.length >= 5) break;
+    const brands = (typeof catalogBrands === 'function') ? catalogBrands(sub) : [];
+    for (const b of brands) {
+      if (rows.length >= 5) break;
+      const bn = (b.brand || b.name || '');
+      const bMatch = bn.toLowerCase().startsWith(q) || (b.ru || '').toLowerCase().startsWith(q)
+        || (b.aliases || []).some(a => String(a).toLowerCase().startsWith(q));
+      for (const m of (b.models || [])) {
+        if (rows.length >= 5) break;
+        const full = (bn + ' ' + m.name).toLowerCase();
+        const mMatch = m.name.toLowerCase().startsWith(q) || full.includes(q)
+          || (m.aliases || []).some(a => String(a).toLowerCase().startsWith(q));
+        if (mMatch) push(sub, bn, m.name);
+      }
+      if (bMatch && rows.length < 5) push(sub, bn, null);
+    }
+  }
+  return rows.sort((a, b) => b.n - a.n).slice(0, 5);
+}
+
 function showSuggest() {
   const raw = $('#searchInput').value.trim();
   const q = raw.toLowerCase();
   const box = $('#searchSuggest');
+  const head = txt => `<div class="sug-head">${esc(txt)}</div>`;
 
-  // пустое поле: история + популярные запросы
+  // пустое поле: история (с удалением) + популярные запросы
   if (q.length < 2) {
     const hist = lsLoad(LS.hist, []);
-    const rows =
-      hist.map(h => `<button data-sug-q="${esc(h)}"><span class="sug-ico">🕐</span><span class="sug-hist">${esc(h)}</span></button>`).join('') +
-      POPULAR_QUERIES.filter(p => !hist.some(h => h.toLowerCase() === p.toLowerCase())).slice(0, Math.max(0, 6 - hist.length))
-        .map(p => `<button data-sug-q="${esc(p)}"><span class="sug-ico">🔥</span>${esc(p)}</button>`).join('');
+    let rows = '';
+    if (hist.length) {
+      rows += head(t('sug.recent')) + hist.map(h =>
+        `<div class="sug-row"><button data-sug-q="${esc(h)}"><span class="sug-ico">🕐</span><span class="sug-hist">${esc(h)}</span></button>` +
+        `<button class="sug-del" data-hist-del="${esc(h)}" aria-label="${t('sug.del')}">✕</button></div>`).join('');
+    }
+    const pops = POPULAR_QUERIES.filter(p => !hist.some(h => h.toLowerCase() === p.toLowerCase())).slice(0, Math.max(0, 6 - hist.length));
+    if (pops.length) {
+      rows += head(t('sug.popular')) + pops.map(p =>
+        `<button data-sug-q="${esc(p)}"><span class="sug-ico">🔥</span>${esc(p)}</button>`).join('');
+    }
     if (!rows) { hideSuggest(); return; }
     box.innerHTML = rows;
     box.hidden = false;
     return;
   }
 
-  const catMatches = CATEGORIES.filter(c => c.name.toLowerCase().includes(q) || catName(c).toLowerCase().includes(q)).slice(0, 2);
+  // 1. категории и подкатегории
+  const catRows = [];
+  for (const c of CATEGORIES) {
+    if (catRows.length >= 3) break;
+    if (c.name.toLowerCase().includes(q) || catName(c).toLowerCase().includes(q)) {
+      const n = applyFilters({ ...defaultFilters(), cat: c.id, _skipSort: true }).length;
+      catRows.push(`<button data-sug-cat="${c.id}">${c.emoji}&nbsp; <b>${esc(catName(c))}</b><span class="sug-cat">${nLabel(n)}</span></button>`);
+    }
+    for (const sub of c.subs) {
+      if (catRows.length >= 3) break;
+      if (sub.toLowerCase().includes(q) || subName(sub).toLowerCase().includes(q)) {
+        const n = applyFilters({ ...defaultFilters(), cat: c.id, sub, _skipSort: true }).length;
+        catRows.push(`<button data-sug-cat="${c.id}" data-sug-sub="${esc(sub)}">${c.emoji}&nbsp; <b>${esc(subName(sub))}</b><span class="sug-cat">${nLabel(n)}</span></button>`);
+      }
+    }
+  }
 
-  // топ-подсказки через то же поисковое ядро (понимает «айфон», опечатки)
+  // 2. марки и модели из каталога
+  const brandRows = suggestCatalogRows(q).map(r =>
+    `<button data-sug-brand="${esc(r.brand)}" data-sug-model="${esc(r.model || '')}" data-sug-sub2="${esc(r.sub)}">
+      <span class="sug-ico">🏷️</span><b>${esc(r.label)}</b><span class="sug-cat">${nLabel(r.n)}</span></button>`);
+
+  // 3. конкретные объявления
   const tokens = prepQueryTokens(raw);
   const scored = [];
   const seen = new Set();
   if (tokens.length) {
     for (const l of allListings()) {
-      const s = scoreListing(l, tokens, requiredMatches(tokens));
-      if (s > 0 && !seen.has(l.title)) { seen.add(l.title); scored.push([s, l]); }
+      const sc = scoreListing(l, tokens, requiredMatches(tokens));
+      if (sc > 0 && !seen.has(l.title)) { seen.add(l.title); scored.push([sc, l]); }
     }
     scored.sort((a, b) => b[0] - a[0]);
   }
-  const titleMatches = scored.slice(0, 5).map(x => x[1]);
-
-  box.innerHTML =
-    `<button data-ai-ask="${esc(raw)}"><span class="sug-ai">${t('sug.ai')}</span>&nbsp;«${esc(raw)}»</button>` +
-    catMatches.map(c => `<button data-sug-cat="${c.id}">${c.emoji}&nbsp; <b>${esc(catName(c))}</b><span class="sug-cat">${t('sug.cat')}</span></button>`).join('') +
-    titleMatches.map(l => `<button data-sug-q="${esc(l.title)}">
+  const itemRows = scored.slice(0, 4).map(x => x[1]).map(l =>
+    `<button data-sug-item="${esc(l.id)}">
       <svg class="sug-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.5-4.5"/></svg>
-      ${esc(l.title)}<span class="sug-cat">${esc(catNameById(l.category))}</span></button>`).join('');
+      ${esc(l.title)}<span class="sug-cat">${esc(catNameById(l.category))}</span></button>`);
+
+  let html = '';
+  if (catRows.length) html += head(t('sug.cats')) + catRows.join('');
+  if (brandRows.length) html += head(t('sug.brands')) + brandRows.join('');
+  if (itemRows.length) html += head(t('sug.items')) + itemRows.join('');
+  // ИИ — внизу и только как дополнение, а не первым перехватом внимания
+  html += `<button class="sug-aiRow" data-ai-ask="${esc(raw)}"><span class="sug-ai">${t('sug.ai')}</span>&nbsp;«${esc(raw)}»</button>`;
+
+  box.innerHTML = html;
   box.hidden = false;
 }
 
@@ -3242,7 +3324,7 @@ function router() {
       state.filters = f;
       state.page = 1;
       delete state._scroll[location.hash];
-      $('#searchInput').value = f.q;
+      $('#searchInput').value = f.qRaw || f.q;
     }
     if (hasQuery) state._appliedQS = qs;
     renderSearch();
@@ -3341,11 +3423,45 @@ document.addEventListener('click', e => {
   if (clearBtn) { clearFilter(clearBtn.dataset.clear); return; }
 
   /* подсказки поиска */
+  // удалить один запрос из истории (крестик), не закрывая список
+  const histDel = e.target.closest('[data-hist-del]');
+  if (histDel) {
+    e.stopPropagation();
+    const q = histDel.dataset.histDel;
+    lsSave(LS.hist, lsLoad(LS.hist, []).filter(h => h !== q));
+    showSuggest();
+    return;
+  }
+  // марка/модель из каталога — сразу точные фильтры, без текстового поиска
+  const sugBrand = e.target.closest('[data-sug-brand]');
+  if (sugBrand) {
+    hideSuggest();
+    const d = sugBrand.dataset;
+    const f = state.filters;
+    f.q = ''; f.qRaw = ''; $('#searchInput').value = '';
+    f.sub = d.sugSub2 || '';
+    f.cat = (CATEGORIES.find(c => c.subs.includes(f.sub)) || {}).id || f.cat;
+    f.attrs = d.sugModel ? { brand: d.sugBrand, model: d.sugModel } : { brand: d.sugBrand };
+    state.page = 1;
+    state._appliedQS = 'suggest';
+    location.hash = '#/search';
+    if (parseHash().path.startsWith('/search')) renderSearch();
+    return;
+  }
+  // конкретное объявление — открываем его, а не ищем по заголовку
+  const sugItem = e.target.closest('[data-sug-item]');
+  if (sugItem) {
+    hideSuggest();
+    $('#searchInput').value = '';
+    location.hash = '#/item/' + sugItem.dataset.sugItem;
+    return;
+  }
   const sugCat = e.target.closest('[data-sug-cat]');
   if (sugCat) {
     hideSuggest();
     $('#searchInput').value = '';
-    location.hash = '#/search?cat=' + sugCat.dataset.sugCat;
+    const sub = sugCat.dataset.sugSub;
+    location.hash = '#/search?cat=' + sugCat.dataset.sugCat + (sub ? '&sub=' + encodeURIComponent(sub) : '');
     return;
   }
   const sugQ = e.target.closest('[data-sug-q]');
