@@ -352,7 +352,9 @@ const ATTR_SCHEMA = {
   'Женская одежда': [fBrand('fashion'), fSelect('size', T3('Размер', 'Size', 'Өлчөмү'), O_CLOTHSIZE, true), fColor()],
   'Детская одежда': [fBrand('fashion'), fSelect('size', T3('Размер', 'Size', 'Өлчөмү'), O_CLOTHSIZE, true), fColor()],
   'Обувь': [fBrand('fashion'), fSelect('shoeSize', T3('Размер', 'Size', 'Өлчөмү'), O_SHOESIZE, true), fSelect('gender', T3('Пол', 'Gender', 'Жынысы'), O_GENDER, true), fColor()],
-  'Аксессуары': [fBrand('fashion'), fColor()],
+  // часы лежат в каталоге под группой watches, сумки/очки/рюкзаки — в старом
+  // списке одежды; брать надо и то и другое, иначе 53 модели часов недостижимы
+  'Аксессуары': [fBrand('watches'), fModel(), fColor()],
 
   /* --- недвижимость --- */
   'Продажа квартир': [
@@ -402,6 +404,10 @@ const GROUP_TO_SUB = {
   laptops: 'Ноутбуки', tv: 'ТВ и аудио', cameras: 'Фото и видео', watches: 'Аксессуары',
 };
 
+/* Каталог покрывает подкатегорию не целиком: в «Аксессуарах» это только часы,
+   а сумки, очки и рюкзаки остались в старом списке одежды. */
+const GROUP_LEGACY_EXTRA = { watches: 'fashion' };
+
 function brandsFor(group) {
   const sub = GROUP_TO_SUB[group];
   if (sub && typeof catalogBrands === 'function') {
@@ -416,8 +422,10 @@ function brandsFor(group) {
         .replace(/^lada$|^ваз$/, 'lada').replace(/^gaz$|^газ$/, 'gaz')
         .replace(/^uaz$|^уаз$/, 'uaz').replace(/^moskvich$|^москвич$/, 'moskvich');
       const seen = new Set(fromCatalog.map(norm));
+      const extra = GROUP_LEGACY_EXTRA[group];
       const legacy = (BRANDS[group] ? Object.keys(BRANDS[group]) : [])
-        .filter(b => !seen.has(norm(b)));
+        .concat(extra && BRANDS[extra] ? Object.keys(BRANDS[extra]) : [])
+        .filter(b => !seen.has(norm(b)) && (seen.add(norm(b)), true));
       return fromCatalog.concat(legacy);
     }
   }
