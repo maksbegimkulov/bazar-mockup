@@ -188,9 +188,9 @@ function subMedian(l) {
 function detectPurpose(raw, cat) {
   const s = normText(raw);
   if (/камер|видео|съёмк|съемк|фото|блог|ютуб|контент|снима/.test(s)) return 'camera';
-  if (/\bигр|гейм|пубг|танк/.test(s)) return 'gaming';
+  if (/(?:^| )игр|гейм|пубг|танк/.test(s)) return 'gaming'; // \b не ловит кириллицу
   if (/учёб|учеб|студент|работ|офис|зум|онлайн|программ|кодин/.test(s)) return 'work';
-  if (cat === 'transport' && /семь|семей|\bдет/.test(s)) return 'family';
+  if (cat === 'transport' && /семь|семей|(?:^| )дет/.test(s)) return 'family';
   if (cat === 'transport' && /расход|экономичн|топлив/.test(s)) return 'economy';
   return null;
 }
@@ -322,8 +322,8 @@ function aiSearchReply(raw) {
         .replace('{min}', fmtNum(Math.min(...ps)))
         .replace('{max}', fmtNum(Math.max(...ps)))
         .replace('{som}', t('som'))
-        .replace('{n}', nLabel(n));
-      text = `${t('ai.priceFrom')} ${phrase || ''}: ${range}`;
+        .replace('{n}', nLabel(ps.length)); // только с ценой — договорные вне вилки
+      text = `${note ? note + '. ' : ''}${t('ai.priceFrom')} ${phrase || ''}: ${range}`;
     }
   }
 
@@ -337,7 +337,7 @@ function aiSearchReply(raw) {
 
   // refine-чипы несут базовые фильтры с собой — переживают перезагрузку страницы
   const actions = [{ label: `${t('ai.showAll')} ${fmtNum(n)} ${t('ai.inSearch')}`, act: { type: 'search', f } }];
-  if (f.condition === 'any' && res.some(l => l.condition)) actions.push({ label: t('ai.onlyNew'), act: { type: 'refine', patch: { condition: 'new' }, base: f } });
+  if (f.condition === 'any' && res.some(l => l.condition === 'new')) actions.push({ label: t('ai.onlyNew'), act: { type: 'refine', patch: { condition: 'new' }, base: f } });
   if (f.sort !== 'cheap') actions.push({ label: t('ai.cheaper'), act: { type: 'refine', patch: { sort: 'cheap' }, base: f } });
   if (f.city !== 'all') actions.push({ label: t('ai.allKg'), act: { type: 'refine', patch: { city: 'all' }, base: f } });
   else if (!f.delivery && res.some(l => l.hasDelivery)) actions.push({ label: t('ai.withDeliv'), act: { type: 'refine', patch: { delivery: true }, base: f } });
@@ -371,7 +371,7 @@ function aiGiftReply(raw) {
   // срезаем только сумму с юнитом — «до 1500 девушке» не должно терять адресата
   const BUDGET_RE = /до\s+\d[\d\s]*(?:к|k|тыс[а-яa-z]*|млн[а-яa-z]*|сом[а-я]*)?/i;
 
-  const cands = allListings().filter(l => pools(l) && l.price > 0 && l.price <= budget && getPhotos(l).length);
+  const cands = allListings().filter(l => pools(l) && l.price > 0 && l.price <= budget && getPhotos(l).length && !isSold(l) && !state.reported.has(l.id));
   if (!cands.length) {
     return { text: t('ai.gift.none').replace('{budget}', fmtNum(budget)).replace('{som}', t('som')), actions: [{ label: t('ai.gift.upTo50k'), act: { type: 'ask', text: raw.replace(BUDGET_RE, '').trim() + ' до 50000' } }] };
   }
