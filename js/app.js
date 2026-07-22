@@ -1917,6 +1917,7 @@ function collectPostDraft() {
     attrs: typeof collectAttrs === 'function' ? collectAttrs($('#pAttrs')) : {},
     pickedSeeds: [...document.querySelectorAll('.photo-pick.picked')].map(b => +b.dataset.seed),
     userPhotos: state._postPhotos || null,
+    step: (function () { const sec = document.querySelector('#postForm .pstep:not([hidden])'); return sec ? +sec.dataset.step : 1; })(),
     ts: Date.now(),
   };
 }
@@ -1986,48 +1987,38 @@ function renderPost(params) {
           <span>📝 ${t('form.draftRestored')}</span>
           <button type="button" class="btn-ghost" data-action="draft-discard">${t('form.draftDiscard')}</button>
         </div>` : ''}
+        <div class="pstep-bar" id="pStepBar">
+          <div class="pstep-track"><div class="pstep-fill" id="pStepFill"></div></div>
+          <div class="pstep-meta"><span id="pStepNum"></span><span id="pStepName"></span></div>
+        </div>
         <form id="postForm" novalidate>
-          <div class="fgroup">
-            <label class="flabel">${t('form.cat')}</label>
-            <select class="fselect" id="pCat" required>${catOptions}</select>
-          </div>
-          <div class="fgroup" id="pSubWrap" ${cat ? '' : 'hidden'}>
-            <label class="flabel">${t('form.sub')}</label>
-            <select class="fselect" id="pSub">${cat ? cat.subs.map(s => `<option value="${esc(s)}" ${f.subcategory === s ? 'selected' : ''}>${esc(subName(s))}</option>`).join('') : ''}</select>
-          </div>
-          <div class="attr-block" id="pAttrsWrap" hidden>
-            <div class="attr-block-head">⚙️ ${t('form.specs')}</div>
-            <div class="attr-grid" id="pAttrs"></div>
-          </div>
-          <div class="fgroup">
-            <label class="flabel">${t('form.title')}</label>
-            <input class="finput" id="pTitle" maxlength="80" placeholder="${t('form.titlePh')}" value="${esc(f.title || '')}">
-            <div class="hint">${t('form.titleHint')}</div>
-          </div>
-          <div class="fgroup">
-            <label class="flabel">${t('form.desc')}</label>
-            <textarea class="ftextarea" id="pDesc" maxlength="2000" placeholder="${t('form.descPh')}">${esc(f.description || '')}</textarea>
-          </div>
-          <div class="form-row">
+          <!-- Форма разбита на шаги: на телефоне одно полотно из 15+ полей
+               (7 селектов характеристик ДО заголовка) читается как стена, и
+               непонятно, сколько осталось. На каждом шаге — только связанные
+               между собой поля. -->
+          <section class="pstep" data-step="1">
             <div class="fgroup">
-              <label class="flabel">${t('form.price')}</label>
-              <input class="finput" id="pPrice" type="number" inputmode="numeric" min="0" placeholder="0" value="${f.price || ''}" ${f.negotiable ? 'disabled' : ''}>
-              <div class="price-hint" id="pPriceHint" hidden></div>
-              <label class="fcheck" style="margin-top:6px"><input type="checkbox" id="pNegotiable" ${f.negotiable ? 'checked' : ''}>
-                <span class="box"><svg width="12" height="10" viewBox="0 0 12 10" fill="none" stroke="#fff" stroke-width="2.4"><path d="M1 5l3.5 3.5L11 1"/></svg></span>
-                ${t('price.negotiable')}</label>
+              <label class="flabel">${t('form.cat')}</label>
+              <select class="fselect" id="pCat" required>${catOptions}</select>
             </div>
+            <div class="fgroup" id="pSubWrap" ${cat ? '' : 'hidden'}>
+              <label class="flabel">${t('form.sub')}</label>
+              <select class="fselect" id="pSub">${cat ? cat.subs.map(s => `<option value="${esc(s)}" ${f.subcategory === s ? 'selected' : ''}>${esc(subName(s))}</option>`).join('') : ''}</select>
+            </div>
+          </section>
+
+          <section class="pstep" data-step="2" hidden>
             <div class="fgroup">
-              <label class="flabel">${t('form.city')}</label>
-              <select class="fselect" id="pCity">${cityOptions}</select>
+              <label class="flabel">${t('form.photos')} <span style="font-weight:400">${t('form.photosHint')}</span></label>
+              <div class="photo-picker" id="photoPicker"></div>
             </div>
-          </div>
-          <div class="fgroup post-floor" id="pFloorWrap" ${f.negotiable ? 'hidden' : ''}>
-            <label class="flabel">🤝 ${t('form.floor')}</label>
-            <input class="finput" id="pFloor" type="number" inputmode="numeric" min="0" placeholder="${t('form.floorPh')}" value="${f.floor || ''}">
-            <div class="hint">${t('form.floorHint')}</div>
-          </div>
-          <div class="form-row">
+          </section>
+
+          <section class="pstep" data-step="3" hidden>
+            <div class="attr-block" id="pAttrsWrap" hidden>
+              <div class="attr-block-head">⚙️ ${t('form.specs')}</div>
+              <div class="attr-grid" id="pAttrs"></div>
+            </div>
             <div class="fgroup">
               <label class="flabel">${t('form.cond')}</label>
               <div class="chip-row" id="pCondition">
@@ -2036,21 +2027,62 @@ function renderPost(params) {
                 <button type="button" class="fchip ${f.condition === 'used' ? 'active' : ''}" data-cond="used">${t('cond.used')}</button>
               </div>
             </div>
+          </section>
+
+          <section class="pstep" data-step="4" hidden>
+            <div class="fgroup">
+              <label class="flabel">${t('form.title')}</label>
+              <input class="finput" id="pTitle" maxlength="80" placeholder="${t('form.titlePh')}" value="${esc(f.title || '')}">
+              <div class="hint">${t('form.titleHint')}</div>
+            </div>
+            <div class="fgroup">
+              <label class="flabel">${t('form.desc')}</label>
+              <textarea class="ftextarea" id="pDesc" maxlength="2000" placeholder="${t('form.descPh')}">${esc(f.description || '')}</textarea>
+            </div>
+          </section>
+
+          <section class="pstep" data-step="5" hidden>
+            <div class="fgroup">
+              <label class="flabel">${t('form.price')}</label>
+              <input class="finput" id="pPrice" type="number" inputmode="numeric" min="0" placeholder="0" value="${f.price || ''}" ${f.negotiable ? 'disabled' : ''}>
+              <div class="price-hint" id="pPriceHint" hidden></div>
+              <label class="fcheck" style="margin-top:6px"><input type="checkbox" id="pNegotiable" ${f.negotiable ? 'checked' : ''}>
+                <span class="box"><svg width="12" height="10" viewBox="0 0 12 10" fill="none" stroke="#fff" stroke-width="2.4"><path d="M1 5l3.5 3.5L11 1"/></svg></span>
+                ${t('price.negotiable')}</label>
+            </div>
+            <div class="fgroup post-floor" id="pFloorWrap" ${f.negotiable ? 'hidden' : ''}>
+              <label class="flabel">🤝 ${t('form.floor')}</label>
+              <input class="finput" id="pFloor" type="number" inputmode="numeric" min="0" placeholder="${t('form.floorPh')}" value="${f.floor || ''}">
+              <div class="hint">${t('form.floorHint')}</div>
+            </div>
+          </section>
+
+          <section class="pstep" data-step="6" hidden>
+            <div class="fgroup">
+              <label class="flabel">${t('form.city')}</label>
+              <select class="fselect" id="pCity">${cityOptions}</select>
+            </div>
             <div class="fgroup">
               <label class="flabel">${t('form.phone')}</label>
               <input class="finput" id="pPhone" type="tel" inputmode="tel" autocomplete="tel" placeholder="+996 700 123 456" value="${esc(f.phone || '+996 ')}">
             </div>
+            <div class="fgroup">
+              <label class="fcheck"><input type="checkbox" id="pDelivery" ${f.hasDelivery ? 'checked' : ''}>
+                <span class="box"><svg width="12" height="10" viewBox="0 0 12 10" fill="none" stroke="#fff" stroke-width="2.4"><path d="M1 5l3.5 3.5L11 1"/></svg></span>
+                ${t('form.delivery')}</label>
+            </div>
+          </section>
+
+          <section class="pstep" data-step="7" hidden>
+            <div class="preview-note">${t('form.previewNote')}</div>
+            <div class="grid" id="pPreview"></div>
+          </section>
+
+          <div class="pstep-nav">
+            <button type="button" class="btn btn-secondary" id="pPrev" hidden>← ${t('form.back')}</button>
+            <button type="button" class="btn btn-primary btn-lg" id="pNext">${t('form.next')} →</button>
+            <button type="submit" class="btn btn-primary btn-lg" id="pSubmit" hidden>${editing ? t('form.save') : t('form.publish')}</button>
           </div>
-          <div class="fgroup">
-            <label class="flabel">${t('form.photos')} <span style="font-weight:400">${t('form.photosHint')}</span></label>
-            <div class="photo-picker" id="photoPicker"></div>
-          </div>
-          <div class="fgroup">
-            <label class="fcheck"><input type="checkbox" id="pDelivery" ${f.hasDelivery ? 'checked' : ''}>
-              <span class="box"><svg width="12" height="10" viewBox="0 0 12 10" fill="none" stroke="#fff" stroke-width="2.4"><path d="M1 5l3.5 3.5L11 1"/></svg></span>
-              ${t('form.delivery')}</label>
-          </div>
-          <button type="submit" class="btn btn-primary btn-block btn-lg">${editing ? t('form.save') : t('form.publish')}</button>
         </form>
       </div>
     </div>`;
@@ -2158,6 +2190,112 @@ function renderPost(params) {
   }
   $('#pPrice').addEventListener('input', updatePriceHint);
   updatePriceHint();
+
+  /* ---------- пошаговая навигация ---------- */
+  const STEP_NAMES = [t('form.stepWhat'), t('form.stepPhotos'), t('form.stepSpecs'),
+    t('form.stepDesc'), t('form.stepPrice'), t('form.stepContacts'), t('form.stepPreview')];
+  const TOTAL = 7;
+  let step = Math.min(TOTAL, Math.max(1, (draft && draft.step) || 1));
+
+  /* проверка ТОЛЬКО полей текущего шага: человек не должен видеть ошибку
+     про телефон, стоя на шаге с фотографиями */
+  function validateStep(n) {
+    document.querySelectorAll('#postForm .field-error').forEach(x => x.remove());
+    document.querySelectorAll('#postForm .error').forEach(x => x.classList.remove('error'));
+    const bad = [];
+    const mark = (sel, msg) => {
+      const el = $(sel);
+      if (!el) return;
+      el.classList.add('error');
+      const d = document.createElement('div');
+      d.className = 'field-error'; d.textContent = msg;
+      el.parentElement.appendChild(d);
+      bad.push(el);
+    };
+    if (n === 1 && !$('#pCat').value) mark('#pCat', t('err.cat'));
+    if (n === 4) {
+      if ($('#pTitle').value.trim().length < 5) mark('#pTitle', t('err.title'));
+      if ($('#pDesc').value.trim().length < 10) mark('#pDesc', t('err.desc'));
+    }
+    if (n === 5) {
+      const neg = $('#pNegotiable').checked;
+      const price = +$('#pPrice').value;
+      const fl = Math.round(+$('#pFloor').value || 0);
+      if (!neg && (!price || price <= 0)) mark('#pPrice', t('err.price'));
+      if (fl > 0 && price > 0 && fl >= price) mark('#pFloor', t('err.floor'));
+    }
+    if (n === 6) {
+      if (!$('#pCity').value) mark('#pCity', t('err.city'));
+      if (!/^\+?[\d\s()-]{9,}$/.test($('#pPhone').value.trim())) mark('#pPhone', t('err.phone'));
+    }
+    if (bad.length) {
+      bad[0].scrollIntoView({ block: 'center', behavior: 'smooth' });
+      setTimeout(() => { try { bad[0].focus({ preventScroll: true }); } catch (e) {} }, 250);
+    }
+    return !bad.length;
+  }
+
+  function renderPreview() {
+    const box = $('#pPreview');
+    if (!box) return;
+    const neg = $('#pNegotiable').checked;
+    const draftListing = {
+      id: 'preview', title: $('#pTitle').value.trim() || t('form.titlePh'),
+      price: neg ? 0 : (+$('#pPrice').value || 0), priceSuffix: '', negotiable: neg,
+      floor: 0, category: $('#pCat').value, subcategory: $('#pSub').value,
+      city: $('#pCity').value || CITIES[0], district: null,
+      condition: (document.querySelector('#pCondition .fchip.active') || { dataset: {} }).dataset.cond || null,
+      description: $('#pDesc').value, attrs: collectAttrs($('#pAttrs')),
+      userPhotos: realPhotos.length ? realPhotos : null,
+      pickedSeeds: [...picked], photoCount: realPhotos.length + picked.size, photoSeed: 11,
+      sellerName: (currentUser() && currentUser().name) || USER_NAME, sellerType: 'private',
+      sellerRating: 5, sellerAds: 1, sellerSinceYear: 2026,
+      createdAt: Date.now(), postedHoursAgo: 0, views: 0,
+      isVip: false, isUrgent: false, hasDelivery: $('#pDelivery').checked, phone: $('#pPhone').value,
+    };
+    box.innerHTML = cardHTML(draftListing);
+  }
+
+  function showStep(n, opts = {}) {
+    step = Math.min(TOTAL, Math.max(1, n));
+    document.querySelectorAll('#postForm .pstep').forEach(sec => {
+      sec.hidden = +sec.dataset.step !== step;
+    });
+    const pct = Math.round((step / TOTAL) * 100);
+    $('#pStepFill').style.width = pct + '%';
+    $('#pStepNum').textContent = t('form.stepOf').replace('{n}', step).replace('{total}', TOTAL);
+    $('#pStepName').textContent = STEP_NAMES[step - 1] || '';
+    $('#pPrev').hidden = step === 1;
+    $('#pNext').hidden = step === TOTAL;
+    $('#pSubmit').hidden = step !== TOTAL;
+    if (step === TOTAL) renderPreview();
+    if (!opts.silent) {
+      const card = document.querySelector('.form-card');
+      if (card) card.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    }
+    savePostDraft();
+  }
+
+  $('#pNext').addEventListener('click', () => {
+    if (!validateStep(step)) return;
+    let next = step + 1;
+    // шаг характеристик пропускаем, если у категории их нет
+    if (next === 3 && $('#pAttrsWrap').hidden) next = 4;
+    showStep(next);
+  });
+  $('#pPrev').addEventListener('click', () => {
+    let prev = step - 1;
+    if (prev === 3 && $('#pAttrsWrap').hidden) prev = 2;
+    showStep(prev);
+  });
+  // Enter в поле = «Далее», а не публикация с середины формы
+  $('#postForm').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && e.target.tagName === 'INPUT' && step !== TOTAL) {
+      e.preventDefault();
+      $('#pNext').click();
+    }
+  });
+  showStep(step, { silent: true });
 
   $('#pNegotiable').addEventListener('change', e => {
     $('#pPrice').disabled = e.target.checked;
@@ -2310,8 +2448,10 @@ function renderPost(params) {
     // новое объявление: залогинен → сохраняем в облако (с реальным владельцем,
     // видно всем и можно писать продавцу), иначе локально как раньше
     if (isAuthed()) {
-      const pubBtn = $('#postForm button[type="submit"]');
-      if (pubBtn) pubBtn.disabled = true; // двойной тап = двойная публикация
+      const pubBtn = $('#pSubmit');
+      const pubLabel = pubBtn ? pubBtn.textContent : '';
+      // на медленной сети кнопка просто гасла и казалось, что ничего не происходит
+      if (pubBtn) { pubBtn.disabled = true; pubBtn.textContent = t('form.publishing'); }
       try {
         const row = await dbCreateListing({
           title: listing.title, price: listing.price, floor: listing.floor,
@@ -2332,7 +2472,7 @@ function renderPost(params) {
         // НЕ падаем молча в local — иначе объявление видит ТОЛЬКО автор, а у
         // других не появляется (ровно этот баг ловили). Показываем реальную ошибку.
         console.error('Публикация в облако не удалась:', err);
-        if (pubBtn) pubBtn.disabled = false;
+        if (pubBtn) { pubBtn.disabled = false; pubBtn.textContent = pubLabel; }
         const msg = (err && (err.message || err.hint || err.details)) ? String(err.message || err.hint || err.details) : '';
         showToast(t('toast.publishFail') + (msg ? ': ' + msg : ''), 'error');
         return;
