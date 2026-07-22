@@ -2339,3 +2339,58 @@ a.seller-card { display: flex; gap: 12px; align-items: center; text-decoration: 
   .compare-bar { gap: 8px; padding: 8px 8px 8px 14px; }
   .compare-bar .btn-sm { padding-left: 12px; padding-right: 12px; }
 }
+
+/* ============================================================
+   Липкая панель связи на странице товара (мобильный).
+   На телефоне страница объявления длинная: характеристики, описание,
+   продавец, похожие. Кнопки «Написать»/«Позвонить» жили только в
+   карточке покупки вверху — чтобы связаться, приходилось скроллить
+   назад. Теперь они всегда под большим пальцем.
+   ============================================================ */
+.item-contactbar { display: none; }
+
+@media (max-width: 920px) {
+  .item-contactbar {
+    display: flex;
+    position: fixed;
+    left: 0; right: 0;
+    bottom: calc(var(--bottomnav-h, 62px) + env(safe-area-inset-bottom));
+    z-index: 70;
+    gap: 8px;
+    align-items: center;
+    padding: 8px max(12px, env(safe-area-inset-left)) 8px max(12px, env(safe-area-inset-right));
+    background: color-mix(in srgb, var(--card) 92%, transparent);
+    -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+    border-top: 1px solid var(--line);
+    animation: cb-in var(--dur-2) var(--ease) both;
+  }
+  /* фолбэк для движков без color-mix */
+  @supports not (background: color-mix(in srgb, red 50%, blue)) {
+    .item-contactbar { background: var(--card); }
+  }
+  @keyframes cb-in { from { transform: translateY(100%); } to { transform: translateY(0); } }
+  .item-contactbar .btn { flex: 1; min-height: 46px; margin: 0; }
+  .item-contactbar .cb-fav {
+    flex: 0 0 46px; width: 46px; height: 46px;
+    border: 1px solid var(--line); border-radius: var(--radius);
+    font-size: 19px; background: var(--bg);
+  }
+  /* контент не должен прятаться под панелью */
+  body.has-contactbar main#app { padding-bottom: 76px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .item-contactbar { animation: none; }
+}
+
+/* действия в пустой выдаче: снять одно условие вместо «сбросить всё» */
+.empty-actions { display: flex; flex-direction: column; gap: 8px; align-items: stretch; max-width: 340px; margin: 0 auto; }
+.empty-actions .btn { width: 100%; }
+.btn-ghost { background: transparent; border: none; color: var(--text-2); text-decoration: underline; font-weight: 600; }
+.btn-ghost:hover { color: var(--text); }
+
+/* панель связи: подписи в одну строку, ИИ-кнопка не перекрывает действия */
+@media (max-width: 920px) {
+  .item-contactbar .btn { white-space: nowrap; font-size: 14.5px; padding-left: 8px; padding-right: 8px; }
+  body.has-contactbar .ai-fab { opacity: 0; transform: scale(.6); pointer-events: none; }
+}

@@ -484,6 +484,7 @@ function applyFilters(f) {
   };
   const base = sorts[f.sort] || sorts.date;
 
+  if (f._skipSort) return res; // подсчёт значений фильтра сортировка не нужна
   if (qTokens) {
     // релевантность первична при сортировке «по дате», вторична при явной сортировке
     if (f.sort === 'date') res.sort((a, b) => (scores.get(b.id) - scores.get(a.id)) || sorts.date(a, b));
@@ -625,11 +626,80 @@ function renderHome() {
 /* ---------------- поиск ---------------- */
 
 /* — фильтры по характеристикам в поиске (бренд→модель + спеки) — */
-function filterAttrSelect(key, label, pairs, cur) {
-  const opts = [`<option value="">${aL({ ru: 'Любая', en: 'Any', ky: 'Каалаган' })}</option>`]
-    .concat(pairs.map(([v, l]) => `<option value="${esc(v)}" ${cur === v ? 'selected' : ''}>${esc(l)}</option>`)).join('');
+/* Сколько объявлений даст каждое значение атрибута при ОСТАЛЬНЫХ активных
+   фильтрах — чтобы результат был виден ДО выбора и не приводил в пустоту.
+
+   Два важных правила:
+   1) считаем ВСЕ поля за один проход (раньше был отдельный скан 6030
+      объявлений на каждое поле — до 9 полных проходов на один тап);
+   2) снимаем не только само поле, но и зависимые от него: иначе после
+      выбора модели все прочие марки оказывались с нулём и «залипали»
+      задизейбленными — сменить марку становилось невозможно. */
+const ATTR_DEPENDENTS = { brand: ['model', 'gen'], model: ['gen'] };
+let _countsCache = null;
+
+function attrCountsFor(f, keys) {
+  const cacheKey = JSON.stringify([f.cat, f.sub, f.city, f.q, f.priceMin, f.priceMax,
+    f.condition, f.seller, f.period, f.delivery, f.attrs, keys]);
+  if (_countsCache && _countsCache.key === cacheKey) return _countsCache.val;
+
+  const out = Object.create(null);
+  // группируем поля по «уровню зависимости»: поля одного уровня считаются
+  // на одной и той же выборке, поэтому проходов максимум три, а не девять
+  const levels = new Map();
+  for (const key of keys) {
+    const drop = [key, key + 'Min', key + 'Max'].concat(ATTR_DEPENDENTS[key] || []);
+    const sig = drop.join(',');
+    if (!levels.has(sig)) levels.set(sig, { drop, keys: [] });
+    levels.get(sig).keys.push(key);
+  }
+  for (const { drop, keys: group } of levels.values()) {
+    const probe = { ...f, attrs: { ...(f.attrs || {}) }, _skipSort: true };
+    for (const d of drop) delete probe.attrs[d];
+    const rows = applyFilters(probe);
+    for (const key of group) out[key] = Object.create(null);
+    for (const l of rows) {
+      const la = getAttrs(l);
+      for (const key of group) {
+        const v = la[key];
+        if (v == null || v === '') continue;
+        out[key][v] = (out[key][v] || 0) + 1;
+      }
+    }
+  }
+  _countsCache = { key: cacheKey, val: out };
+  return out;
+}
+
+/* Выпадающий список фильтра. Популярные значения выносим в отдельную группу
+   сверху (в каталоге 82 марки — без этого нужное тонет), рядом со значением
+   показываем число объявлений. Остаётся нативным <select>: работает пикер
+   телефона, клавиатура и экранный диктор. */
+function filterAttrSelect(key, label, pairs, cur, opts = {}) {
+  const counts = opts.counts || null;
+  const popular = new Set(opts.popular || []);
+  const anyLabel = aL({ ru: 'Любая', en: 'Any', ky: 'Каалаган' });
+
+  const optHTML = ([v, l]) => {
+    const n = counts ? (counts[v] || 0) : null;
+    // значения без единого объявления не прячем, а гасим — список стабилен
+    const dis = counts && !n && v !== cur ? ' disabled' : '';
+    const suffix = n ? ` (${n})` : '';
+    return `<option value="${esc(v)}" ${cur === v ? 'selected' : ''}${dis}>${esc(l)}${suffix}</option>`;
+  };
+
+  let body;
+  const pops = pairs.filter(p => popular.has(p[0]));
+  if (pops.length && pairs.length > 12) {
+    const rest = pairs.filter(p => !popular.has(p[0]));
+    body = `<optgroup label="${esc(aL({ ru: 'Популярные', en: 'Popular', ky: 'Популярдуу' }))}">${pops.map(optHTML).join('')}</optgroup>`
+         + `<optgroup label="${esc(aL({ ru: 'Все', en: 'All', ky: 'Баары' }))}">${rest.map(optHTML).join('')}</optgroup>`;
+  } else {
+    body = pairs.map(optHTML).join('');
+  }
+
   return `<div class="fblock"><div class="fblock-label">${esc(label)}</div>
-    <select class="fselect" data-fattr="${key}">${opts}</select></div>`;
+    <select class="fselect" data-fattr="${key}"><option value="">${anyLabel}</option>${body}</select></div>`;
 }
 function filterAttrRange(fld, fa) {
   const lbl = aL(fld.label) + (fld.unit ? ', ' + aL(fld.unit) : '');
@@ -643,16 +713,30 @@ function filterAttrsHTML(f) {
   const schema = attrSchema(f.cat, f.sub);
   if (!schema) return '';
   const fa = f.attrs || {};
+  // все счётчики одним заходом
+  const keys = schema.map(fl => (fl.type === 'brand' ? 'brand' : fl.type === 'model' ? 'model' : fl.key))
+    .filter(k => k && schema.find(fl => fl.type === 'brand' || fl.type === 'model' || fl.type === 'select'));
+  const C = attrCountsFor(f, [...new Set(keys)]);
   let html = '';
   for (const fld of schema) {
     if (fld.type === 'brand') {
-      html += filterAttrSelect('brand', aL(fld.label), brandsFor(fld.group).map(b => [b, b]), fa.brand);
+      html += filterAttrSelect('brand', aL(fld.label), brandsFor(fld.group).map(b => [b, b]), fa.brand,
+        { counts: C.brand, popular: popularBrandsFor(fld.group) });
     } else if (fld.type === 'model') {
       const bf = schema.find(x => x.type === 'brand');
       const models = (bf && fa.brand) ? modelsFor(bf.group, fa.brand) : [];
-      if (models.length) html += filterAttrSelect('model', aL({ ru: 'Модель', en: 'Model', ky: 'Модель' }), models.map(m => [m, m]), fa.model);
+      if (models.length) html += filterAttrSelect('model', aL({ ru: 'Модель', en: 'Model', ky: 'Модель' }), models.map(m => [m, m]), fa.model,
+        { counts: C.model });
+    } else if (fld.type === 'gen') {
+      // поколения появляются только когда выбраны марка и модель
+      const bf = schema.find(x => x.type === 'brand');
+      const gens = (bf && fa.brand && fa.model && typeof catalogGens === 'function')
+        ? catalogGens(GROUP_TO_SUB[bf.group] || f.sub, fa.brand, fa.model) : [];
+      if (gens.length) html += filterAttrSelect('gen', aL(fld.label),
+        gens.map(g => [g.name, g.ru ? `${g.name} (${g.ru})` : g.name]), fa.gen, { counts: C.gen });
     } else if (fld.type === 'select') {
-      html += filterAttrSelect(fld.key, aL(fld.label), fld.options.map(o => [o.v, aL(o.l)]), fa[fld.key]);
+      html += filterAttrSelect(fld.key, aL(fld.label), fld.options.map(o => [o.v, aL(o.l)]), fa[fld.key],
+        { counts: C[fld.key] });
     } else if (fld.type === 'number') {
       html += filterAttrRange(fld, fa);
     }
@@ -894,8 +978,7 @@ function updateResults() {
   grid.className = 'grid' + (state.view === 'list' ? ' list-view' : '');
   grid.innerHTML = shown.length
     ? shown.map(cardHTML).join('')
-    : emptyHTML('🔍', t('empty.search.t'), t('empty.search.p'),
-        `<button class="btn btn-primary" data-action="reset-filters">${t('empty.reset')}</button>`);
+    : emptyHTML('🔍', t('empty.search.t'), t('empty.search.p'), emptyRecoveryHTML(f));
 
   $('#showMoreWrap').innerHTML = res.length > shown.length
     ? `<button class="btn btn-outline btn-lg" data-action="show-more">${t('more.show')} ${Math.min(PAGE_SIZE, res.length - shown.length)} ${t('more.of')} ${fmtNum(res.length - shown.length)}</button>`
@@ -915,12 +998,65 @@ function updateResults() {
     b.classList.toggle('active', b.dataset.view === state.view));
 }
 
+/* Пустая выдача не должна быть тупиком: считаем, снятие КАКОГО ИМЕННО
+   условия вернёт результаты, и предлагаем убрать именно его — вместо
+   единственной кнопки «сбросить всё», которая уносит и запрос, и фильтры.
+   Плюс подсказка «Возможно, вы искали…» по каталогу (раскладка/опечатка). */
+function emptyRecoveryHTML(f) {
+  const opts = [];
+
+  // 1. подсказка по каталогу для неудачного текстового запроса
+  if (f.q && typeof didYouMean === 'function') {
+    try {
+      const dym = didYouMean(String(f.q).toLowerCase());
+      if (dym && dym.payload) {
+        opts.push(`<button class="btn btn-primary" data-action="dym"
+          data-brand="${esc(dym.payload.brand || '')}" data-model="${esc(dym.payload.model || '')}"
+          data-cat="${esc(dym.payload.cat || '')}" data-sub="${esc(dym.payload.sub || '')}">
+          ${t('empty.didYouMean')} ${esc(dym.text)}</button>`);
+      }
+    } catch (e) {}
+  }
+
+  // 2. какие ограничения можно снять — с числом объявлений после снятия
+  const probes = [];
+  if (f.city && f.city !== 'all') probes.push(['city', t('empty.dropCity'), { city: 'all' }]);
+  if (f.priceMin || f.priceMax) probes.push(['price', t('empty.dropPrice'), { priceMin: '', priceMax: '' }]);
+  if (f.condition && f.condition !== 'any') probes.push(['condition', t('empty.dropCondition'), { condition: 'any' }]);
+  if (f.delivery) probes.push(['delivery', t('empty.dropDelivery'), { delivery: false }]);
+  if (f.q) probes.push(['q', t('empty.dropQuery'), { q: '' }]);
+  for (const k of Object.keys(f.attrs || {})) {
+    const bare = k.replace(/(Min|Max)$/, '');
+    if (probes.some(p => p[0] === 'attr:' + bare)) continue;
+    const attrs = { ...f.attrs };
+    delete attrs[bare]; delete attrs[bare + 'Min']; delete attrs[bare + 'Max'];
+    const lab = (typeof NLU_KEY_LABELS !== 'undefined' && NLU_KEY_LABELS[bare]) ? aL(NLU_KEY_LABELS[bare]) : bare;
+    probes.push(['attr:' + bare, `${t('empty.dropFilter')} «${lab}»`, { attrs }]);
+  }
+
+  for (const [key, label, patch] of probes) {
+    const n = applyFilters({ ...f, ...patch, _skipSort: true }).length;
+    if (!n) continue;
+    opts.push(`<button class="btn btn-secondary" data-action="relax" data-relax="${esc(key)}">
+      ${esc(label)} — ${nLabel(n)}</button>`);
+    if (opts.length >= 4) break;
+  }
+
+  // 3. подписка на новые объявления по этому запросу
+  opts.push(`<button class="btn btn-outline" data-action="save-search">🔔 ${t('saved.save')}</button>`);
+  // 4. полный сброс — последним и без акцента
+  opts.push(`<button class="btn btn-ghost" data-action="reset-filters">${t('empty.reset')}</button>`);
+  return `<div class="empty-actions">${opts.join('')}</div>`;
+}
+
 function clearFilter(key) {
   const f = state.filters;
   if (key.startsWith('attr:')) {
     const base = key.slice(5);
     delete f.attrs[base]; delete f.attrs[base + 'Min']; delete f.attrs[base + 'Max'];
-    if (base === 'brand') delete f.attrs.model; // модель зависит от марки
+    // каскад: модель зависит от марки, поколение — от модели
+    if (base === 'brand') { delete f.attrs.model; delete f.attrs.gen; }
+    if (base === 'model') delete f.attrs.gen;
     $('#filtersPanel').innerHTML = filterPanelHTML(f);
     bindFilterPanel(); state.page = 1; updateResults();
     return;
@@ -1100,6 +1236,12 @@ function renderItem(id) {
       <aside class="item-side">${sideHTML}</aside>
       <div class="item-panels">${panelsHTML}</div>
     </div>
+    ${isMine ? '' : `
+    <div class="item-contactbar" id="itemContactBar">
+      <button class="icon-btn cb-fav" data-fav="${l.id}" aria-label="${t('item.fav')}">${isFav ? '❤️' : '🤍'}</button>
+      ${l.phone ? `<button class="btn btn-secondary cb-call" data-action="show-phone" data-id="${l.id}">📞 ${t('item.callShort')}</button>` : ''}
+      <button class="btn btn-primary cb-write" data-action="write-seller" data-id="${l.id}">💬 ${t('item.writeShort')}</button>
+    </div>`}
     ${similar.length ? `
     <section>
       <div class="section-title"><h2>${t('item.similar')}</h2>
@@ -2936,10 +3078,11 @@ function router() {
     renderHome();
   } else if (path.startsWith('/search')) {
     const qs = location.hash.split('?')[1] || '';
-    // сбрасываем фильтры только при НОВОМ запросе из ссылки —
-    // кнопка «назад» с тем же hash не должна стирать уточнения пользователя.
-    // reset=1 («Показать все») сбрасывает ВСЕГДА, даже при повторном клике
-    if (hasQuery && (qs !== state._appliedQS || params.get('reset'))) {
+    // сбрасываем фильтры только при НОВОМ запросе из ссылки — кнопка «назад»
+    // не должна стирать уточнения. reset=1 («Показать все») сбрасывает и при
+    // повторном КЛИКЕ, но не при возврате по истории: _navClick ставится
+    // обработчиком ссылок и живёт один переход
+    if (hasQuery && (qs !== state._appliedQS || (params.get('reset') && state._navClick))) {
       const f = defaultFilters();
       if (params.get('cat')) f.cat = params.get('cat');
       if (params.get('sub')) f.sub = params.get('sub');
@@ -2984,6 +3127,8 @@ function router() {
   updateNav(path);
   updateBadges();
   updateCompareBar();
+  // липкая панель связи живёт только на странице товара
+  document.body.classList.toggle('has-contactbar', !!document.getElementById('itemContactBar'));
 
   // возврат «назад» к спискам — на сохранённую позицию, остальное — наверх
   const key = location.hash || '#/';
@@ -3142,6 +3287,43 @@ document.addEventListener('click', e => {
         state._commitPrice?.(); // дозаписать цену, если дебаунс не успел
         closeFilterSheet();
         break;
+      // «Возможно, вы искали…» из пустой выдачи — применяем найденное в каталоге
+      case 'dym': {
+        const f = state.filters;
+        const d = actBtn.dataset;
+        f.q = ''; $('#searchInput').value = '';
+        if (d.cat) f.cat = d.cat;
+        if (d.sub) f.sub = d.sub;
+        f.attrs = {};
+        if (d.brand) f.attrs.brand = d.brand;
+        if (d.model) f.attrs.model = d.model;
+        state.page = 1;
+        const p1 = $('#filtersPanel');
+        if (p1) { p1.innerHTML = filterPanelHTML(f); bindFilterPanel(); }
+        updateResults();
+        break;
+      }
+      // снять ОДНО мешающее условие вместо сброса всего
+      case 'relax': {
+        const f = state.filters;
+        const key = actBtn.dataset.relax;
+        if (key === 'city') f.city = 'all';
+        else if (key === 'price') { f.priceMin = ''; f.priceMax = ''; }
+        else if (key === 'condition') f.condition = 'any';
+        else if (key === 'delivery') f.delivery = false;
+        else if (key === 'q') { f.q = ''; $('#searchInput').value = ''; }
+        else if (key.startsWith('attr:')) {
+          const bare = key.slice(5);
+          delete f.attrs[bare]; delete f.attrs[bare + 'Min']; delete f.attrs[bare + 'Max'];
+          if (bare === 'brand') { delete f.attrs.model; delete f.attrs.gen; }
+          if (bare === 'model') delete f.attrs.gen;
+        }
+        state.page = 1;
+        const p2 = $('#filtersPanel');
+        if (p2) { p2.innerHTML = filterPanelHTML(f); bindFilterPanel(); }
+        updateResults();
+        break;
+      }
       case 'reset-filters': {
         const keepCity = state.city;
         state.filters = { ...defaultFilters(), city: keepCity };
@@ -3284,7 +3466,12 @@ document.addEventListener('click', e => {
   /* повторный клик по той же ссылке (например, категория) — форсируем роутер;
      сбрасываем _appliedQS, чтобы базовый фильтр ссылки применился заново */
   const link = e.target.closest('a[data-link]');
-  if (link && link.getAttribute('href') === location.hash) {
+  if (!link) return;
+  // отмечаем, что переход инициирован кликом, а не кнопкой «назад»:
+  // по этому признаку reset=1 сбрасывает фильтры только при реальном клике
+  state._navClick = true;
+  setTimeout(() => { state._navClick = false; }, 0);
+  if (link.getAttribute('href') === location.hash) {
     e.preventDefault();
     state._appliedQS = null;
     router();

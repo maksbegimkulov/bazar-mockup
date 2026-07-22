@@ -257,6 +257,7 @@ const O_SCREEN = ['13', '14', '15', '16', '17'].map(s => opt(s, s + '"', s + '"'
 const O_GPU = ['RTX 5090','RTX 5080','RTX 5070','RTX 4090','RTX 4080','RTX 4070','RTX 4060','RTX 4050','RTX 3080','RTX 3070','RTX 3060','RTX 3050','GTX 1660','GTX 1650','RX 7900','RX 7600','RX 6600','Apple M4','Apple M3','Apple M2','Apple M1','Встроенная'].map(g => opt(g, g, g, g));
 const O_TABSCREEN = ['8','9','10','11','12','13','14'].map(s => opt(s, s + '"', s + '"', s + '"'));
 const O_BATTERY = ['100','95','90','85','80'].map(b => opt(b, 'от ' + b + '%', b + '%+', b + '%+'));
+const O_CAMMOUNT = ['E','RF','Z','X','L','EF','MFT','Fixed'].map(m => opt(m, m, m, m));
 const O_TVSIZE = ['24', '32', '40', '43', '50', '55', '65', '75', '85'].map(s => opt(s, s + '"', s + '"', s + '"'));
 const O_TVRES = [opt('HD', 'HD', 'HD', 'HD'), opt('Full HD', 'Full HD', 'Full HD', 'Full HD'), opt('4K', '4K Ultra HD', '4K Ultra HD', '4K Ultra HD'), opt('8K', '8K', '8K', '8K')];
 const O_TVTECH = [opt('LED', 'LED', 'LED', 'LED'), opt('QLED', 'QLED', 'QLED', 'QLED'), opt('OLED', 'OLED', 'OLED', 'OLED'), opt('Plasma', 'Плазма', 'Plasma', 'Плазма')];
@@ -272,6 +273,7 @@ const O_MOTOTYPE = [opt('Спорт', 'Спорт', 'Sport', 'Спорт'), opt(
 /* поля-конструкторы */
 const fBrand = (group) => ({ key: 'brand', label: T3('Марка', 'Brand', 'Марка'), type: 'brand', group });
 const fModel = () => ({ key: 'model', label: T3('Модель', 'Model', 'Модель'), type: 'model' });
+const fGen = () => ({ key: 'gen', label: T3('Поколение', 'Generation', 'Муун'), type: 'gen', optional: true });
 const fSelect = (key, label, options, optional) => ({ key, label, type: 'select', options, optional });
 const fNum = (key, label, unit, min, max, optional) => ({ key, label, type: 'number', unit, min, max, optional });
 const fColor = () => fSelect('color', T3('Цвет', 'Color', 'Түс'), COLORS.map(([v, l]) => ({ v, l })), true);
@@ -280,14 +282,14 @@ const fYear = () => fNum('year', T3('Год выпуска', 'Year', 'Чыкка
 const ATTR_SCHEMA = {
   /* --- транспорт --- */
   'Легковые авто': [
-    fBrand('cars'), fModel(), fYear(),
+    fBrand('cars'), fModel(), fGen(), fYear(),
     fSelect('body', T3('Кузов', 'Body type', 'Кузов'), O_BODY, true),
-    fSelect('transmission', T3('Коробка передач', 'Transmission', 'Берүү кутусу'), O_TRANS),
+    fSelect('gearbox', T3('Коробка передач', 'Transmission', 'Берүү кутусу'), O_TRANS),
     fSelect('drive', T3('Привод', 'Drivetrain', 'Жүргүзгүч'), O_DRIVE, true),
     fSelect('fuel', T3('Топливо', 'Fuel', 'Күйүүчү май'), O_FUEL, true),
-    fNum('engine', T3('Объём двигателя', 'Engine', 'Кыймылдаткыч'), T3('л', 'L', 'л'), 0, 10, true),
+    fNum('engineVol', T3('Объём двигателя', 'Engine', 'Кыймылдаткыч'), T3('л', 'L', 'л'), 0, 10, true),
     fNum('mileage', T3('Пробег', 'Mileage', 'Жүрүшү'), T3('км', 'km', 'км'), 0, 1000000, true),
-    fSelect('steering', T3('Руль', 'Steering', 'Руль'), O_STEER, true),
+    fSelect('wheel', T3('Руль', 'Steering', 'Руль'), O_STEER, true),
     fColor(),
   ],
   'Мото': [
@@ -320,7 +322,7 @@ const ATTR_SCHEMA = {
     fSelect('cpu', T3('Процессор', 'Processor', 'Процессор'), O_CPU, true),
     fSelect('gpu', T3('Видеокарта', 'Graphics', 'Видеокарта'), O_GPU, true),
     fSelect('ram', T3('Оперативная память', 'RAM', 'Оперативдик эстутум'), O_RAM, true),
-    fSelect('ssd', T3('Накопитель', 'Storage', 'Сактагыч'), O_LAPSSD, true),
+    fSelect('storage', T3('Накопитель', 'Storage', 'Сактагыч'), O_LAPSSD, true),
     fSelect('screen', T3('Экран', 'Screen', 'Экран'), O_SCREEN, true),
   ],
   'Планшеты': [
@@ -332,13 +334,13 @@ const ATTR_SCHEMA = {
   ],
   'ТВ и аудио': [
     fBrand('tv'), fModel(),
-    fSelect('tvSize', T3('Диагональ', 'Screen size', 'Диагональ'), O_TVSIZE, true),
-    fSelect('resolution', T3('Разрешение', 'Resolution', 'Чечими'), O_TVRES, true),
-    fSelect('tvTech', T3('Технология', 'Panel', 'Технология'), O_TVTECH, true),
+    fSelect('screen', T3('Диагональ', 'Screen size', 'Диагональ'), O_TVSIZE, true),
+    fSelect('res', T3('Разрешение', 'Resolution', 'Чечими'), O_TVRES, true),
+    fSelect('panel', T3('Технология', 'Panel', 'Технология'), O_TVTECH, true),
   ],
   'Фото и видео': [
     fBrand('cameras'), fModel(),
-    fSelect('camType', T3('Тип', 'Type', 'Түрү'), O_CAMTYPE, true),
+    fSelect('mount', T3('Байонет', 'Mount', 'Байонет'), O_CAMMOUNT, true),
   ],
   'Бытовая техника': [
     fSelect('applType', T3('Тип техники', 'Appliance', 'Техника түрү'), O_APPLTYPE, true),
@@ -392,12 +394,52 @@ const ATTR_SCHEMA_CAT = {
 const OTHER_VAL = '__other__';
 
 /* список брендов группы (по алфавиту, но Apple/Toyota и т.п. как есть) */
+/* группа фильтра → подкатегория каталога (js/catalog/index.js).
+   Каталог — источник правды: после его роста в фильтрах должны появиться
+   все 82 марки авто и весь модельный ряд, а не старый короткий список. */
+const GROUP_TO_SUB = {
+  cars: 'Легковые авто', phones: 'Телефоны', tablets: 'Планшеты',
+  laptops: 'Ноутбуки', tv: 'ТВ и аудио', cameras: 'Фото и видео', watches: 'Аксессуары',
+};
+
 function brandsFor(group) {
+  const sub = GROUP_TO_SUB[group];
+  if (sub && typeof catalogBrands === 'function') {
+    const fromCatalog = catalogBrands(sub).map(b => b.brand || b.name).filter(Boolean);
+    if (fromCatalog.length) {
+      // Старые группы (мото, велосипеды, одежда) каталог не покрывает — доливаем.
+      // Но без дублей: «Lada» и «Lada (ВАЗ)», «GAZ» и «ГАЗ», «OPPO» и «Oppo» —
+      // это одна марка в двух написаниях, и в списке из сотни строк такая
+      // пара только путает (второй вариант ещё и пустой).
+      const norm = s => String(s).toLowerCase()
+        .replace(/\s*\(.*?\)\s*/g, '').replace(/[^a-zа-я0-9]/g, '')
+        .replace(/^lada$|^ваз$/, 'lada').replace(/^gaz$|^газ$/, 'gaz')
+        .replace(/^uaz$|^уаз$/, 'uaz').replace(/^moskvich$|^москвич$/, 'moskvich');
+      const seen = new Set(fromCatalog.map(norm));
+      const legacy = (BRANDS[group] ? Object.keys(BRANDS[group]) : [])
+        .filter(b => !seen.has(norm(b)));
+      return fromCatalog.concat(legacy);
+    }
+  }
   const g = BRANDS[group];
-  if (!g) return [];
-  return Object.keys(g);
+  return g ? Object.keys(g) : [];
+}
+
+/* марки, которые показываем первыми (реально ходовые в КР) */
+function popularBrandsFor(group) {
+  const sub = GROUP_TO_SUB[group];
+  if (sub && typeof catalogPopularBrands === 'function') {
+    const p = catalogPopularBrands(sub, 12);
+    if (p && p.length) return p;
+  }
+  return [];
 }
 function modelsFor(group, brand) {
+  const sub = GROUP_TO_SUB[group];
+  if (sub && typeof catalogModels === 'function') {
+    const fromCatalog = catalogModels(sub, brand).map(m => m.name).filter(Boolean);
+    if (fromCatalog.length) return [...new Set(fromCatalog)];
+  }
   const g = BRANDS[group];
   return (g && g[brand]) ? g[brand] : [];
 }
@@ -499,9 +541,9 @@ function parseAttrsFromTitle(catId, subName, title) {
     const sm = title.match(/(\d+)\s?(ТБ|TB|ГБ|GB)/i);
     if (sm) attrs.storage = String(/T/i.test(sm[2]) ? +sm[1] * 1024 : +sm[1]);
   }
-  if (schema.some(f => f.key === 'tvSize')) {
+  if (schema.some(f => f.key === 'screen')) {
     const dm = title.match(/(\d{2})["”]|(\d{2})\s?дюйм/i);
-    if (dm) attrs.tvSize = dm[1] || dm[2];
+    if (dm) attrs.screen = dm[1] || dm[2];
   }
   return Object.keys(attrs).length ? attrs : null;
 }
@@ -568,13 +610,50 @@ function attrFilterChips(f) {
       const key = fld.type === 'brand' ? 'brand' : (fld.type === 'model' ? 'model' : fld.key);
       const v = fa[key];
       if (v != null && v !== '') {
-        const disp = (fld.type === 'brand' || fld.type === 'model') ? v : attrOptLabel(fld, v);
+        const disp = (fld.type === 'brand' || fld.type === 'model' || fld.type === 'gen') ? v : attrOptLabel(fld, v);
         chips.push({ key: 'attr:' + key, label: disp });
       }
     }
   }
+
+  /* Фильтры, которые проставил умный поиск, а не панель («автомат»,
+     «китайский», «игровой», «раскладушка»): без этого выдача сужена, а
+     причина не видна и снять её нечем — тупик. Показываем чипом. */
+  const shown = new Set(schema.map(fl => (fl.type === 'brand' ? 'brand' : fl.type === 'model' ? 'model' : fl.key)));
+  for (const k of Object.keys(fa)) {
+    const bare = k.replace(/(Min|Max)$/, '');
+    if (shown.has(bare) || fa[k] === '' || fa[k] == null) continue;
+    if (chips.some(c => c.key === 'attr:' + bare)) continue;
+    const lab = NLU_KEY_LABELS[bare];
+    const val = NLU_VALUE_LABELS[String(fa[k])] || fa[k];
+    chips.push({
+      key: 'attr:' + bare,
+      label: lab ? `${aL(lab)}: ${val}` : String(val),
+    });
+  }
   return chips;
 }
+
+/* подписи для атрибутов, которые приходят только из умного поиска */
+const NLU_KEY_LABELS = {
+  gearbox: T3('Коробка', 'Transmission', 'Кутуча'),
+  drive: T3('Привод', 'Drivetrain', 'Жүргүзгүч'),
+  fuel: T3('Топливо', 'Fuel', 'Күйүүчү май'),
+  body: T3('Кузов', 'Body', 'Кузов'),
+  country: T3('Страна', 'Country', 'Өлкө'),
+  gaming: T3('Назначение', 'Purpose', 'Багыты'),
+  foldable: T3('Тип', 'Type', 'Түрү'),
+  battery: T3('Аккумулятор', 'Battery', 'Аккумулятор'),
+  rangeKm: T3('Запас хода', 'Range', 'Аралык'),
+  gpu: T3('Видеокарта', 'GPU', 'Видеокарта'),
+  cpu: T3('Процессор', 'CPU', 'Процессор'),
+  ram: T3('ОЗУ', 'RAM', 'ОЗУ'),
+  storage: T3('Память', 'Storage', 'Эстутум'),
+  screen: T3('Экран', 'Screen', 'Экран'),
+  mileage: T3('Пробег', 'Mileage', 'Жүрүшү'),
+  year: T3('Год', 'Year', 'Жыл'),
+};
+const NLU_VALUE_LABELS = { cn: 'Китай', '1': 'Складной' };
 
 /* кол-во активных фильтров характеристик (диапазон = 1) */
 function attrFilterCount(fa) {
@@ -591,7 +670,7 @@ function attrFilterCount(fa) {
 function attrSubtitle(catId, subName, attrs) {
   const schema = attrSchema(catId, subName);
   if (!schema || !attrs) return '';
-  const PRIO = ['year', 'mileage', 'storage', 'rooms', 'area', 'tvSize', 'body', 'transmission', 'engineCC', 'screen', 'shoeSize', 'size'];
+  const PRIO = ['year', 'mileage', 'storage', 'rooms', 'area', 'body', 'gearbox', 'engineCC', 'screen', 'battery', 'gpu', 'shoeSize', 'size'];
   const byKey = {}; schema.forEach(f => { byKey[f.key] = f; });
   const parts = [];
   for (const k of PRIO) {
