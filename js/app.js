@@ -657,8 +657,10 @@ const ATTR_DEPENDENTS = { brand: ['model', 'gen'], model: ['gen'] };
 let _countsCache = null;
 
 function attrCountsFor(f, keys) {
+  // поле называется sellerType: с опечаткой `f.seller` в ключе всегда лежал
+  // undefined, и смена «Частные/Бизнес» отдавала счётчики от прошлой выборки
   const cacheKey = JSON.stringify([f.cat, f.sub, f.city, f.q, f.priceMin, f.priceMax,
-    f.condition, f.seller, f.period, f.delivery, f.attrs, keys]);
+    f.condition, f.sellerType, f.period, f.delivery, f.attrs, keys]);
   if (_countsCache && _countsCache.key === cacheKey) return _countsCache.val;
 
   const out = Object.create(null);
@@ -693,6 +695,28 @@ function attrCountsFor(f, keys) {
    сверху (в каталоге 82 марки — без этого нужное тонет), рядом со значением
    показываем число объявлений. Остаётся нативным <select>: работает пикер
    телефона, клавиатура и экранный диктор. */
+/* Счётчики у марок и моделей зависят от города, цены, состояния и продавца.
+   Перерисовывать весь блок нельзя — это сбивает фокус, пока человек набирает
+   год или пробег. Поэтому правим подписи прямо в существующих <option>. */
+function refreshAttrCounts() {
+  const box = $('#fAttrs');
+  if (!box) return;
+  const sels = [...box.querySelectorAll('select[data-fattr]')];
+  if (!sels.length) return;
+  const C = attrCountsFor(state.filters, [...new Set(sels.map(s => s.dataset.fattr))]);
+  for (const sel of sels) {
+    const counts = C[sel.dataset.fattr];
+    if (!counts) continue;
+    const cur = sel.value;
+    for (const o of sel.options) {
+      if (!o.value || o.dataset.base == null) continue;
+      const n = counts[o.value] || 0;
+      o.textContent = o.dataset.base + (n ? ` (${n})` : '');
+      o.disabled = !n && o.value !== cur;
+    }
+  }
+}
+
 function filterAttrSelect(key, label, pairs, cur, opts = {}) {
   const counts = opts.counts || null;
   const popular = new Set(opts.popular || []);
@@ -703,7 +727,7 @@ function filterAttrSelect(key, label, pairs, cur, opts = {}) {
     // значения без единого объявления не прячем, а гасим — список стабилен
     const dis = counts && !n && v !== cur ? ' disabled' : '';
     const suffix = n ? ` (${n})` : '';
-    return `<option value="${esc(v)}" ${cur === v ? 'selected' : ''}${dis}>${esc(l)}${suffix}</option>`;
+    return `<option value="${esc(v)}" data-base="${esc(l)}" ${cur === v ? 'selected' : ''}${dis}>${esc(l)}${suffix}</option>`;
   };
 
   let body;
@@ -1022,6 +1046,9 @@ function updateResults() {
 
   document.querySelectorAll('.view-toggle button').forEach(b =>
     b.classList.toggle('active', b.dataset.view === state.view));
+
+  // числа рядом с марками и моделями должны отражать текущую выборку
+  refreshAttrCounts();
 }
 
 /* Пустая выдача не должна быть тупиком: считаем, снятие КАКОГО ИМЕННО
