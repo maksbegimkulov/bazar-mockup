@@ -163,6 +163,15 @@ async function loadCloudData() {
       (data || []).forEach(p => names[p.id] = p.name);
     }
     state.dbListings = rows.map(r => dbToListing(r, names));
+    // чистим «фантомы»: облачное объявление удалили — из избранного/сравнения тоже
+    let pruned = false;
+    for (const oid of [...state.favorites]) if (!getListing(oid)) { state.favorites.delete(oid); pruned = true; }
+    for (const oid of [...state.compare]) if (!getListing(oid)) { state.compare.delete(oid); pruned = true; }
+    if (pruned) {
+      lsSave(LS.favs, [...state.favorites]);
+      lsSave(LS.compare, [...state.compare]);
+      updateCompareBar();
+    }
     if (me) {
       // МЕРЖ, а не перезапись: локальные мок/демо-чаты (без isDb) живут дальше,
       // DB-чаты обновляются; свои сообщения «в полёте» (ещё без id) не теряем
@@ -325,18 +334,27 @@ function saveCurrentSearch() {
   const f = state.filters;
   if (state.saved.some(s => JSON.stringify(s.f) === JSON.stringify(f))) { showToast(t('saved.dup')); return false; }
   const name = searchTitle(f).replace(/<[^>]*>/g, '');
-  const seen = applyFilters(f).length; // база — сколько подходит сейчас
-  state.saved.unshift({ id: 's' + Date.now(), name, f: JSON.parse(JSON.stringify(f)), seen, ts: Date.now() });
+  const ids = applyFilters(f).map(l => l.id).slice(0, 3000); // снапшот увиденных id
+  state.saved.unshift({ id: 's' + Date.now(), name, f: JSON.parse(JSON.stringify(f)), seen: ids.length, seenIds: ids, ts: Date.now() });
   state.saved = state.saved.slice(0, 30);
   lsSave(LS.saved, state.saved);
   return true;
 }
-function savedNewCount(s) { return Math.max(0, applyFilters(s.f).length - (s.seen || 0)); }
+function savedNewCount(s) {
+  // по снапшоту id: удаления не маскируют новинки (разница счётчиков это скрывала)
+  if (Array.isArray(s.seenIds)) {
+    const seen = new Set(s.seenIds);
+    return applyFilters(s.f).filter(l => !seen.has(l.id)).length;
+  }
+  return Math.max(0, applyFilters(s.f).length - (s.seen || 0)); // старые записи
+}
 function removeSaved(id) { state.saved = state.saved.filter(s => s.id !== id); lsSave(LS.saved, state.saved); }
 function openSavedSearch(id) {
   const s = state.saved.find(x => x.id === id);
   if (!s) return;
-  s.seen = applyFilters(s.f).length; // отметили просмотренным → бейдж сбрасывается
+  const cur = applyFilters(s.f); // отметили просмотренным → бейдж сбрасывается
+  s.seen = cur.length;
+  s.seenIds = cur.map(l => l.id).slice(0, 3000);
   lsSave(LS.saved, state.saved);
   // мерж с дефолтами: старые сохранённые снимки могут не знать новых полей фильтра
   state.filters = { ...defaultFilters(), ...JSON.parse(JSON.stringify(s.f)) };
@@ -922,12 +940,15 @@ function priceVerdict(l) {
     x.subcategory === l.subcategory && x.id !== l.id && x.price > 0 && x.priceSuffix === l.priceSuffix);
   if (peers.length < 6) return null;
   const prices = peers.map(x => x.price).sort((a, b) => a - b);
-  const median = prices[Math.floor(prices.length / 2)];
+  // честная медиана: для чётного n — среднее двух центральных (иначе завышаем рынок)
+  const mid = prices.length >> 1;
+  const median = prices.length % 2 ? prices[mid] : Math.round((prices[mid - 1] + prices[mid]) / 2);
   const r = l.price / median;
-  const avg = `${t('verdict.avg')} ${fmtNum(median)} ${t('som')}`;
+  const unit = `${t('som')}${esc(l.priceSuffix)}`; // «сом/мес» у аренды, не голый «сом»
+  const avg = `${t('verdict.avg')} ${fmtNum(median)} ${unit}`;
   // ≤45% медианы — не «выгодно», а тревога: заниженная цена частая приманка мошенника
   if (r <= 0.45) return { cls: 'danger', label: t('verdict.low'), hint: t('verdict.lowHint'), danger: true };
-  if (r <= 0.87) return { cls: 'good', label: t('verdict.good'), hint: `${t('verdict.goodHint')} (${fmtNum(median)} ${t('som')})` };
+  if (r <= 0.87) return { cls: 'good', label: t('verdict.good'), hint: `${t('verdict.goodHint')} (${fmtNum(median)} ${unit})` };
   if (r <= 1.12) return { cls: 'fair', label: t('verdict.fair'), hint: avg };
   return { cls: 'high', label: t('verdict.high'), hint: avg };
 }
@@ -1256,7 +1277,7 @@ function toggleFav(id) {
 }
 
 function renderFavorites() {
-  const items = allListings().filter(l => state.favorites.has(l.id));
+  const items = allListings().filter(l => state.favorites.has(l.id) && !state.reported.has(l.id));
   app.innerHTML = `
     <div class="page-head">
       <h1>${t('favs.title')}</h1>
@@ -1282,9 +1303,12 @@ function subPriceStats(sub) {
   const ps = LISTINGS.filter(l => l.subcategory === sub && l.price > 0 && !l.priceSuffix)
     .map(l => l.price).sort((a, b) => a - b);
   if (ps.length < 4) return null;
-  const at = q => ps[Math.min(ps.length - 1, Math.floor(q * ps.length))];
+  // перцентиль по (n-1): floor(q*n) на малых выборках давал абсолютный min/max
+  const at = q => ps[Math.min(ps.length - 1, Math.round(q * (ps.length - 1)))];
+  const m2 = ps.length >> 1;
+  const med = ps.length % 2 ? ps[m2] : Math.round((ps[m2 - 1] + ps[m2]) / 2);
   // lo = осторожный ориентир (p30): без знания модели лучше не завышать
-  return { min: at(0.1), max: at(0.9), median: ps[Math.floor(ps.length / 2)], lo: at(0.3) };
+  return { min: at(0.1), max: at(0.9), median: med, lo: at(0.3) };
 }
 
 /* шаблон заголовка/описания, когда известна только категория (CLIP) */
@@ -1949,7 +1973,7 @@ function renderPost(params) {
 
     if (editing) {
       const i = state.myListings.findIndex(l => l.id === editing.id);
-      state.myListings[i] = listing;
+      state.myListings[i] = { ...editing, ...listing }; // status/userPhotos/specs переживают правку
       LISTING_IDX.delete(listing.id); // заголовок мог измениться — индекс пересоберётся
       lsSave(LS.my, state.myListings);
       showToast(t('toast.saved'), 'success');
@@ -2131,7 +2155,7 @@ function renderSeller(rawKey) {
 
 /* ---- сравнение (как у Auto.ru): таблица характеристик бок о бок ---- */
 function renderCompare() {
-  const items = [...state.compare].map(getListing).filter(Boolean);
+  const items = [...state.compare].map(getListing).filter(Boolean).filter(l => !state.reported.has(l.id));
   if (items.length < 1) { app.innerHTML = `<div class="form-page">${emptyHTML('⚖️', t('cmp.empty'), t('cmp.emptyP'), `<a class="btn btn-primary" href="#/search" data-link>${t('cmp.browse')}</a>`)}</div>`; return; }
   const first = items[0];
   const schema = (typeof attrSchema === 'function') ? attrSchema(first.category, first.subcategory) : null;
@@ -3153,7 +3177,12 @@ document.addEventListener('click', e => {
       case 'report': openReportModal(id); break;
       case 'report-submit': {
         closeModal();
-        if (id) { state.reported.add(id); lsSave(LS.reported, [...state.reported]); }
+        if (id) {
+          state.reported.add(id); lsSave(LS.reported, [...state.reported]);
+          state.favorites.delete(id); lsSave(LS.favs, [...state.favorites]);
+          state.compare.delete(id); lsSave(LS.compare, [...state.compare]);
+          updateBadges(); updateCompareBar();
+        }
         showToast(t('report.sent'), 'success');
         // если жаловались со страницы товара — увести в ленту (объявление скрыто)
         if (parseHash().path.startsWith('/item/')) location.hash = '#/';
