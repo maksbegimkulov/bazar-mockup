@@ -1,0 +1,16 @@
+{
+  "name": "BAZAR — объявления Кыргызстана",
+  "short_name": "BAZAR",
+  "description": "Покупай и продавай по всему Кыргызстану: авто, недвижимость, электроника и всё остальное",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#1a1f26",
+  "theme_color": "#00a06a",
+  "lang": "ru",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
