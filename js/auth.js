@@ -152,6 +152,24 @@ async function dbCreateListing(l) {
   return data;
 }
 
+/* правка своего облачного объявления: owner_id в условии — чужое не тронуть
+   даже при подделанном id (RLS режет это и на сервере, но проверяем сразу) */
+async function dbUpdateListing(id, p) {
+  if (!sb || !AUTH.user) throw new Error('no-auth');
+  const { data, error } = await sb.from('listings')
+    .update({
+      title: p.title, price: p.price || 0, floor: p.floor || 0,
+      category: p.category, subcategory: p.subcategory, city: p.city,
+      district: p.district || null, condition: p.condition || null,
+      description: p.description || '', photos: p.photos || [],
+      negotiable: !!p.negotiable, attrs: p.attrs || {},
+    })
+    .eq('id', id).eq('owner_id', AUTH.user.id)
+    .select().single();
+  if (error) throw error;
+  return data;
+}
+
 async function dbAllListings() {
   if (!sb) return [];
   const { data, error } = await sb.from('listings').select('*').order('created_at', { ascending: false }).limit(300);
