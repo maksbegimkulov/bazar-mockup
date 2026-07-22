@@ -2394,3 +2394,21 @@ a.seller-card { display: flex; gap: 12px; align-items: center; text-decoration: 
   .item-contactbar .btn { white-space: nowrap; font-size: 14.5px; padding-left: 8px; padding-right: 8px; }
   body.has-contactbar .ai-fab { opacity: 0; transform: scale(.6); pointer-events: none; }
 }
+
+/* уведомление о восстановленном черновике формы */
+.draft-note {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  background: var(--accent-soft, rgba(0,160,106,.09)); color: var(--accent-dark);
+  border-radius: var(--radius); padding: 10px 13px; margin-bottom: 14px;
+  font-size: 13px; font-weight: 600;
+}
+.draft-note .btn-ghost { font-size: 13px; padding: 0; }
+
+/* снятые пользователем фото в форме — с меткой удаления */
+.photo-slot.is-real { position: relative; }
+.photo-slot.is-real .ps-x {
+  position: absolute; top: 3px; right: 3px;
+  width: 20px; height: 20px; border-radius: 50%;
+  display: grid; place-items: center;
+  background: rgba(20,24,30,.72); color: #fff; font-size: 11px; font-weight: 700;
+}

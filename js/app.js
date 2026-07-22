@@ -19,6 +19,7 @@ const LS = {
   sold: 'bazar_sold',       // локально отмеченные «продано»/«архив» id
   reported: 'bazar_reported', // id, на которые юзер пожаловался (прячем у него)
   chatRead: 'bazar_chat_read', // chatId → ts последнего прочитанного (для unread DB-чатов)
+  postDraft: 'bazar_post_draft', // незаконченное объявление (не терять при уходе)
 };
 
 /* lsLoad / lsSave определены в i18n.js (грузится раньше) */
@@ -1172,9 +1173,8 @@ function renderItem(id) {
       <div class="buy-actions">
         ${isMine ? `
           <button class="btn ${isSold(l) ? 'btn-primary' : 'btn-secondary'}" data-action="toggle-sold" data-id="${l.id}">${isSold(l) ? '↩️ ' + t('status.reactivate') : '✅ ' + t('status.markSold')}</button>
-          ${l.id.startsWith('m') ? `
           <a class="btn btn-secondary" href="#/post?edit=${l.id}" data-link>✏️ ${t('item.edit')}</a>
-          <button class="btn btn-outline" data-action="bump" data-id="${l.id}">⬆️ ${t('item.bump')}</button>` : ''}
+          ${l.id.startsWith('m') ? `<button class="btn btn-outline" data-action="bump" data-id="${l.id}">⬆️ ${t('item.bump')}</button>` : ''}
           <button class="btn btn-danger-soft" data-action="delete-my" data-id="${l.id}">${t('item.delete')}</button>
         ` : `
           ${l.floor ? `<button class="btn btn-bargain btn-lg" data-action="offer-price" data-id="${l.id}">🤝 ${t('item.offerPrice')}</button>` : ''}
@@ -1888,12 +1888,68 @@ function collectAttrs(container) {
   return attrs;
 }
 
+/* ============================================================
+   Черновик формы подачи.
+   Форма длинная (категория, до 8 характеристик, заголовок, описание,
+   цена, город, телефон, фото). Один промах по нижней навигации, «назад»
+   или перезагрузка — и всё введённое пропадало. Пишем снимок в
+   localStorage на каждое изменение (с задержкой) и предлагаем вернуться.
+   ============================================================ */
+function collectPostDraft() {
+  const val = id => { const el = $(id); return el ? el.value : ''; };
+  const chk = id => { const el = $(id); return el ? el.checked : false; };
+  if (!$('#postForm')) return null;
+  return {
+    category: val('#pCat'), subcategory: val('#pSub'),
+    title: val('#pTitle'), description: val('#pDesc'),
+    price: val('#pPrice'), floor: val('#pFloor'),
+    city: val('#pCity'), phone: val('#pPhone'),
+    negotiable: chk('#pNegotiable'), hasDelivery: chk('#pDelivery'),
+    condition: (document.querySelector('#pCondition .fchip.active') || { dataset: {} }).dataset.cond || '',
+    attrs: typeof collectAttrs === 'function' ? collectAttrs($('#pAttrs')) : {},
+    pickedSeeds: [...document.querySelectorAll('.photo-pick.picked')].map(b => +b.dataset.seed),
+    userPhotos: state._postPhotos || null,
+    ts: Date.now(),
+  };
+}
+function savePostDraft() {
+  const d = collectPostDraft();
+  if (!d) return;
+  // пустую форму в черновик не пишем — иначе баннер «черновик» на чистой форме
+  const meaningful = d.title || d.description || d.price || (d.attrs && Object.keys(d.attrs).length)
+    || (d.pickedSeeds && d.pickedSeeds.length) || (d.userPhotos && d.userPhotos.length);
+  if (!meaningful) { clearPostDraft(); return; }
+  try { lsSave(LS.postDraft, d); } catch (e) {}
+}
+function loadPostDraft() {
+  const d = lsLoad(LS.postDraft, null);
+  if (!d || !d.ts) return null;
+  if (Date.now() - d.ts > 7 * 24 * 3600 * 1000) { clearPostDraft(); return null; } // протух
+  return d;
+}
+function clearPostDraft() { try { localStorage.removeItem(LS.postDraft); } catch (e) {} }
+
 function renderPost(params) {
   const editId = params.get('edit');
-  const editing = editId ? state.myListings.find(l => l.id === editId) : null;
+  // редактируем и локальные, и облачные — но только СВОИ
+  const editTarget = editId ? getListing(editId) : null;
+  const editing = editTarget && (editTarget.id.startsWith('m')
+    || (editTarget.ownerId && isAuthed() && editTarget.ownerId === currentUser().id))
+    ? editTarget : null;
+
+  // ссылка на правку чужого/удалённого объявления не должна открывать пустую
+  // форму «нового объявления» — иначе юзер думает, что правит, а создаёт дубль
+  if (editId && !editing) {
+    app.innerHTML = emptyHTML('🤷', t('post.editGone.t'), t('post.editGone.p'),
+      `<a class="btn btn-primary" href="#/profile" data-link>${t('post.editGone.btn')}</a>`);
+    return;
+  }
+
   const prefill = state._prefill;
   state._prefill = null;
-  const f = editing || prefill || {};
+  // черновик восстанавливаем только для НОВОГО объявления
+  const draft = !editing && !prefill ? loadPostDraft() : null;
+  const f = editing || prefill || draft || {};
   const selCat = f.category || '';
   const cat = catById(selCat);
 
@@ -1918,6 +1974,10 @@ function renderPost(params) {
       ${aiChoice}
       <div class="form-card">
         <h1>${editing ? t('form.edit') : t('form.new')}</h1>
+        ${draft ? `<div class="draft-note">
+          <span>📝 ${t('form.draftRestored')}</span>
+          <button type="button" class="btn-ghost" data-action="draft-discard">${t('form.draftDiscard')}</button>
+        </div>` : ''}
         <form id="postForm" novalidate>
           <div class="fgroup">
             <label class="flabel">${t('form.cat')}</label>
@@ -1987,15 +2047,26 @@ function renderPost(params) {
     </div>`;
 
   const picked = new Set(f.pickedSeeds || []);
+  // реальные снимки: с камеры («изменить вручную» из флоу «Сделать фото»),
+  // из восстановленного черновика или из правки существующего объявления
+  let realPhotos = (state._postPhotos && state._postPhotos.length ? state._postPhotos
+    : (f.userPhotos && f.userPhotos.length ? f.userPhotos
+      : (editing && editing.userPhotos ? editing.userPhotos : []))) || [];
+  state._postPhotos = realPhotos.length ? realPhotos : null;
 
   function renderPicker() {
     const c = $('#pCat').value || 'home';
     const sub = $('#pSub') ? $('#pSub').value : '';
-    $('#photoPicker').innerHTML = Array.from({ length: 8 }, (_, i) => {
+    // свои фото идут первыми и помечены как уже прикреплённые
+    const mine = realPhotos.map((src, i) =>
+      `<button type="button" class="photo-slot selected is-real" data-real="${i}" title="${esc(t('form.photoRemove'))}">
+         <img src="${esc(src)}" alt=""><span class="ps-x">✕</span></button>`).join('');
+    const stock = Array.from({ length: 8 }, (_, i) => {
       const seed = 11 + i * 7;
       return `<button type="button" class="photo-slot ${picked.has(seed) ? 'selected' : ''}" data-seed="${seed}">
         <img src="${photoURL(c, seed, sub)}" alt=""></button>`;
     }).join('');
+    $('#photoPicker').innerHTML = mine + stock;
   }
   renderPicker();
 
@@ -2029,6 +2100,15 @@ function renderPost(params) {
   });
 
   $('#photoPicker').addEventListener('click', e => {
+    // снятое фото удаляем по тапу
+    const real = e.target.closest('[data-real]');
+    if (real) {
+      realPhotos.splice(+real.dataset.real, 1);
+      state._postPhotos = realPhotos.length ? realPhotos : null;
+      renderPicker();
+      savePostDraft();
+      return;
+    }
     const slot = e.target.closest('[data-seed]');
     if (!slot) return;
     const seed = +slot.dataset.seed;
@@ -2062,6 +2142,28 @@ function renderPost(params) {
     document.querySelectorAll('#pCondition .fchip').forEach(x => x.classList.toggle('active', x === b));
   });
 
+  /* автосохранение черновика: пишем с задержкой, чтобы не дёргать хранилище
+     на каждую букву. Только для нового объявления — правку не подменяем. */
+  if (!editing) {
+    let draftTimer = null;
+    const scheduleDraft = () => { clearTimeout(draftTimer); draftTimer = setTimeout(savePostDraft, 400); };
+    const form = $('#postForm');
+    form.addEventListener('input', scheduleDraft);
+    form.addEventListener('change', scheduleDraft);
+    form.addEventListener('click', e => { if (e.target.closest('.fchip, .photo-pick')) scheduleDraft(); });
+    // уход со страницы (нижняя навигация, «назад») — сохранить немедленно
+    window.addEventListener('hashchange', savePostDraft, { once: true });
+  }
+
+  // ошибку у поля снимаем сразу, как только его начали править
+  $('#postForm').addEventListener('input', e => {
+    const el = e.target.closest('.error');
+    if (!el) return;
+    el.classList.remove('error');
+    const msg = el.parentElement && el.parentElement.querySelector('.field-error');
+    if (msg) msg.remove();
+  });
+
   $('#postForm').addEventListener('submit', async e => {
     e.preventDefault();
     document.querySelectorAll('.field-error').forEach(x => x.remove());
@@ -2091,7 +2193,17 @@ function renderPost(params) {
     if (floorRaw > 0 && price > 0 && floorRaw >= price) mark('#pFloor', t('err.floor'));
     if (!city) mark('#pCity', t('err.city'));
     if (!/^\+?[\d\s()-]{9,}$/.test(phone)) mark('#pPhone', t('err.phone'));
-    if (errs.length) { showToast(t('toast.checkFields')); return; }
+    if (errs.length) {
+      // на телефоне форма длиной в несколько экранов: без прокрутки к полю
+      // юзер видит только тост и не понимает, что и где не так
+      const first = document.querySelector('#postForm .error');
+      if (first) {
+        first.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        setTimeout(() => { try { first.focus({ preventScroll: true }); } catch (e) {} }, 300);
+      }
+      showToast(t('toast.checkFields') + ' (' + errs.length + ')');
+      return;
+    }
 
     const listing = {
       id: editing ? editing.id : 'm' + Date.now(),
@@ -2107,7 +2219,8 @@ function renderPost(params) {
       condition: condition || null,
       description: desc,
       pickedSeeds: [...picked],
-      photoCount: picked.size,
+      userPhotos: realPhotos.length ? realPhotos : null,
+      photoCount: realPhotos.length + picked.size,
       photoSeed: 11,
       sellerName: (currentUser() && currentUser().name) || USER_NAME,
       sellerType: 'private',
@@ -2124,10 +2237,39 @@ function renderPost(params) {
     };
 
     if (editing) {
+      LISTING_IDX.delete(listing.id); // заголовок мог измениться — индекс пересоберётся
+      const isCloud = !editing.id.startsWith('m');
+      if (isCloud) {
+        // облачное объявление правим в БД: правка видна всем, а не только автору
+        const saveBtn = $('#postForm button[type="submit"]');
+        if (saveBtn) saveBtn.disabled = true;
+        try {
+          const row = await dbUpdateListing(editing.id, {
+            title: listing.title, price: listing.price, floor: listing.floor,
+            category: listing.category, subcategory: listing.subcategory, city: listing.city,
+            district: listing.district, condition: listing.condition, description: listing.description,
+            photos: realPhotos.length ? realPhotos : listing.pickedSeeds,
+            negotiable: listing.negotiable,
+            attrs: { ...listing.attrs, _phone: listing.phone || '', _specs: editing.specs || undefined },
+          });
+          const mapped = dbToListing(row, { [currentUser().id]: currentUser().name });
+          const j = state.dbListings.findIndex(l => l.id === editing.id);
+          if (j >= 0) state.dbListings[j] = mapped; else state.dbListings.unshift(mapped);
+          clearPostDraft();
+          showToast(t('toast.saved'), 'success');
+          location.hash = '#/item/' + mapped.id;
+        } catch (err) {
+          console.error('Правка объявления не сохранилась:', err);
+          if (saveBtn) saveBtn.disabled = false;
+          const m = (err && (err.message || err.hint)) ? String(err.message || err.hint) : '';
+          showToast(t('toast.publishFail') + (m ? ': ' + m : ''), 'error');
+        }
+        return;
+      }
       const i = state.myListings.findIndex(l => l.id === editing.id);
       state.myListings[i] = { ...editing, ...listing }; // status/userPhotos/specs переживают правку
-      LISTING_IDX.delete(listing.id); // заголовок мог измениться — индекс пересоберётся
       lsSave(LS.my, state.myListings);
+      clearPostDraft();
       showToast(t('toast.saved'), 'success');
       location.hash = '#/item/' + listing.id;
       return;
@@ -2142,12 +2284,14 @@ function renderPost(params) {
           title: listing.title, price: listing.price, floor: listing.floor,
           category: listing.category, subcategory: listing.subcategory, city: listing.city,
           district: listing.district, condition: listing.condition, description: listing.description,
-          photos: listing.pickedSeeds, negotiable: listing.negotiable,
+          photos: realPhotos.length ? realPhotos : listing.pickedSeeds,
+          negotiable: listing.negotiable,
           // телефон продавца едет в jsonb (attrs._phone) — колонки phone в схеме нет
-          attrs: { ...listing.attrs, _phone: listing.phone || '' },
+          attrs: { ...listing.attrs, _phone: listing.phone || '', _specs: (f.specs && f.specs.length) ? f.specs : undefined },
         });
         const mapped = dbToListing(row, { [currentUser().id]: currentUser().name });
         state.dbListings.unshift(mapped);
+        clearPostDraft(); state._postPhotos = null;
         showToast(t('toast.published'), 'success');
         location.hash = '#/item/' + mapped.id;
         return;
@@ -2164,6 +2308,7 @@ function renderPost(params) {
     // сюда попадают только гости (на /post их не пускает гард — на всякий случай)
     state.myListings.unshift(listing);
     lsSave(LS.my, state.myListings);
+    clearPostDraft();
     showToast(t('toast.published'), 'success');
     location.hash = '#/item/' + listing.id;
   });
@@ -2387,7 +2532,7 @@ function renderProfile() {
       <div class="actions">
         <button class="btn ${sold ? 'btn-primary' : 'btn-secondary'} btn-sm" data-action="toggle-sold" data-id="${l.id}">${sold ? '↩️' : '✅'}</button>
         ${(sold || cloud) ? '' : `<button class="btn btn-secondary btn-sm" data-action="bump" data-id="${l.id}">⬆️ ${t('profile.bump')}</button>`}
-        ${cloud ? '' : `<a class="btn btn-outline btn-sm" href="#/post?edit=${l.id}" data-link aria-label="${t('item.edit')}">✏️</a>`}
+        <a class="btn btn-outline btn-sm" href="#/post?edit=${l.id}" data-link aria-label="${t('item.edit')}">✏️</a>
         <button class="btn btn-danger-soft btn-sm" data-action="delete-my" data-id="${l.id}" aria-label="${t('item.delete')}">🗑️</button>
       </div>
     </div>`;
@@ -3324,6 +3469,12 @@ document.addEventListener('click', e => {
         updateResults();
         break;
       }
+      case 'draft-discard': {
+        clearPostDraft();
+        showToast(t('form.draftCleared'));
+        renderPost(new URLSearchParams());
+        break;
+      }
       case 'reset-filters': {
         const keepCity = state.city;
         state.filters = { ...defaultFilters(), city: keepCity };
@@ -3443,8 +3594,11 @@ document.addEventListener('click', e => {
       case 'sell-to-manual': {
         if (state.sell._collect) {
           const pf = state.sell._collect();
-          delete pf.pickedSeeds; // в ручной форме фото выбираются заново
-          delete pf.specs;
+          // СНЯТОЕ ФОТО И РАСПОЗНАННЫЕ СПЕКИ СОХРАНЯЕМ: «сфоткал → ИИ распознал →
+          // поправлю вручную» — самый частый путь, а раньше на этом шаге фото
+          // и характеристики молча пропадали, и объявление уходило без снимка
+          if (pf.userPhotos && pf.userPhotos.length) state._postPhotos = pf.userPhotos;
+          else delete pf.pickedSeeds; // демо-заглушки не тащим, выберет заново
           state._prefill = pf;
         }
         state.sell = { step: 'pick', product: null };
