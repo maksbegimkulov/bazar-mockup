@@ -51,9 +51,20 @@ const ALIAS_INDEX = new Map();
 const ALIAS_KEYS = [];        // отсортированы по длине (сначала длинные)
 let _aliasBuilt = false;
 
+// generic-суффиксы линеек (Pro/Air/Max/Mini…): сами по себе НЕ модель. Как
+// одиночный ключ они ловят чужие бренды («макбук про» → Geely Atlas Pro,
+// «макбук эйр» → iPhone Air). Индексируем их только в связке («atlas pro»,
+// «iphone air»), а одиночные — пропускаем.
+const _GENERIC_SUFFIX = new Set([
+  'pro', 'про', 'max', 'макс', 'air', 'эйр', 'эир', 'аир', 'mini', 'мини',
+  'ultra', 'ультра', 'plus', 'плюс', 'se', 'се', 'lite', 'лайт', 'neo', 'нео',
+  'plus max', 'про макс', 'промакс', 'pro max',
+]);
+
 function _idxAdd(key, payload) {
   const k = String(key).toLowerCase().trim().replace(/\s+/g, ' ');
   if (k.length < 2) return;
+  if (_GENERIC_SUFFIX.has(k)) return; // одиночный «про»/«эйр»/«макс» — не модель
   if (!ALIAS_INDEX.has(k)) { ALIAS_INDEX.set(k, payload); ALIAS_KEYS.push(k); }
   const glued = k.replace(/\s+/g, '');
   if (glued !== k && !ALIAS_INDEX.has(glued)) { ALIAS_INDEX.set(glued, payload); ALIAS_KEYS.push(glued); }
