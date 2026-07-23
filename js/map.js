@@ -65,3 +65,60 @@ function kgMapSVG(activeCity) {
     ${activeMark}
   </svg>`;
 }
+
+/* агрегат объявлений по городам: количество, средняя/мин. цена (без «Договорная») */
+function cityStats(listings) {
+  const acc = {};
+  for (const l of listings) {
+    const c = l.city;
+    if (!KG_CITY_COORDS[c]) continue; // города вне карты пропускаем
+    const a = acc[c] || (acc[c] = { city: c, count: 0, sum: 0, priced: 0, min: Infinity });
+    a.count++;
+    if (l.price > 0) { a.sum += l.price; a.priced++; if (l.price < a.min) a.min = l.price; }
+  }
+  return Object.values(acc).map(a => ({
+    city: a.city,
+    count: a.count,
+    avg: a.priced ? Math.round(a.sum / a.priced) : 0,
+    min: isFinite(a.min) ? a.min : 0,
+  })).sort((x, y) => y.count - x.count);
+}
+
+/* интерактивная карта-выдача: пузырь на каждый город, размер = число объявлений */
+function kgClusterMapSVG(stats, activeCity) {
+  const path = KG_BORDER.map((p, i) => {
+    const [x, y] = kgProject(p[0], p[1]);
+    return (i === 0 ? 'M' : 'L') + x + ' ' + y;
+  }).join(' ') + ' Z';
+  const lake = '<ellipse class="lake" cx="495" cy="78" rx="52" ry="14" stroke-width="1"/>';
+  const max = stats.reduce((m, s) => Math.max(m, s.count), 1);
+
+  // имена городов на карту НЕ пишем (в Чуйской долине Бишкек/Токмок/Кант рядом →
+  // подписи налезают) — имена есть в списке справа. Рисуем в ДВА слоя: сначала все
+  // кружки (крупные снизу), потом ВСЕ числа сверху — иначе кружок соседа перекрывает
+  // счётчик (у Бишкека «3292» превращалось в «32» под пузырём Канта).
+  const sorted = [...stats].sort((a, b) => b.count - a.count);
+  const geo = sorted.map(s => {
+    const [x, y] = kgProject(...KG_CITY_COORDS[s.city]);
+    return { s, x, y, r: Math.round(9 + 17 * Math.sqrt(s.count / max)), on: s.city === activeCity };
+  });
+  const circles = geo.map(g => `
+      <g class="map-bub ${g.on ? 'on' : ''}" data-action="map-city" data-mapcity="${esc(g.s.city)}" role="button"
+         tabindex="0" aria-label="${esc(g.s.city)}: ${g.s.count}">
+        ${g.on ? `<circle cx="${g.x}" cy="${g.y}" r="${g.r + 8}" class="map-pulse"/>` : ''}
+        <circle cx="${g.x}" cy="${g.y}" r="${g.r}" class="map-bub-c"/>
+      </g>`).join('');
+  const labels = geo.map(g => {
+    const left = g.x > 545;
+    return `<text x="${g.x}" y="${g.y + 4}" text-anchor="middle" class="map-bub-n">${g.s.count}</text>` +
+      (g.on ? `<text x="${left ? g.x - g.r - 7 : g.x + g.r + 7}" y="${g.y + 4}" text-anchor="${left ? 'end' : 'start'}" class="map-bub-city">${esc(g.s.city)}</text>` : '');
+  }).join('');
+
+  return `
+  <svg viewBox="0 0 690 335" xmlns="http://www.w3.org/2000/svg" class="kg-map kg-map-cluster" role="img" aria-label="Карта объявлений Кыргызстана">
+    <path class="land" d="${path}" stroke-width="2" stroke-linejoin="round"/>
+    ${lake}
+    ${circles}
+    <g class="map-bub-labels">${labels}</g>
+  </svg>`;
+}
