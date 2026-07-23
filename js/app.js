@@ -620,6 +620,7 @@ $('#modalBackdrop').addEventListener('click', e => {
 function applyFilters(f) {
   let qTokens = f.q && f.q.trim() ? prepQueryTokens(f.q) : null;
   const scores = new Map();
+  let activeAttrs = f.attrs; // можно ослабить при релаксации «похожие»
 
   const passesBase = l => {
     if (isSold(l)) return false; // продано/архив — не показываем в поиске и ленте
@@ -634,7 +635,7 @@ function applyFilters(f) {
     if (f.withPhoto && getPhotos(l).length === 0) return false;
     if (f.delivery && !l.hasDelivery) return false;
     if (f.period !== 'all' && hoursAgo(l) > +f.period * 24) return false;
-    if (f.attrs && !passesAttrs(l, f.attrs)) return false;
+    if (activeAttrs && !passesAttrs(l, activeAttrs)) return false;
     // отрицательные условия из запроса: «телефон не самсунг и не айфон»
     if (f.exclude && f.exclude.length) {
       const la = getAttrs(l);
@@ -662,6 +663,22 @@ function applyFilters(f) {
   let relax = null; // что смягчили — покажем человеку явно (не молча)
   // мягкий режим: по строгому совпадению пусто — ищем по части слов
   if (qTokens && !res.length && qTokens.length > 1) { res = collect(1); if (res.length) relax = 'partial'; }
+  // ПОХОЖИЕ ТОВАРЫ: точного combo атрибутов нет → сбрасываем по одному самые
+  // «косметичные»/специфичные атрибуты (цвет → числовые пороги → поколение →
+  // модель), пока не появятся близкие. Бренд/категорию держим до последнего.
+  let relaxDropped = [];
+  if (!res.length && f.attrs && Object.keys(f.attrs).length > (f.attrs.brand ? 1 : 0)) {
+    const order = ['color', 'batteryMin', 'mileageMin', 'mileageMax', 'screen', 'ram', 'storage', 'gpu', 'cpu', 'yearMin', 'yearMax', 'gen', 'model'];
+    const ra = { ...f.attrs };
+    for (const k of order) {
+      if (!(k in ra)) continue;
+      delete ra[k]; relaxDropped.push(k);
+      activeAttrs = ra;
+      res = collect(qTokens ? 1 : 0);
+      if (res.length) { relax = 'similar'; break; }
+    }
+    if (!res.length) { activeAttrs = f.attrs; relaxDropped = []; } // ничего не помогло — откат
+  }
   // категория распознана, но текст не совпал ни с чем («наушники») —
   // показываем категорию целиком вместо пустой выдачи
   if (qTokens && !res.length && (f.cat || f.sub)) {
@@ -670,7 +687,7 @@ function applyFilters(f) {
     if (res.length) relax = 'category';
   }
   // флаг смягчения кладём только для реального рендера (не для проб-подсчётов)
-  if (!f._skipSort) state._searchRelax = relax;
+  if (!f._skipSort) { state._searchRelax = relax; state._relaxDropped = relaxDropped; }
 
   const cheapVal = l => (l.price === 0 ? Infinity : l.price);
   const sorts = {
@@ -1278,11 +1295,17 @@ function updateResults() {
   const noteBox = $('#searchNote');
   if (noteBox) {
     const rx = state._searchRelax;
-    noteBox.innerHTML = (rx && res.length)
-      ? `<div class="search-note">🔎 ${rx === 'category'
-          ? t('search.relaxCategory')
-          : t('search.relaxPartial').replace('{q}', esc(f.qRaw || f.q))}</div>`
-      : '';
+    let html = '';
+    if (rx && res.length) {
+      if (rx === 'similar') {
+        html = `<div class="search-note">✨ ${t('search.relaxSimilar')}</div>`;
+      } else if (rx === 'category') {
+        html = `<div class="search-note">🔎 ${t('search.relaxCategory')}</div>`;
+      } else {
+        html = `<div class="search-note">🔎 ${t('search.relaxPartial').replace('{q}', esc(f.qRaw || f.q))}</div>`;
+      }
+    }
+    noteBox.innerHTML = html;
   }
 
   // Диана отвечает ПРЯМО в выдаче на советующие запросы («ноут для монтажа
