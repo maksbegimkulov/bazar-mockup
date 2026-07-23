@@ -2451,16 +2451,39 @@ function renderPost(params) {
   function renderPicker() {
     const c = $('#pCat').value || 'home';
     const sub = $('#pSub') ? $('#pSub').value : '';
+    // плитка реальной загрузки — первая, всегда доступна
+    const add = `<button type="button" class="photo-slot photo-add" id="photoAddSlot" title="${esc(t('form.photoAdd'))}">
+        <span class="photo-add-ico">＋</span><span class="photo-add-t">${esc(t('form.photoAdd'))}</span></button>
+      <input type="file" id="postPhotoFile" accept="image/*" multiple hidden>`;
     // свои фото идут первыми и помечены как уже прикреплённые
     const mine = realPhotos.map((src, i) =>
       `<button type="button" class="photo-slot selected is-real" data-real="${i}" title="${esc(t('form.photoRemove'))}">
          <img src="${esc(src)}" alt=""><span class="ps-x">✕</span></button>`).join('');
+    // стоковые заглушки оставляем как быстрый вариант для демо, но помечаем
     const stock = Array.from({ length: 8 }, (_, i) => {
       const seed = 11 + i * 7;
-      return `<button type="button" class="photo-slot ${picked.has(seed) ? 'selected' : ''}" data-seed="${seed}">
+      return `<button type="button" class="photo-slot stock ${picked.has(seed) ? 'selected' : ''}" data-seed="${seed}">
         <img src="${photoURL(c, seed, sub)}" alt=""></button>`;
     }).join('');
-    $('#photoPicker').innerHTML = mine + stock;
+    $('#photoPicker').innerHTML = add + mine + `<div class="photo-stock-label">${t('form.photoStock')}</div>` + stock;
+    const fileInp = $('#postPhotoFile');
+    if (fileInp) fileInp.addEventListener('change', onPostPhotoFiles);
+  }
+  async function onPostPhotoFiles(e) {
+    const files = [...(e.target.files || [])];
+    e.target.value = '';
+    if (!files.length) return;
+    if (typeof visionFileToDataURL !== 'function') { showToast(t('search.photoFail')); return; }
+    for (const file of files) {
+      if (realPhotos.length >= 8) { showToast(t('toast.maxPhotos')); break; }
+      try {
+        const dataURL = await visionFileToDataURL(file, 1280, 0.82); // даунскейл ~ до 1280px
+        realPhotos.push(dataURL);
+      } catch (err) { showToast(t('search.photoFail')); }
+    }
+    state._postPhotos = realPhotos.length ? realPhotos : null;
+    renderPicker();
+    savePostDraft();
   }
   renderPicker();
 
@@ -2494,6 +2517,8 @@ function renderPost(params) {
   });
 
   $('#photoPicker').addEventListener('click', e => {
+    // плитка загрузки → открыть выбор файла
+    if (e.target.closest('#photoAddSlot')) { const fi = $('#postPhotoFile'); if (fi) fi.click(); return; }
     // снятое фото удаляем по тапу
     const real = e.target.closest('[data-real]');
     if (real) {
@@ -2566,6 +2591,12 @@ function renderPost(params) {
       bad.push(el);
     };
     if (n === 1 && !$('#pCat').value) mark('#pCat', t('err.cat'));
+    if (n === 2) {
+      // без фото публиковать нельзя — считаем реальные снимки и выбранные заглушки
+      const real = (state._postPhotos && state._postPhotos.length) || 0;
+      const stock = document.querySelectorAll('#photoPicker .photo-slot.selected[data-seed]').length;
+      if (real + stock === 0) mark('#photoPicker', t('err.photo'));
+    }
     if (n === 4) {
       if ($('#pTitle').value.trim().length < 5) mark('#pTitle', t('err.title'));
       if ($('#pDesc').value.trim().length < 10) mark('#pDesc', t('err.desc'));

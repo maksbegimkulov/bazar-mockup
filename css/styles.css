@@ -1034,6 +1034,13 @@ main#app > .chats-layout { animation: none; }
 }
 .photo-slot img { width: 100%; height: 100%; object-fit: cover; }
 .photo-slot.selected { border-color: var(--accent); }
+/* плитка реальной загрузки фото */
+.photo-add { border: 2px dashed var(--accent); background: var(--accent-soft); display: flex;
+  flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: var(--accent); }
+.photo-add-ico { font-size: 22px; line-height: 1; font-weight: 400; }
+.photo-add-t { font-size: 10px; font-weight: 700; text-align: center; padding: 0 4px; }
+.photo-stock-label { flex-basis: 100%; font-size: 12px; color: var(--text-3); margin: 6px 0 2px; }
+.photo-slot.stock { opacity: 0.9; }
 .photo-slot.selected::after {
   content: '✓';
   position: absolute;
