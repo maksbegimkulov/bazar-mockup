@@ -198,7 +198,52 @@ function parseAmount(numStr, unit) {
 const AMOUNT_RE = '(\\d[\\d ]*(?:[.,]\\d+)?)\\s*(к|k|тыс[а-я]*|млн[а-я]*|миллион[а-я]*)?(?= |$)';
 
 /* --- главный парсер: текст запроса → { q, filters } --- */
+/* Разрешается ли строка в категорию или каталог (бренд/модель)? Нужно, чтобы
+   понять, что раскладку перевернули правильно. */
+function queryResolves(str) {
+  const s = normText(str);
+  const words = s.split(/\s+/).filter(Boolean);
+  for (const w of words) {
+    // как в parseSearchQuery: сначала синоним (машина→авто), потом CAT_INTENT
+    const mapped = (typeof aliasFor === 'function') ? aliasFor(w) : w;
+    for (const piece of mapped.split(' ')) {
+      const cands = [stemLite(piece), piece];
+      if (piece.length > 5) cands.push(piece.slice(0, -1));
+      if (piece.length > 6) cands.push(piece.slice(0, -2));
+      if (cands.some(c => CAT_INTENT[c])) return true;
+    }
+    // ≥3 символов: 2-буквенные обрывки («er», «s») матчатся слишком жадно и
+    // ложно «осмысливают» набор в неверной раскладке
+    if (w.length >= 3 && typeof ALIAS_INDEX !== 'undefined' && (ALIAS_INDEX.has(w) || ALIAS_INDEX.has(w.replace(/\s/g, '')))) return true;
+  }
+  const glued = s.replace(/\s+/g, '');
+  if (glued.length >= 3 && typeof ALIAS_INDEX !== 'undefined' && ALIAS_INDEX.has(glued)) return true;
+  return false;
+}
+
+/* Google-стайл: человек забыл переключить раскладку. «vfibyf» (набрано в EN,
+   имел в виду «машина») → переворачиваем и переразбираем. Работает в обе
+   стороны, но только если ИСХОДНОЕ ничего не значит, а перевёрнутое — значит
+   (чтобы не ломать латинские «camry»/«iphone»). */
+function recoverLayout(raw) {
+  const s = String(raw).toLowerCase().trim();
+  if (!s) return raw;
+  if (typeof buildAliasIndex === 'function') buildAliasIndex();
+  const latin = (s.match(/[a-z]/g) || []).length;
+  const cyr = (s.match(/[а-яё]/g) || []).length;
+  if (latin >= 2 && cyr === 0 && typeof kbToRu === 'function') {
+    const ru = kbToRu(s);
+    if (ru !== s && queryResolves(ru) && !queryResolves(s)) return ru;
+  }
+  if (cyr >= 2 && latin === 0 && typeof kbToEn === 'function') {
+    const en = kbToEn(s);
+    if (en !== s && queryResolves(en) && !queryResolves(s)) return en;
+  }
+  return raw;
+}
+
 function parseSearchQuery(raw) {
+  raw = recoverLayout(raw); // починка неверной раскладки до всего остального
   // диапазон «30000-60000», «50-80 тыс»: дефис гибнет в normText, поэтому
   // заранее переписываем в «от X .. до Y ..». НО не любой «X-Y» — цена:
   // «камри 2010-2015» (годы) и «11-64gb» (спеки) ценой НЕ являются
