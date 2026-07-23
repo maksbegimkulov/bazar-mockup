@@ -200,6 +200,8 @@ const QUERY_ALIASES = {
   "плейстешн": "playstation", "плойстейшн": "playstation", "плейстейшн": "playstation",
   "плойстейшен": "playstation", "сони плейстешн": "playstation",
   "кондей": "кондиционер", "кондер": "кондиционер", "потолки": "натяжные потолки",
+  "рипититор": "репетитор", "репититор": "репетитор", "зарятка": "зарядка",
+  "зарядка": "зарядное устройство", "стралка": "стиральная машина",
 };
 
 /* --- ключевые слова → категория/подкатегория --- */
@@ -634,6 +636,22 @@ function recoverLayout(raw) {
     const en = kbToEn(s);
     if (en !== s && queryResolves(en) && !queryResolves(s)) return en;
   }
+  // СМЕШАННЫЙ ввод: один токен на неверной раскладке среди кириллицы
+  // («rehnrf зимняя мужская» → «куртка зимняя мужская»). Чиним ПО-СЛОВНО:
+  // латинский токен ≥4, сам не резолвится, а его kbToRu — резолвится.
+  if (latin >= 2 && cyr >= 2 && typeof kbToRu === 'function') {
+    const parts = String(raw).split(/\s+/);
+    let fixed = false;
+    const out = parts.map(tok => {
+      const tl = tok.toLowerCase();
+      if (!/^[a-z\[\];',\.]{4,}$/.test(tl)) return tok;
+      if (queryResolves(tl)) return tok;              // легит-латиница (camry) не трогается
+      const ru = kbToRu(tl);
+      if (ru !== tl && queryResolves(ru)) { fixed = true; return ru; }
+      return tok;
+    });
+    if (fixed) return out.join(' ');
+  }
   return raw;
 }
 
@@ -957,6 +975,25 @@ function parseSearchQuery(raw) {
     if (re.test(s)) { filters.city = city; s = s.replace(re, ' '); break; }
   }
 
+  // «УСЛУГА ЧЕРЕЗ СИМПТОМ»: человек описывает проблему, а не товар —
+  // «труба течёт», «холодильник не морозит выезд», «установка кондея».
+  // Ставим услуги ДО категории: ранняя категория заодно блокирует ложные
+  // фаззи-бренды (fashion/transport не пройдут гейт категории).
+  if (!filters.cat) {
+    if (/ (?:теч[её]т|протека[а-я]*|прорвал[оа]|засор[а-я]*|забил[ао]сь)(?= )/.test(s)) {
+      filters.cat = 'services'; filters.sub = 'Строительство';           // сантехника
+    } else if (/ (?:не морозит|не холодит|не включается|не греет|не крутит|перестал[аи]? работать|сломал[ас][сья][а-я]*)(?= )/.test(s)) {
+      filters.cat = 'services'; filters.sub = 'Ремонт техники';
+    } else if (/ (?:установк|монтаж)[а-я]* (?:кондиционер|конде|сплит|бойлер|водонагреват|антенн|люстр)[а-я]*(?= )/.test(s)) {
+      // «конде» без й: родительный «кондея» теряет й (кондей→кондея)
+      filters.cat = 'services'; filters.sub = 'Ремонт техники';
+    } else if (/ (?:мастер класс|мастеркласс)[а-я]*(?= )/.test(s)) {
+      filters.cat = 'services'; filters.sub = 'Обучение';
+    } else if (/ (?:мастер[а]?|вызов|выезд|почин[а-я]*|отремонтир[а-я]*)(?= )/.test(s)) {
+      filters.cat = 'services';                                          // sub уточнит текст
+    }
+  }
+
   // аренда/покупка (до категории, чтобы уточнить sub)
   const wantsRent = RENT_WORDS.test(s);
   const wantsBuy = BUY_WORDS.test(s);
@@ -1004,6 +1041,28 @@ function parseSearchQuery(raw) {
     rest.push(w);
   }
 
+  // ОПЕЧАТКА В СЛОВЕ-КАТЕГОРИИ («ноутбок», «телевизр», «холодилник»): фаззи
+  // был только для брендов — добираем по ключам CAT_INTENT. Строго: слово ≥6,
+  // кириллица, та же первая буква, правка в 1 символ, ВСЕ совпавшие ключи
+  // указывают на одну категорию (иначе не гадаем).
+  if (!filters.cat && typeof fuzzyEq === 'function') {
+    for (const w of rest) {
+      if (w.length < 6 || !/^[а-яё]+$/.test(w)) continue;
+      const hits = new Map(); // cat|sub → key
+      for (const k in CAT_INTENT) {
+        if (k[0] !== w[0] || Math.abs(k.length - w.length) > 1 || k.length < 5) continue;
+        if (fuzzyEq(w, k)) hits.set(CAT_INTENT[k][0] + '|' + (CAT_INTENT[k][1] || ''), k);
+      }
+      const cats = new Set([...hits.keys()].map(x => x.split('|')[0]));
+      if (cats.size === 1) {
+        const [c, sb] = [...hits.keys()][0].split('|');
+        filters.cat = c;
+        if (sb && hits.size === 1) filters.sub = sb;
+        break;
+      }
+    }
+  }
+
   // недвижимость: уточняем продажу/аренду
   if (filters.cat === 'realty' && !filters.sub) {
     if (wantsRent) filters.sub = 'Аренда квартир';
@@ -1038,6 +1097,11 @@ function parseSearchQuery(raw) {
       if (n.brand) attrs.brand = n.brand;
       if (n.model) attrs.model = n.model;
       if (n.gen) attrs.gen = n.gen;
+      // услуги/работа не имеют брендов каталога — случайный матч («мастер
+      // класс»→C-Class) дал бы пустую выдачу без возможности релаксации
+      if (filters.cat === 'services' || filters.cat === 'jobs') {
+        delete attrs.brand; delete attrs.model; delete attrs.gen;
+      }
       if (Object.keys(attrs).length) filters.attrs = attrs;
 
       if (n.exclude && n.exclude.length) filters.exclude = n.exclude;
