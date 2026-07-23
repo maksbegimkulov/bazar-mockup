@@ -592,6 +592,14 @@ function passesAttrs(l, fa) {
       const have = String(la[k] || '').toLowerCase().replace(/\s+/g, ' ');
       const want = String(val).toLowerCase().replace(/\s+/g, ' ');
       if (!have.includes(want)) return false;
+    } else if (k === 'color') {
+      // объявления хранят описательные цвета («Серый космос», «Космический чёрный»,
+      // «Титановый серый», «Розовое золото»). Матчим по КОРНЮ (4 буквы, ё→е):
+      // «серы» ловит «Серый космос», но НЕ «Серебристый» (там «сере»);
+      // «золо» ловит и золотой, и золотистый.
+      const have = String(la.color || '').toLowerCase().replace(/ё/g, 'е');
+      const root = String(val).toLowerCase().replace(/ё/g, 'е').slice(0, 4);
+      if (!root || !have.includes(root)) return false;
     } else if (k === 'screen') {
       // диагональ спрашивают округлённо: «12 дюймов» ловит 12.4 и 12.9
       const have = parseFloat(la[k]);
