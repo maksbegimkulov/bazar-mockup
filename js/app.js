@@ -1167,6 +1167,29 @@ function bindFilterPanel() {
   $('#fDelivery').addEventListener('change', e => { f.delivery = e.target.checked; rerun(); });
 }
 
+/* кнопка «показать ещё» — общий рендер для полной и инкрементальной отрисовки */
+function updateShowMore(totalLen, shownLen) {
+  const wrap = $('#showMoreWrap');
+  if (!wrap) return;
+  wrap.innerHTML = totalLen > shownLen
+    ? `<button class="btn btn-outline btn-lg" data-action="show-more">${t('more.show')} ${Math.min(PAGE_SIZE, totalLen - shownLen)} ${t('more.of')} ${fmtNum(totalLen - shownLen)}</button>`
+    : '';
+}
+
+/* «показать ещё»: ДОБАВЛЯЕМ только новую порцию карточек, не перерисовывая всю
+   ленту (иначе O(N²) при листании + перекодировка всех картинок + прыжок скролла) */
+function appendMoreResults() {
+  const grid = $('#resultsGrid');
+  if (!grid) return;
+  const res = applyFilters(state.filters);           // детерминированный порядок → срез стабилен
+  const already = state._renderedCount || grid.querySelectorAll('a.card').length;
+  const shown = res.slice(0, state.page * PAGE_SIZE);
+  const fresh = shown.slice(already);
+  if (fresh.length) grid.insertAdjacentHTML('beforeend', fresh.map(cardHTML).join(''));
+  state._renderedCount = shown.length;
+  updateShowMore(res.length, shown.length);
+}
+
 function updateResults() {
   if (!$('#resultsTitle')) return; // вид уже размонтирован (дебаунс-таймер пережил навигацию)
   const f = state.filters;
@@ -1181,10 +1204,9 @@ function updateResults() {
   grid.innerHTML = shown.length
     ? shown.map(cardHTML).join('')
     : emptyHTML('🔍', t('empty.search.t'), t('empty.search.p'), emptyRecoveryHTML(f));
+  state._renderedCount = shown.length; // сколько карточек уже в DOM (для инкрем. дозагрузки)
 
-  $('#showMoreWrap').innerHTML = res.length > shown.length
-    ? `<button class="btn btn-outline btn-lg" data-action="show-more">${t('more.show')} ${Math.min(PAGE_SIZE, res.length - shown.length)} ${t('more.of')} ${fmtNum(res.length - shown.length)}</button>`
-    : '';
+  updateShowMore(res.length, shown.length);
 
   // Явно сообщаем, что поиск был расширен (раньше это происходило молча).
   const noteBox = $('#searchNote');
@@ -4623,7 +4645,7 @@ document.addEventListener('click', async e => {
         updateResults();
         break;
       }
-      case 'show-more': state.page++; updateResults(); break;
+      case 'show-more': state.page++; appendMoreResults(); break;
       case 'gallery-prev': galleryGo(-1); break;
       case 'gallery-next': galleryGo(1); break;
       case 'show-phone': showPhoneModal(id); break;
