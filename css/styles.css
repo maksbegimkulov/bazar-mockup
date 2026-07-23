@@ -1962,6 +1962,18 @@ main#app > .chats-layout { animation: none; }
 :root[data-theme="dark"] .trust-chip.good { color: #4ecb8b; }
 :root[data-theme="dark"] .trust-chip.bad { color: #f07a6e; }
 
+/* ---------------- аналитика продавца (кабинет) ---------------- */
+.analytics-card { border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); padding: 16px; margin-bottom: 16px; box-shadow: var(--shadow); }
+.an-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 14px; }
+.an-metric { text-align: center; padding: 10px 6px; background: var(--bg); border-radius: var(--radius-s, 12px); }
+.an-metric b { display: block; font-size: 22px; font-weight: 800; color: var(--accent); }
+.an-metric span { font-size: 11.5px; color: var(--text-2); }
+.an-recs-h { font-weight: 800; font-size: 14px; margin-bottom: 8px; }
+.an-recs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+.an-rec { display: flex; align-items: flex-start; gap: 9px; font-size: 13.5px; line-height: 1.4; padding: 9px 11px; background: var(--bg); border-radius: var(--radius-s, 12px); border-left: 3px solid #e0a021; }
+.an-rec-ico { flex: none; }
+.an-rec-good { border-left-color: #1a8f5a; }
+
 /* ---------------- индикатор цены ---------------- */
 
 .price-verdict {
