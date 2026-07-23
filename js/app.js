@@ -2760,6 +2760,20 @@ function renderPost(params) {
       return;
     }
 
+    // Предпубликационная проверка на мошеннический текст (просьба предоплаты/
+    // кода/увод с площадки). Не блокируем жёстко: предупреждаем, и повторная
+    // отправка ТОГО ЖЕ текста = осознанное подтверждение автора.
+    if (typeof assessTextRisk === 'function') {
+      const risk = assessTextRisk(title + ' ' + desc);
+      if ((risk.level === 'high' || risk.level === 'critical') && state._riskAck !== (title + desc)) {
+        mark('#pDesc', t('form.riskWarn'));
+        state._riskAck = title + desc;
+        showToast(t('form.riskWarnToast'), 'error');
+        const d = $('#pDesc'); if (d) d.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        return;
+      }
+    }
+
     const listing = {
       id: editing ? editing.id : 'm' + Date.now(),
       title,
