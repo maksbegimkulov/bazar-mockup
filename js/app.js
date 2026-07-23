@@ -236,6 +236,7 @@ async function loadCloudData() {
       // синк избранного/сохранённых поисков (переживают смену устройства)
       await syncFavoritesFromCloud();
       await syncSavedFromCloud();
+      refreshNotifCount();
     }
     updateBadges();
     // точечный рефреш: открытый чат НЕ ререндерим (сотрёт набранный текст) — только
@@ -3731,11 +3732,87 @@ function updateNav(path) {
 function updateBadges() {
   const favN = state.favorites.size;
   const unread = Object.values(state.chats).filter(c => c.unread).length;
-  const set = (el, n) => { if (!el) return; el.hidden = n === 0; el.textContent = n; };
+  const notifN = state.notifUnread || 0;
+  const set = (el, n) => { if (!el) return; el.hidden = n === 0; el.textContent = n > 99 ? '99+' : n; };
   set($('#favBadge'), favN);
   set($('#chatBadge'), unread);
+  set($('#notifBadge'), notifN);
   set(document.querySelector('[data-badge="fav"]'), favN);
   set(document.querySelector('[data-badge="chat"]'), unread);
+}
+
+/* сколько непрочитанных уведомлений — тянем с сервера (rpc_unread_counts) */
+async function refreshNotifCount() {
+  if (typeof BZ === 'undefined' || !BZ.available() || !(typeof isAuthed === 'function' && isAuthed())) {
+    state.notifUnread = 0; updateBadges(); return;
+  }
+  const c = await BZ.notifications.counts();
+  state.notifUnread = (c && (c.notifications ?? c.notif ?? 0)) || 0;
+  updateBadges();
+}
+
+/* ---------------- Центр уведомлений ---------------- */
+
+const NOTIF_ICON = { message: '💬', offer: '🤝', price_drop: '📉', saved_search: '🔔', moderation: '🛡️' };
+
+/* относительное время по метке (переиспользует логику postedLabel) */
+function notifTime(ts) { return postedLabel({ createdAt: ts }); }
+
+/* какие типы показывать — управляется юзером, хранится локально */
+function notifPrefs() {
+  const d = { message: true, offer: true, price_drop: true, saved_search: true, moderation: true };
+  try { return { ...d, ...(JSON.parse(localStorage.getItem('bazar_notif_prefs') || '{}')) }; } catch (e) { return d; }
+}
+
+async function renderNotifications() {
+  const app = $('#app');
+  app.innerHTML = `<div class="notif-page">
+    <div class="page-head">
+      <h1 class="page-title">🔔 ${t('notif.title')}</h1>
+      <button class="btn btn-outline btn-sm" data-action="notif-read-all">${t('notif.readAll')}</button>
+    </div>
+    <div id="notifList"><div class="boot-skeleton"><div class="sk-card"><div class="sk-photo"></div><div class="sk-line"></div></div></div></div>
+    <details class="notif-settings"><summary>⚙️ ${t('notif.settings')}</summary>
+      <div class="notif-prefs">${Object.keys(NOTIF_ICON).map(k => {
+        const on = notifPrefs()[k];
+        return `<label class="notif-pref"><span>${NOTIF_ICON[k]} ${t('notif.kind.' + k)}</span>
+          <input type="checkbox" data-notif-pref="${k}" ${on ? 'checked' : ''}></label>`;
+      }).join('')}</div>
+    </details>
+  </div>`;
+
+  let list = [];
+  if (typeof BZ !== 'undefined' && BZ.available()) list = (await BZ.notifications.list(60)) || [];
+  const prefs = notifPrefs();
+  const shown = list.filter(n => prefs[n.kind] !== false);
+  const box = $('#notifList');
+  if (!box) return;
+  if (!shown.length) {
+    box.innerHTML = emptyHTML('🔔', t('notif.empty.t'), t('notif.empty.p'));
+  } else {
+    box.innerHTML = shown.map(n => {
+      const unread = !n.read_at;
+      const link = n.link && n.link.startsWith('#') ? n.link : '';
+      return `<div class="notif-row ${unread ? 'unread' : ''}" data-action="notif-open" data-id="${n.id}" data-link="${esc(link)}">
+        <span class="notif-ico">${NOTIF_ICON[n.kind] || '🔔'}</span>
+        <div class="notif-body">
+          <div class="notif-t">${esc(n.title || '')}</div>
+          ${n.body ? `<div class="notif-p">${esc(n.body)}</div>` : ''}
+          <div class="notif-time">${notifTime(new Date(n.created_at).getTime())}</div>
+        </div>
+        ${unread ? '<span class="notif-dot"></span>' : ''}
+      </div>`;
+    }).join('');
+  }
+  // настройки типов: переключение хранится локально, список перерисовываем
+  app.querySelectorAll('[data-notif-pref]').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const prefs = notifPrefs();
+      prefs[cb.dataset.notifPref] = cb.checked;
+      try { localStorage.setItem('bazar_notif_prefs', JSON.stringify(prefs)); } catch (e) {}
+      renderNotifications();
+    });
+  });
 }
 
 function router() {
@@ -3792,6 +3869,8 @@ function router() {
     if (requireAuth(location.hash)) renderChats(decodeURIComponent(path.slice('/chats/'.length)));
   } else if (path.startsWith('/chats')) {
     if (requireAuth('#/chats')) renderChats(null);
+  } else if (path.startsWith('/notifications')) {
+    if (requireAuth('#/notifications')) renderNotifications();
   } else if (path.startsWith('/profile')) {
     renderProfile();
   } else {
@@ -3817,7 +3896,7 @@ function router() {
 
 /* ---------------- глобальные обработчики ---------------- */
 
-document.addEventListener('click', e => {
+document.addEventListener('click', async e => {
   /* экран входа/регистрации: вкладки, способ, соц-вход */
   const authMode = e.target.closest('[data-auth-mode]');
   if (authMode) { e.preventDefault(); state.auth.mode = authMode.dataset.authMode; renderAuth(); return; }
@@ -3982,6 +4061,23 @@ document.addEventListener('click', e => {
     const act = actBtn.dataset.action;
     const id = actBtn.dataset.id;
     switch (act) {
+      case 'notif-open': {
+        if (typeof BZ !== 'undefined' && BZ.available() && id) BZ.notifications.markRead(id);
+        state.notifUnread = Math.max(0, (state.notifUnread || 0) - 1); updateBadges();
+        const link = actBtn.dataset.link;
+        if (link) location.hash = link;
+        else { const row = actBtn; row.classList.remove('unread'); const d = row.querySelector('.notif-dot'); if (d) d.remove(); }
+        break;
+      }
+      case 'notif-read-all': {
+        if (typeof BZ !== 'undefined' && BZ.available()) {
+          const list = (await BZ.notifications.list(60)) || [];
+          await Promise.all(list.filter(n => !n.read_at).map(n => BZ.notifications.markRead(n.id)));
+        }
+        state.notifUnread = 0; updateBadges();
+        document.querySelectorAll('.notif-row.unread').forEach(r => { r.classList.remove('unread'); const d = r.querySelector('.notif-dot'); if (d) d.remove(); });
+        break;
+      }
       case 'open-filters': {
         const panel = $('#filtersPanel');
         if (panel && !panel.classList.contains('open')) {

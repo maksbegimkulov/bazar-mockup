@@ -48,7 +48,7 @@ try {
    Pages), чтобы юзер не застревал на старом JS и его публикации долетали в
    облако. BUILD бампается вместе с version.txt при каждом деплое. */
 (function () {
-  var BUILD = 67;
+  var BUILD = 68;
   try {
     fetch('version.txt?cb=' + Date.now(), { cache: 'no-store' })
       .then(function (r) { return r.ok ? r.text() : null; })
@@ -74,7 +74,7 @@ try {
   }
 })();
 </script>
-<link rel="stylesheet" href="css/styles.css?v=67">
+<link rel="stylesheet" href="css/styles.css?v=68">
 </head>
 <body>
 
@@ -102,6 +102,10 @@ try {
       <a href="#/favorites" data-link class="icon-btn" title="Избранное">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M12 21C8 17.5 3 13.6 3 9a5 5 0 0 1 9-3 5 5 0 0 1 9 3c0 4.6-5 8.5-9 12z"/></svg>
         <span class="badge" id="favBadge" hidden></span>
+      </a>
+      <a href="#/notifications" data-link class="icon-btn" title="Уведомления">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+        <span class="badge" id="notifBadge" hidden></span>
       </a>
       <a href="#/chats" data-link class="icon-btn" title="Сообщения">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M21 12a8 8 0 0 1-8 8H4l1.6-3.2A8 8 0 1 1 21 12z"/></svg>
@@ -186,22 +190,22 @@ try {
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="js/catalog/auto-world.js?v=67"></script>
-<script src="js/catalog/auto-china.js?v=67"></script>
-<script src="js/catalog/tech-mobile.js?v=67"></script>
-<script src="js/catalog/tech-compute.js?v=67"></script>
-<script src="js/catalog/index.js?v=67"></script>
-<script src="js/data.js?v=67"></script>
-<script src="js/generate.js?v=67"></script>
-<script src="js/nlu.js?v=67"></script>
-<script src="js/i18n.js?v=67"></script>
-<script src="js/attributes.js?v=67"></script>
-<script src="js/search.js?v=67"></script>
-<script src="js/map.js?v=67"></script>
-<script src="js/vision.js?v=67"></script>
-<script src="js/auth.js?v=67"></script>
-<script src="js/api.js?v=67"></script>
-<script src="js/app.js?v=67"></script>
-<script src="js/ai.js?v=67"></script>
+<script src="js/catalog/auto-world.js?v=68"></script>
+<script src="js/catalog/auto-china.js?v=68"></script>
+<script src="js/catalog/tech-mobile.js?v=68"></script>
+<script src="js/catalog/tech-compute.js?v=68"></script>
+<script src="js/catalog/index.js?v=68"></script>
+<script src="js/data.js?v=68"></script>
+<script src="js/generate.js?v=68"></script>
+<script src="js/nlu.js?v=68"></script>
+<script src="js/i18n.js?v=68"></script>
+<script src="js/attributes.js?v=68"></script>
+<script src="js/search.js?v=68"></script>
+<script src="js/map.js?v=68"></script>
+<script src="js/vision.js?v=68"></script>
+<script src="js/auth.js?v=68"></script>
+<script src="js/api.js?v=68"></script>
+<script src="js/app.js?v=68"></script>
+<script src="js/ai.js?v=68"></script>
 </body>
 </html>
