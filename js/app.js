@@ -220,11 +220,14 @@ async function loadCloudData() {
           old.messages.forEach(m => { if (m.from === 'me' && !m.id) messages.push(m); });
         }
         const last = messages[messages.length - 1];
+        // когда СОБЕСЕДНИК последний раз читал — для «прочитано» под моими сообщениями
+        const otherReadRaw = c.buyer_id === me ? c.seller_last_read_at : c.buyer_last_read_at;
         fresh[c.id] = {
           itemId: c.listing_ref, chatId: c.id, isDb: true,
           sellerId: c.seller_id, buyerId: c.buyer_id, otherName: (profs[otherId] && profs[otherId].name) || t('seller.anon'),
           title: c.listing_title,
           messages,
+          otherReadAt: otherReadRaw ? new Date(otherReadRaw).getTime() : 0,
           // непрочитано = последнее сообщение от собеседника новее моей отметки прочтения
           unread: !!(last && last.from === 'them' && last.ts > (state.chatRead[c.id] || 0)),
           updatedAt: new Date(c.updated_at).getTime(),
@@ -316,6 +319,10 @@ function markChatRead(key) {
   const last = c.messages[c.messages.length - 1];
   state.chatRead[key] = last ? last.ts : Date.now();
   lsSave(LS.chatRead, state.chatRead);
+  // серверная отметка: собеседник увидит «прочитано» под своими сообщениями
+  if (c.chatId && typeof sb !== 'undefined' && sb) {
+    sb.rpc('rpc_mark_chat_read', { p_chat_id: c.chatId }).then(() => {}, () => {});
+  }
 }
 
 /* realtime: любое новое/изменённое объявление → перезагрузить ленту (видно всем live).
@@ -3489,7 +3496,33 @@ function msgTime(ts) {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
-function msgHTML(m) {
+/* чипы под диалогом: подсказки ответа от Дианы + быстрые вопросы/действия.
+   Показываем контекстно — не перегружая переписку. */
+function chatChipsHTML(active) {
+  const iAmSeller = active.sellerId && currentUser() && active.sellerId === currentUser().id;
+  const last = active.messages[active.messages.length - 1];
+  // ИИ-подсказки ответа, когда пришло сообщение от собеседника
+  let ai = '';
+  if (last && last.from === 'them' && typeof aiReplySuggestions === 'function') {
+    const sug = aiReplySuggestions(active);
+    // ИИ-подсказки ЗАПОЛНЯЮТ поле (не шлют сами) — ТЗ: без подтверждения не отправлять
+    if (sug.length) ai = `<div class="chat-ai-sug"><span class="chat-ai-lbl" title="${t('ai.name')}">✨</span>${sug.map(s => `<button class="fchip ai" data-fill="${esc(s)}">${esc(s)}</button>`).join('')}</div>`;
+  }
+  // быстрые вопросы покупателя + предложить цену (если уместен торг)
+  const quick = [];
+  const L = active.listing;
+  if (!iAmSeller && (L && (L.floor || L.hasFloor))) quick.push(`<button class="fchip chat-offer" data-action="offer-price" data-id="${L.id}">🤝 ${t('item.offerPrice')}</button>`);
+  if (!iAmSeller && active.messages.length === 0) {
+    quick.push(`<button class="fchip" data-quick="${esc(t('chats.q1'))}">${t('chats.q1s')}</button>`);
+    quick.push(`<button class="fchip" data-quick="${esc(t('chats.q2'))}">${t('chats.q2s')}</button>`);
+    quick.push(`<button class="fchip" data-quick="${esc(t('chats.q3'))}">${t('chats.q3s')}</button>`);
+    quick.push(`<button class="fchip" data-quick="${esc(t('chats.q4'))}">${t('chats.q4s')}</button>`);
+  }
+  const quickHTML = quick.length ? `<div class="chip-row chat-quick">${quick.join('')}</div>` : '';
+  return ai + quickHTML;
+}
+
+function msgHTML(m, otherReadAt) {
   const r = assessTextRisk(m.text);
   let warn = '';
   if (r.level === 'critical') {       // фишинг кода из СМС — захват аккаунта
@@ -3497,7 +3530,10 @@ function msgHTML(m) {
   } else if (r.level === 'high' || r.level === 'med') {  // реальная схема оплаты
     warn = `<div class="chat-scam-warn"><span class="csw-ico">🛡️</span><span><b>${t('scam.who')}</b> ${t('scam.warn')}</span></div>`;
   } // low/none (просто «вотсап» и т.п.) — НЕ тревожим, верхний баннер уже напоминает
-  return `<div class="msg ${m.from}">${maskUnsafe(m.text)}<time>${msgTime(m.ts)}</time></div>${warn}`;
+  // ✓ отправлено · ✓✓ прочитано собеседником (только под МОИМИ сообщениями)
+  const status = m.from === 'me'
+    ? `<span class="msg-status ${otherReadAt && m.ts <= otherReadAt ? 'read' : ''}">${otherReadAt && m.ts <= otherReadAt ? '✓✓' : '✓'}</span>` : '';
+  return `<div class="msg ${m.from}">${maskUnsafe(m.text)}<time>${msgTime(m.ts)}${status}</time></div>${warn}`;
 }
 
 /* дописать сообщение в открытый диалог без полного ререндера (фокус и клавиатура живут) */
@@ -3505,7 +3541,7 @@ function appendChatMsg(itemId, m) {
   const win = document.querySelector('[data-active-chat]');
   const msgs = $('#chatMsgs');
   if (!win || win.dataset.activeChat !== itemId || !msgs) return false;
-  msgs.insertAdjacentHTML('beforeend', msgHTML(m));
+  msgs.insertAdjacentHTML('beforeend', msgHTML(m, (state.chats[itemId] || {}).otherReadAt));
   msgs.scrollTop = msgs.scrollHeight;
   const row = document.querySelector(`.chat-row[data-chat="${CSS.escape(itemId)}"]`);
   if (row) {
@@ -3593,15 +3629,10 @@ function renderChats(activeId) {
     ${phishBannerDismissed() ? '' : `<div class="chat-phish-banner"><span>🛡️ ${t('safety.chatBanner')}</span><button class="cpb-x" data-action="dismiss-phish" aria-label="${t('safety.dismiss')}">✕</button></div>`}
     <div class="chat-msgs" id="chatMsgs">
       ${active.messages.length
-        ? active.messages.map(msgHTML).join('')
+        ? active.messages.map(m => msgHTML(m, active.otherReadAt)).join('')
         : `<div class="empty empty-sm"><div class="empty-emoji">👋</div><h3>${t('chats.start.t')}</h3><p>${t('chats.start.p')}</p></div>`}
     </div>
-    ${active.messages.length === 0 ? `
-    <div class="chip-row chat-quick">
-      <button class="fchip" data-quick="${t('chats.q1')}">${t('chats.q1s')}</button>
-      <button class="fchip" data-quick="${t('chats.q2')}">${t('chats.q2s')}</button>
-      <button class="fchip" data-quick="${t('chats.q3')}">${t('chats.q3s')}</button>
-    </div>` : ''}
+    ${chatChipsHTML(active)}
     <div class="chat-input">
       <input type="text" id="chatText" placeholder="${t('chats.msgPh')}" autocomplete="off" enterkeyhint="send">
       <button data-action="chat-send" aria-label="${t('a11y.send')}">
@@ -4362,6 +4393,13 @@ document.addEventListener('click', async e => {
   if (quick) {
     const activeChat = document.querySelector('[data-active-chat]')?.dataset.activeChat;
     if (activeChat) sendChatMessage(activeChat, quick.dataset.quick);
+    return;
+  }
+  // ИИ-подсказка ответа: подставляем в поле, отправляет юзер (ТЗ)
+  const fill = e.target.closest('[data-fill]');
+  if (fill) {
+    const inp = $('#chatText');
+    if (inp) { inp.value = fill.dataset.fill; inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
     return;
   }
 
