@@ -22,6 +22,7 @@ const LS = {
   chatRead: 'bazar_chat_read', // chatId → ts последнего прочитанного (для unread DB-чатов)
   postDraft: 'bazar_post_draft', // незаконченное объявление (не терять при уходе)
   favMeta: 'bazar_fav_meta',     // по избранному: цена на момент добавления, заметка, статус
+  aiq: 'bazar_aiq',              // кэш ИИ-разбора сложных запросов (не жечь API повторно)
 };
 
 /* lsLoad / lsSave определены в i18n.js (грузится раньше) */
@@ -1273,6 +1274,69 @@ function appendMoreResults() {
   updateShowMore(res.length, shown.length);
 }
 
+/* ===== ИИ-фолбэк поиска (гибрид, Рычаг 2) =====
+   Правила отвечают мгновенно и бесплатно. ТОЛЬКО если они ничего не поняли
+   (нет категории/бренда) И выдача пуста — в фоне спрашиваем Gemini через
+   воркер (ключ на сервере). Ответ кэшируется, повторные запросы бесплатны.
+   Поиск НЕ блокируется: юзер сразу видит пустую выдачу с подсказками, через
+   ~1с ИИ тихо применяет понятые фильтры. */
+const _aiqCache = lsLoad(LS.aiq, {});
+let _aiqBusy = false;
+function aiqApply(p, raw) {
+  const f = state.filters;
+  let changed = false;
+  const cat = CATEGORIES.find(c => c.id === p.category);
+  if (cat) {
+    f.cat = cat.id; changed = true;
+    if (p.subcategory && cat.subs.includes(p.subcategory)) f.sub = p.subcategory;
+  }
+  if (+p.priceMax > 0) { f.priceMax = String(Math.round(+p.priceMax)); changed = true; }
+  if (+p.priceMin > 0) { f.priceMin = String(Math.round(+p.priceMin)); changed = true; }
+  if (p.condition === 'new' || p.condition === 'used') { f.condition = p.condition; changed = true; }
+  const at = Object.assign({}, f.attrs || {});
+  if (p.brand) { at.brand = String(p.brand); changed = true; }
+  if (p.model) { at.model = String(p.model); changed = true; }
+  if (+p.batteryMin >= 40 && +p.batteryMin <= 100) { at.batteryMin = String(Math.round(+p.batteryMin)); changed = true; }
+  if (+p.mileageMax > 0) { at.mileageMax = String(Math.round(+p.mileageMax)); changed = true; }
+  if (+p.mileageMin > 0) { at.mileageMin = String(Math.round(+p.mileageMin)); changed = true; }
+  if (+p.yearMin >= 1950 && +p.yearMin <= 2035) { at.yearMin = String(Math.round(+p.yearMin)); changed = true; }
+  if (+p.yearMax >= 1950 && +p.yearMax <= 2035) { at.yearMax = String(Math.round(+p.yearMax)); changed = true; }
+  if (+p.storageGb > 0) { at.storage = String(Math.round(+p.storageGb)); changed = true; }
+  if (+p.ramGb > 0) { at.ram = String(Math.round(+p.ramGb)); changed = true; }
+  if (p.colorRu) { at.color = String(p.colorRu); changed = true; }
+  if (Object.keys(at).length) f.attrs = at;
+  if (p.cleanQuery != null && String(p.cleanQuery).trim()) { f.q = String(p.cleanQuery).trim(); changed = true; }
+  if (!changed) return;
+  state._aiApplied = true;
+  state.page = 1;
+  if (parseHash().path.startsWith('/search')) renderSearch();
+}
+async function maybeAiAssist(f, res) {
+  const raw = (f.qRaw || f.q || '').trim();
+  if (!raw || res.length > 0) return;
+  const a = f.attrs || {};
+  if (f.cat || a.brand || a.model || f._gift) return;   // правила что-то поняли — не тратим API
+  if (typeof smartQueryParse !== 'function' || typeof smartOn !== 'function' || !smartOn()) return;
+  if (!navigator.onLine) return;
+  const key = normText(raw);
+  if (!key || state._aiqAsked === key) return;          // один раз на запрос
+  state._aiqAsked = key;
+  if (_aiqCache[key]) { aiqApply(_aiqCache[key], raw); return; }
+  if (_aiqBusy) return;
+  _aiqBusy = true;
+  try {
+    const p = await smartQueryParse(raw);
+    if (p) {
+      _aiqCache[key] = p;
+      const keys = Object.keys(_aiqCache);
+      if (keys.length > 40) delete _aiqCache[keys[0]]; // кэп кэша
+      lsSave(LS.aiq, _aiqCache);
+      // применяем только если юзер всё ещё на ЭТОМ запросе
+      if (normText((state.filters.qRaw || state.filters.q || '').trim()) === key) aiqApply(p, raw);
+    }
+  } finally { _aiqBusy = false; }
+}
+
 function updateResults() {
   if (!$('#resultsTitle')) return; // вид уже размонтирован (дебаунс-таймер пережил навигацию)
   const f = state.filters;
@@ -1296,7 +1360,9 @@ function updateResults() {
   if (noteBox) {
     const rx = state._searchRelax;
     let html = '';
-    if (rx && res.length) {
+    if (state._aiApplied && res.length) {
+      html = `<div class="search-note">✨ ${t('search.aiUnderstood')}</div>`;
+    } else if (rx && res.length) {
       if (rx === 'similar') {
         html = `<div class="search-note">✨ ${t('search.relaxSimilar')}</div>`;
       } else if (rx === 'category') {
@@ -1307,6 +1373,8 @@ function updateResults() {
     }
     noteBox.innerHTML = html;
   }
+  // ИИ-фолбэк: только когда правила не поняли И пусто (не блокирует, в фоне)
+  maybeAiAssist(f, res);
 
   // Диана отвечает ПРЯМО в выдаче на советующие запросы («ноут для монтажа
   // до 100к») — подборка над списком. Только на первой странице.
@@ -4102,6 +4170,10 @@ function doHeaderSearch() {
   const raw = input.value.trim();
   hideSuggest();
   if (raw) addSearchHistory(raw);
+
+  // новый запрос → сбрасываем состояние ИИ-фолбэка (спросим заново при пустоте)
+  state._aiApplied = false;
+  state._aiqAsked = null;
 
   // NLU: «айфон до 50к бу в бишкеке» → фильтры + остаток в q
   const parsed = parseSearchQuery(raw);

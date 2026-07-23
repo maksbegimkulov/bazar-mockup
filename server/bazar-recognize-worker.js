@@ -33,12 +33,71 @@ export default {
 
     let body;
     try { body = await request.json(); } catch { return json({ error: 'bad json' }, 400); }
-    const image = body && body.image;
-    if (!image) return json({ error: 'no image' }, 400);
 
     // список категорий шлёт сам сайт — так сервер всегда в синхроне с каталогом
     const cats = Array.isArray(body.categories) ? body.categories : [];
     const catList = cats.map(c => `${c.id} (${c.name}): ${(c.subs || []).join(' | ')}`).join('\n');
+
+    // ===== РЕЖИМ «ЗАПРОС → ФИЛЬТРЫ» (ИИ-поиск, гибрид: только сложные запросы) =====
+    if (body.query) {
+      const q = String(body.query).slice(0, 300);
+      const qPrompt = `Ты — парсер поисковых запросов маркетплейса BAZAR (Кыргызстан). Запрос пользователя может быть на русском, кыргызском или английском, со сленгом, опечатками и числами словами. Пойми СМЫСЛ и верни СТРОГО JSON-фильтры.
+
+КАТЕГОРИИ (category = id из списка, subcategory = точное название из списка; не уверен — пустая строка):
+${catList}
+
+ПОЛЯ:
+- brand, model: канонично латиницей (Apple, iPhone 15 Pro, Toyota, Camry, Samsung, Galaxy S24) или "".
+- priceMin, priceMax: бюджет в СОМАХ (тыс=×1000, млн=×1000000, доллары ×88; «не дороже/чейин/арзан=дешёвое» → priceMax), 0 если не задан.
+- batteryMin: мин. % АКБ телефона, 0 если нет. mileageMin, mileageMax: пробег авто в КМ («тыс» ×1000), 0 если нет.
+- yearMin, yearMax: год выпуска («не старше 2018» → yearMin=2018), 0 если нет.
+- storageGb, ramGb: память/ОЗУ в ГБ, 0 если нет.
+- colorRu: цвет ОДНИМ русским словом с заглавной (Чёрный/Белый/Серый/Красный/Синий/Зелёный/Золотистый/Розовый/Фиолетовый/Бежевый/Коричневый/Серебристый) или "".
+- condition: "new"|"used"|"".
+- cleanQuery: суть товара 1-3 словами ПО-РУССКИ для текстового поиска (без бренда, цены, условий; «муздаткыч»→«холодильник») или "".
+
+ГЛАВНОЕ: НЕ выдумывай. Не уверен в поле → "" или 0. Запрос может быть бессмыслицей — тогда всё пустое.
+
+ЗАПРОС: «${q}»`;
+      const qPayload = {
+        contents: [{ parts: [{ text: qPrompt }] }],
+        generationConfig: {
+          temperature: 0,
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: 'OBJECT',
+            properties: {
+              category: { type: 'STRING' }, subcategory: { type: 'STRING' },
+              brand: { type: 'STRING' }, model: { type: 'STRING' },
+              priceMin: { type: 'NUMBER' }, priceMax: { type: 'NUMBER' },
+              batteryMin: { type: 'NUMBER' }, mileageMin: { type: 'NUMBER' }, mileageMax: { type: 'NUMBER' },
+              yearMin: { type: 'NUMBER' }, yearMax: { type: 'NUMBER' },
+              storageGb: { type: 'NUMBER' }, ramGb: { type: 'NUMBER' },
+              colorRu: { type: 'STRING' }, condition: { type: 'STRING' }, cleanQuery: { type: 'STRING' },
+            },
+            required: ['category', 'subcategory', 'brand', 'model', 'priceMin', 'priceMax', 'cleanQuery'],
+          },
+        },
+      };
+      const qUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${env.GEMINI_KEY}`;
+      let qg = null, qStatus = 0;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try { qg = await fetch(qUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(qPayload) }); }
+        catch { qg = null; qStatus = 0; continue; }
+        if (qg.ok) break;
+        qStatus = qg.status;
+        if (qg.status === 500 || qg.status === 503) { qg = null; continue; }
+        break; // 429 — не жжём квоту повторами
+      }
+      if (!qg || !qg.ok) return json({ error: 'gemini ' + (qg ? qg.status : qStatus) }, 502);
+      const qData = await qg.json();
+      const qText = qData?.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!qText) return json({ error: 'empty' }, 502);
+      try { return json(JSON.parse(qText)); } catch { return json({ error: 'bad model json' }, 502); }
+    }
+
+    const image = body && body.image;
+    if (!image) return json({ error: 'no image' }, 400);
 
     const prompt = `Ты — ассистент торговой площадки в Кыргызстане (BAZAR). На фото — товар, который пользователь продаёт. Сгенерируй данные объявления СТРОГО в JSON.
 

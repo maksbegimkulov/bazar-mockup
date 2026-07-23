@@ -110,7 +110,9 @@ async function visionClassify(input) {
    Браузер шлёт только фото → сервер распознаёт → возвращает готовое объявление.
    Работает для ВСЕХ пользователей без ввода ключа. Пусто = выключено (тогда
    используется встроенный on-device движок CLIP, тоже без ключа). */
-const SMART_ENDPOINT = 'https://bazar-recognize.bazar-kg-26106.workers.dev';
+/* ВНИМАНИЕ: поддомен воркера — длинный (глюк clack-инпута при первом деплое),
+   короткий bazar-kg-26106.workers.dev НЕ резолвится (фото молча падало на CLIP) */
+const SMART_ENDPOINT = 'https://bazar-recognize.bazar-kg-26106bazar-kg-26106bazar-kg-26106bazar-kg-26106.workers.dev';
 function smartOn() { return !!SMART_ENDPOINT; }
 
 async function smartRecognize(dataURL) {
@@ -124,6 +126,28 @@ async function smartRecognize(dataURL) {
   if (!resp.ok) throw new Error('smart-http-' + resp.status);
   const data = await resp.json();
   return normalizeSmart(data);
+}
+
+/* ИИ-разбор ПОИСКОВОГО ЗАПРОСА (гибрид, Рычаг 2): зовётся ТОЛЬКО когда
+   встроенные правила ничего не поняли и выдача пуста — не блокирует поиск,
+   работает в фоне. Таймаут 8с, ошибки тихие (правила уже показали что могли). */
+async function smartQueryParse(qRaw) {
+  if (!SMART_ENDPOINT || !qRaw) return null;
+  const categories = CATEGORIES.map(c => ({ id: c.id, name: c.name, subs: c.subs }));
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), 8000);
+  try {
+    const resp = await fetch(SMART_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: String(qRaw).slice(0, 300), categories }),
+      signal: ac.signal,
+    });
+    if (!resp.ok) return null;
+    const p = await resp.json();
+    return (p && !p.error) ? p : null;
+  } catch (e) { return null; }
+  finally { clearTimeout(timer); }
 }
 
 function normalizeSmart(p) {
