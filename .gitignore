@@ -2,3 +2,8 @@
 node_modules/
 server/.wrangler/
 *.log
+
+# локальные артефакты Supabase (тома БД, временное)
+supabase/.branches/
+supabase/.temp/
+tests/node_modules/
