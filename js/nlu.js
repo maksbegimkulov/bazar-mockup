@@ -38,7 +38,9 @@ function phonetic(s) {
     .replace(/sch/g, 'sh').replace(/tz/g, 'c').replace(/ts/g, 'c')
     .replace(/[yj]/g, 'i').replace(/w/g, 'v').replace(/q/g, 'k').replace(/x/g, 'ks')
     .replace(/ee/g, 'i').replace(/oo/g, 'u').replace(/ou/g, 'u')
-    .replace(/(.)\1+/g, '$1');
+    // схлопываем повторы ТОЛЬКО у букв. У цифр — нельзя: иначе «50000» → «50»,
+    // и цена в запросе начинала матчиться как поколение (Camry XV50)
+    .replace(/([^\d])\1+/g, '$1');
   return x;
 }
 
@@ -55,12 +57,12 @@ function _idxAdd(key, payload) {
   if (!ALIAS_INDEX.has(k)) { ALIAS_INDEX.set(k, payload); ALIAS_KEYS.push(k); }
   const glued = k.replace(/\s+/g, '');
   if (glued !== k && !ALIAS_INDEX.has(glued)) { ALIAS_INDEX.set(glued, payload); ALIAS_KEYS.push(glued); }
-  // фонетика только для буквенных ключей: у чисел она схлопывает повторы
-  // («50000» → «50»), и цена в запросе начинала матчиться как поколение
-  if (!/\d/.test(glued)) {
-    const ph = phonetic(glued);
-    if (ph && ph !== glued && !ALIAS_INDEX.has(ph)) { ALIAS_INDEX.set(ph, payload); ALIAS_KEYS.push(ph); }
-  }
+  // фонетика — мост кириллица↔латиница: «айфон 15 про» и «айфон 15 pro»
+  // сводятся к одному ключу «aifon15pro». Строим её для ВСЕХ алиасов, включая
+  // цифровые: phonetic больше не схлопывает повторы у цифр, так что коллизии
+  // цены с поколением («50000»→«50») не будет.
+  const ph = phonetic(glued);
+  if (ph && ph !== glued && !ALIAS_INDEX.has(ph)) { ALIAS_INDEX.set(ph, payload); ALIAS_KEYS.push(ph); }
 }
 
 /* строим один раз при первом обращении — каталоги к этому моменту загружены */
