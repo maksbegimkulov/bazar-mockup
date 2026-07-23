@@ -272,6 +272,26 @@ function aiDecision(res, raw, f) {
 /* Запрос «советующего» типа: с целью (для монтажа/игр/семьи) или оценочными
    словами (лучше/похож/недорого/хорошая камера). На такие Диана отвечает
    подборкой прямо в выдаче — поиск и ИИ становятся одним целым. */
+/* Подсказки ответа для чата: Диана предлагает 1-3 готовых реплики по смыслу
+   последнего сообщения собеседника. Отправляет ВСЕГДА пользователь (ТЗ). */
+function aiReplySuggestions(active) {
+  const last = active && active.messages && active.messages[active.messages.length - 1];
+  if (!last || last.from !== 'them') return [];
+  const s = normText(last.text);
+  const iAmSeller = active.sellerId && typeof currentUser === 'function' && currentUser() && active.sellerId === currentUser().id;
+  const out = [];
+  if (/доступ|продан|в налич|актуальн|ещё есть|еще есть/.test(s)) {
+    out.push(iAmSeller ? t('chats.rAvail') : t('chats.rInterested'));
+  }
+  if (/торг|уступ|скидк|дешевл|подешевл|сбав/.test(s)) out.push(iAmSeller ? t('chats.rBargain') : t('chats.rOffer'));
+  if (/фото|снимк|картинк|покажи/.test(s)) out.push(t('chats.rPhoto'));
+  if (/где|адрес|посмотр|встрет|забрать|заберу|подъех/.test(s)) out.push(t('chats.rWhere'));
+  if (/доставк|привез|отправ|курьер/.test(s)) out.push(t('chats.rDeliv'));
+  if (/здравств|привет|добр(ый|ое)|салам/.test(s) && !out.length) out.push(t('chats.rHi'));
+  if (!out.length) out.push(t('chats.rOk'), t('chats.rMore'));
+  return out.slice(0, 3);
+}
+
 function isAdvisoryQuery(raw, f) {
   if (!raw || !String(raw).trim()) return false;
   const s = normText(raw);
