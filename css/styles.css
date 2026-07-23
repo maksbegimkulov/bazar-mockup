@@ -1554,6 +1554,16 @@ main#app > .chats-layout { animation: none; }
 
 /* «решение, а не список» — выделенные выборы Дианы */
 .ai-picks { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+/* блок «Диана подобрала» — встроен над выдачей поиска (ИИ = часть поиска) */
+.ai-results { border: 1px solid var(--ai); border-radius: var(--radius);
+  background: var(--ai-grad-a); padding: 14px 16px 16px; margin-bottom: 18px; }
+:root[data-theme="dark"] .ai-results { background: var(--card); }
+.ai-results-head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.ai-results-ava { font-size: 20px; }
+.ai-results-title { font-weight: 800; font-size: 15px; color: var(--text); flex: 1; }
+.ai-results-refine { background: none; border: none; color: var(--ai); font-weight: 700; font-size: 13px; cursor: pointer; padding: 4px; }
+.ai-results-picks { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+
 .ai-pick {
   display: block;
   background: var(--card);

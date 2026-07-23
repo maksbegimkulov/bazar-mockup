@@ -269,6 +269,33 @@ function aiDecision(res, raw, f) {
   return picks.length >= 2 ? picks : null;
 }
 
+/* Запрос «советующего» типа: с целью (для монтажа/игр/семьи) или оценочными
+   словами (лучше/похож/недорого/хорошая камера). На такие Диана отвечает
+   подборкой прямо в выдаче — поиск и ИИ становятся одним целым. */
+function isAdvisoryQuery(raw, f) {
+  if (!raw || !String(raw).trim()) return false;
+  const s = normText(raw);
+  if (detectPurpose(raw, f.cat)) return true;
+  return /(?:^| )для |похож|лучш|надёжн|надежн|качествен|посоветуй|что.?нибудь|какой |какую |выбрать|стоит ли|недорог|подешевл|хорош(?:ая|ий|ей|ую) (?:камер|батар|состоян)/.test(s);
+}
+
+/* Блок «Диана подобрала» — встроен НАД выдачей поиска, а не в отдельный чат.
+   Это и есть объединение ИИ и поиска: спросил словами — получил и подборку,
+   и полный список ниже. Пусто, если запрос не советующий или мало данных. */
+function aiResultsBlock(res, raw, f) {
+  if (!isAdvisoryQuery(raw, f)) return '';
+  const picks = (typeof aiDecision === 'function') ? aiDecision(res, raw, f) : null;
+  if (!picks || picks.length < 2) return '';
+  return `<div class="ai-results">
+    <div class="ai-results-head">
+      <span class="ai-results-ava">✨</span>
+      <span class="ai-results-title">${t('ai.resultsTitle')}</span>
+      <button class="ai-results-refine" data-action="ai-refine">${t('ai.refine')} ›</button>
+    </div>
+    <div class="ai-results-picks">${picks.map(aiPickHTML).join('')}</div>
+  </div>`;
+}
+
 function aiSearchReply(raw) {
   const parsed = parseSearchQuery(raw);
   const f = { ...defaultFilters(), city: state.city };
