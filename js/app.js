@@ -134,7 +134,11 @@ function dbToListing(r, names) {
   const { _phone, _specs, ...attrs } = allAttrs;
   return {
     id: r.id, ownerId: r.owner_id, title: r.title,
+    // floor приходит только в СВОИХ строках (после insert .select() по таблице);
+    // из public_listings его нет — там has_floor. Для чужих объявлений торг
+    // считает сервер (rpc_make_offer), точное число клиенту не нужно.
     price: Number(r.price) || 0, floor: Number(r.floor) || 0, priceSuffix: '',
+    hasFloor: r.has_floor != null ? !!r.has_floor : (Number(r.floor) > 0),
     negotiable: !!r.negotiable, category: r.category, subcategory: r.subcategory,
     city: r.city, district: r.district || null, condition: r.condition || null,
     description: r.description || '',
@@ -555,7 +559,7 @@ function cardHTML(l) {
       <button class="fav-btn ${isFav ? 'active' : ''}" data-fav="${l.id}" title="${t('item.fav')}" aria-label="${t('item.fav')}">${HEART_SVG}</button>
     </div>
     <div class="card-body">
-      <div class="card-price">${priceHTML(l)}${l.floor ? `<span class="card-bargain">🤝 ${t('tag.bargain')}</span>` : ''}</div>
+      <div class="card-price">${priceHTML(l)}${(l.floor || l.hasFloor) ? `<span class="card-bargain">🤝 ${t('tag.bargain')}</span>` : ''}</div>
       <div class="card-title">${esc(l.title)}</div>
       ${(() => { const s = attrSubtitle(l.category, l.subcategory, getAttrs(l)); return s ? `<div class="card-attrs">${esc(s)}</div>` : ''; })()}
       <div class="card-meta">${esc(l.city)}${l.district ? ', ' + esc(l.district) : ''} · ${postedLabel(l)}</div>
@@ -1219,7 +1223,7 @@ function renderItem(id) {
       ${verdict ? `<div class="price-verdict ${verdict.cls}" title="${esc(verdict.hint)}">${verdict.label} · ${esc(verdict.hint)}</div>` : ''}
       ${riskHigh ? `<div class="scam-banner"><span class="sb-ico">⚠️</span><div class="sb-text"><b>${t('safety.itemScamT')}</b><span>${t(risk.reasons.includes('otp') ? 'safety.itemOtpP' : 'safety.itemScamP')}</span></div></div>`
         : riskMed ? `<div class="scam-note">⚠️ ${t('safety.itemNoteP')}</div>` : ''}
-      ${l.floor && !isMine ? `<div class="bargain-badge">🤝 ${t('item.bargainOk')}</div>` : ''}
+      ${(l.floor || l.hasFloor) && !isMine ? `<div class="bargain-badge">🤝 ${t('item.bargainOk')}</div>` : ''}
       <div class="buy-meta">${esc(l.city)}${l.district ? ', ' + esc(l.district) : ''} · ${postedLabel(l)} · 👁️ ${fmtNum(l.views)}</div>
       ${isMine && isSold(l) ? `<div class="sold-banner">✅ ${t('status.soldNote')}</div>` : ''}
       <div class="buy-actions">
@@ -1229,7 +1233,7 @@ function renderItem(id) {
           ${l.id.startsWith('m') ? `<button class="btn btn-outline" data-action="bump" data-id="${l.id}">⬆️ ${t('item.bump')}</button>` : ''}
           <button class="btn btn-danger-soft" data-action="delete-my" data-id="${l.id}">${t('item.delete')}</button>
         ` : `
-          ${l.floor ? `<button class="btn btn-bargain btn-lg" data-action="offer-price" data-id="${l.id}">🤝 ${t('item.offerPrice')}</button>` : ''}
+          ${(l.floor || l.hasFloor) ? `<button class="btn btn-bargain btn-lg" data-action="offer-price" data-id="${l.id}">🤝 ${t('item.offerPrice')}</button>` : ''}
           ${l.phone ? `<button class="btn btn-primary btn-lg" data-action="show-phone" data-id="${l.id}">📞 ${t('item.showPhone')}</button>` : ''}
           <button class="btn ${l.phone ? 'btn-secondary' : 'btn-primary'} btn-lg" data-action="write-seller" data-id="${l.id}">💬 ${t('item.write')}</button>
           <button class="btn btn-outline" data-fav="${l.id}">${isFav ? '❤️ ' + t('item.faved') : '🤍 ' + t('item.fav')}</button>
@@ -1352,9 +1356,12 @@ function showPhoneModal(id) {
 
 /* ---------------- «Культурный торг» (авто-переговорщик) ---------------- */
 
+/* облачное объявление? у него UUID-id и торг считает сервер, а не браузер */
+function isCloudListing(l) { return !!(l && typeof l.id === 'string' && l.id.includes('-')); }
+
 function openOfferModal(id) {
   const l = getListing(id);
-  if (!l || !l.floor) return;
+  if (!l || !(l.floor || l.hasFloor)) return;
   state._offerTries = 0;
   openModal(`
     <h3>🤝 ${t('offer.title')}</h3>
@@ -1370,9 +1377,46 @@ function openOfferModal(id) {
   if (inp) inp.addEventListener('keydown', ev => { if (ev.key === 'Enter') { ev.preventDefault(); submitOffer(id); } });
 }
 
+/* Облачный торг: floor лежит на сервере и клиенту не виден. Оценку делает
+   rpc_make_offer — здесь только показываем вердикт. Точное число нигде не
+   светится (встречное сервер отдаёт сам, осознанно, после двух неудач). */
+async function submitOfferCloud(id, l) {
+  const inp = $('#offerInput'); const result = $('#offerResult');
+  if (!inp || !result) return;
+  const offer = Math.round(+inp.value || 0);
+  if (offer <= 0) { result.innerHTML = `<div class="offer-msg offer-warn">${t('offer.enter')}</div>`; return; }
+  if (typeof BZ === 'undefined' || !BZ.available()) {
+    result.innerHTML = `<div class="offer-msg offer-no">${t('offer.rejected')}</div>`; return;
+  }
+  result.innerHTML = `<div class="offer-msg">…</div>`;
+  const r = await BZ.makeOffer(id, offer);
+  if (!r) { result.innerHTML = `<div class="offer-msg offer-warn">${t('offer.enter')}</div>`; return; }
+  if (r.status === 'accepted') {
+    const deal = Math.min(offer, l.price);
+    result.innerHTML = `<div class="offer-msg offer-ok">
+        <div class="offer-ok-head">✅ ${t('offer.accepted')}</div>
+        <div class="offer-deal">${fmtNum(deal)} ${t('som')}</div>
+        <button class="btn btn-primary btn-block btn-lg" data-action="offer-deal" data-id="${id}" data-price="${deal}">💬 ${t('offer.toChat')}</button>
+      </div>`;
+    inp.disabled = true;
+    const b = document.querySelector('#offerActions [data-action="offer-submit"]'); if (b) b.remove();
+  } else if (r.status === 'countered' && r.counter_amount) {
+    result.innerHTML = `<div class="offer-msg offer-warn">${t('offer.rejected')}</div>
+      <div class="offer-counter">
+        <div class="offer-counter-text">${t('offer.counter').replace('{price}', '<b>' + fmtNum(r.counter_amount) + ' ' + t('som') + '</b>')}</div>
+        <button class="btn btn-bargain btn-block" data-action="offer-deal" data-id="${id}" data-price="${r.counter_amount}">🤝 ${t('offer.acceptCounter')}</button>
+      </div>`;
+  } else {
+    const head = r.gap_hint === 'almost' ? t('offer.close') : t('offer.rejected');
+    const cls = r.gap_hint === 'almost' ? 'offer-warn' : 'offer-no';
+    result.innerHTML = `<div class="offer-msg ${cls}">${head}</div>`;
+  }
+}
+
 function submitOffer(id) {
   const l = getListing(id);
-  if (!l || !l.floor) return;
+  if (!l || !(l.floor || l.hasFloor)) return;
+  if (isCloudListing(l)) { submitOfferCloud(id, l); return; }
   const inp = $('#offerInput');
   const result = $('#offerResult');
   if (!inp || !result) return;

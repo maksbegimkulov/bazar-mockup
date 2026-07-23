@@ -143,7 +143,9 @@ async function dbCreateListing(l) {
   if (!sb || !AUTH.user) throw new Error('no-auth');
   const { data, error } = await sb.from('listings').insert({
     owner_id: AUTH.user.id,
-    title: l.title, price: l.price || 0, floor: l.floor || 0,
+    title: l.title, price: l.price || 0,
+    // floor > 0 или NULL: серверный check запрещает 0 (floor>0 and floor<=price)
+    floor: l.floor > 0 ? l.floor : null,
     category: l.category, subcategory: l.subcategory, city: l.city, district: l.district || null,
     condition: l.condition || null, description: l.description || '',
     photos: l.photos || [], negotiable: !!l.negotiable, attrs: l.attrs || {},
@@ -158,7 +160,7 @@ async function dbUpdateListing(id, p) {
   if (!sb || !AUTH.user) throw new Error('no-auth');
   const { data, error } = await sb.from('listings')
     .update({
-      title: p.title, price: p.price || 0, floor: p.floor || 0,
+      title: p.title, price: p.price || 0, floor: p.floor > 0 ? p.floor : null,
       category: p.category, subcategory: p.subcategory, city: p.city,
       district: p.district || null, condition: p.condition || null,
       description: p.description || '', photos: p.photos || [],
@@ -172,7 +174,11 @@ async function dbUpdateListing(id, p) {
 
 async function dbAllListings() {
   if (!sb) return [];
-  const { data, error } = await sb.from('listings').select('*').order('created_at', { ascending: false }).limit(300);
+  // ЧЕРЕЗ ВЬЮ public_listings, а не listings напрямую: новый RLS отдаёт из
+  // таблицы только свои строки, и гость увидел бы ноль. Вью показывает всем
+  // активные непросроченные объявления и не содержит колонку floor.
+  const { data, error } = await sb.from('public_listings').select('*')
+    .order('bumped_at', { ascending: false }).limit(300);
   return error ? [] : data;
 }
 
