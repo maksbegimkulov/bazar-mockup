@@ -836,13 +836,15 @@ function parseSearchQuery(raw) {
           if (CAT_INTENT[w] || CAT_INTENT[stemLite(w)] || QUERY_ALIASES[w]) continue;
           const fz = fuzzyBrandMatch(w);
           if (!fz || !fz.brand) continue;
-          // категория известна → бренд принимаем при совпадении категории;
-          // категория НЕизвестна → нужен общий префикс ≥3 И (популярный бренд ИЛИ
-          // длинное слово ≥5): иначе редкая модель ловит обычное короткое слово
-          // («кедр»↔«кеди»=VW Caddy делят «кед», но Caddy не популярна → отказ).
+          // ВСЕГДА нужен общий префикс ≥3 с ближайшим алиасом — иначе обычное слово
+          // ловит редкую модель той же категории («семьи»→Forester «сееьи»,
+          // «полный»→Bestune Pony «поный» — префикс лишь 2, отказ).
+          // Категория известна → плюс совпадение категории; неизвестна → плюс
+          // популярный бренд ИЛИ длинное слово ≥5 (иначе «кедр»↔«кеди»=VW Caddy).
+          if (cpLen(w, fz._cand || '') < 3) continue;
           const ok = filters.cat
             ? filters.cat === fz.cat
-            : (cpLen(w, fz._cand || '') >= 3 && (fz.pop || w.length >= 5));
+            : (fz.pop || w.length >= 5);
           if (!ok) continue;
           if (!filters.cat && fz.cat) { filters.cat = fz.cat; if (fz.sub) filters.sub = fz.sub; }
           const at = Object.assign({}, filters.attrs || {});
@@ -930,8 +932,13 @@ function aliasFor(w) {
     }
   }
   // fuzzy-опечатки только для слов ≥5 с совпадающей первой буквой — иначе
-  // короткие обычные слова прилипают к брендам («пони»→sony, «маки»→max)
-  if (w.length >= 5 && /^[а-я]+$/.test(w)) {
+  // короткие обычные слова прилипают к брендам («пони»→sony, «маки»→max).
+  // И НЕ фаззим слова, которые сами есть в каталоге брендов/моделей: иначе
+  // «магик» (Honor Magic) прилипал к slang-алиасу «маник»→маникюр.
+  // ≥6 букв: 5-буквенные слишком часто ложно прилипают («магик»→«маник»→маникюр,
+  // Honor Magic). Плюс не фаззим слова, которые сами есть в каталоге.
+  if (w.length >= 6 && /^[а-я]+$/.test(w)
+      && !(typeof ALIAS_INDEX !== 'undefined' && ALIAS_INDEX.has(w))) {
     for (const k in QUERY_ALIASES) {
       if (k.length >= 5 && k[0] === w[0] && fuzzyEq(w, k)) return QUERY_ALIASES[k];
     }
