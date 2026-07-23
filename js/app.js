@@ -3615,6 +3615,93 @@ function addSearchHistory(qRaw) {
   lsSave(LS.hist, h.slice(0, 6));
 }
 
+/* ---------------- голосовой поиск ---------------- */
+function setupVoiceSearch() {
+  const btn = $('#voiceBtn');
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!btn || !SR) return; // не поддерживается браузером — кнопка остаётся скрытой
+  btn.hidden = false;
+  let rec = null, active = false;
+  btn.addEventListener('click', () => {
+    if (active && rec) { rec.stop(); return; }
+    const input = $('#searchInput');
+    rec = new SR();
+    rec.lang = LANG === 'ky' ? 'ky-KG' : LANG === 'en' ? 'en-US' : 'ru-RU';
+    rec.interimResults = true;
+    rec.maxAlternatives = 1;
+    const close = () => { active = false; btn.classList.remove('listening'); closeVoiceOverlay(); };
+    rec.onresult = (e) => {
+      let txt = ''; for (const r of e.results) txt += r[0].transcript;
+      voiceOverlayText(txt); input.value = txt;
+    };
+    rec.onerror = () => { close(); };
+    rec.onend = () => {
+      close();
+      // ТЗ: показываем распознанное ПЕРЕД отправкой — не шлём сами, даём проверить
+      if (input.value.trim()) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
+    };
+    active = true; btn.classList.add('listening');
+    openVoiceOverlay(() => { if (rec) rec.stop(); });
+    try { rec.start(); } catch (e) { close(); }
+  });
+}
+function openVoiceOverlay(onStop) {
+  closeVoiceOverlay();
+  const el = document.createElement('div');
+  el.id = 'voiceOverlay';
+  el.innerHTML = `<div class="voice-card">
+    <div class="voice-pulse">🎤</div>
+    <div class="voice-hint">${t('voice.listening')}</div>
+    <div class="voice-transcript" id="voiceTranscript"></div>
+    <button class="btn btn-outline btn-sm" id="voiceStop">${t('voice.stop')}</button>
+  </div>`;
+  el.addEventListener('click', ev => { if (ev.target === el) onStop && onStop(); });
+  document.body.appendChild(el);
+  el.querySelector('#voiceStop').addEventListener('click', () => onStop && onStop());
+}
+function voiceOverlayText(txt) { const t2 = document.getElementById('voiceTranscript'); if (t2) t2.textContent = txt; }
+function closeVoiceOverlay() { const el = document.getElementById('voiceOverlay'); if (el) el.remove(); }
+
+/* ---------------- поиск по фото ---------------- */
+function setupPhotoSearch() {
+  const btn = $('#photoSearchBtn'), file = $('#photoSearchFile');
+  if (!btn || !file) return;
+  btn.addEventListener('click', () => file.click());
+  file.addEventListener('change', async () => {
+    const f = file.files && file.files[0];
+    file.value = '';
+    if (!f) return;
+    if (typeof visionFileToDataURL !== 'function') { showToast(t('search.photoFail')); return; }
+    showToast(t('search.photoAnalyzing'), 'info');
+    try {
+      const det = await photoToQuery(f);
+      if (det && det.query) {
+        $('#searchInput').value = det.query;
+        doHeaderSearch();
+      } else showToast(t('search.photoFail'));
+    } catch (e) { showToast(t('search.photoFail')); }
+  });
+}
+/* фото → поисковый запрос: сначала точный сервер (бренд/модель), потом CLIP */
+async function photoToQuery(file) {
+  const dataURL = await visionFileToDataURL(file, 1024, 0.8);
+  if (typeof smartOn === 'function' && smartOn() && typeof smartRecognize === 'function') {
+    try {
+      const s = await smartRecognize(dataURL);
+      const n = (typeof normalizeSmart === 'function') ? normalizeSmart(s) : (s || {});
+      const q = [n.brand, n.model].filter(Boolean).join(' ') || n.title || n.noun;
+      if (q) return { query: q };
+    } catch (e) { /* сервер недоступен — падаем на CLIP */ }
+  }
+  if (typeof visionClassify === 'function') {
+    const c = await visionClassify(dataURL);
+    const q = c.noun || c.label;
+    if (q && !c.uncertain) return { query: q };
+    if (q) return { query: q };
+  }
+  return null;
+}
+
 function doHeaderSearch() {
   const input = $('#searchInput');
   input.blur(); // iOS не убирает клавиатуру сам
@@ -4431,6 +4518,8 @@ $('#searchInput').addEventListener('input', () => {
 });
 $('#searchInput').addEventListener('focus', showSuggest); // пустое поле → история + популярное
 $('#searchGo').addEventListener('click', doHeaderSearch);
+setupVoiceSearch();
+setupPhotoSearch();
 $('#cityBtn').addEventListener('click', openCityModal);
 $('#langBtn').addEventListener('click', openLangModal);
 $('#themeBtn').addEventListener('click', cycleTheme);
