@@ -222,7 +222,7 @@ async function loadCloudData() {
         const last = messages[messages.length - 1];
         fresh[c.id] = {
           itemId: c.listing_ref, chatId: c.id, isDb: true,
-          sellerId: c.seller_id, buyerId: c.buyer_id, otherName: names[otherId] || t('seller.anon'),
+          sellerId: c.seller_id, buyerId: c.buyer_id, otherName: (profs[otherId] && profs[otherId].name) || t('seller.anon'),
           title: c.listing_title,
           messages,
           // непрочитано = последнее сообщение от собеседника новее моей отметки прочтения
@@ -232,6 +232,10 @@ async function loadCloudData() {
       }
       for (const k of Object.keys(state.chats)) if (state.chats[k].isDb && !fresh[k]) delete state.chats[k];
       Object.assign(state.chats, fresh);
+
+      // синк избранного/сохранённых поисков (переживают смену устройства)
+      await syncFavoritesFromCloud();
+      await syncSavedFromCloud();
     }
     updateBadges();
     // точечный рефреш: открытый чат НЕ ререндерим (сотрёт набранный текст) — только
@@ -240,6 +244,54 @@ async function loadCloudData() {
     if (p === '/' || p === '' || p.startsWith('/search') || p.startsWith('/profile') || p === '/chats') router();
     else if (p.startsWith('/chats/')) syncOpenChat(decodeURIComponent(p.slice(7)));
   } catch (e) { /* офлайн/ошибка — оставляем что есть */ }
+}
+
+/* Избранное: облако ↔ локально (мерж, не перезапись). Синкаются только
+   облачные объявления (uuid id) — у демо id не-uuid, FK к listings не пустит. */
+async function syncFavoritesFromCloud() {
+  if (typeof BZ === 'undefined' || !BZ.available()) return;
+  const cloud = await BZ.favorites.list();
+  if (!Array.isArray(cloud)) return;
+  const cloudIds = new Set(cloud.map(f => f.listing_id));
+  let changed = false;
+  for (const f of cloud) {
+    if (!state.favorites.has(f.listing_id)) {
+      state.favorites.add(f.listing_id);
+      if (f.price_at_add != null && !state.favMeta[f.listing_id]) {
+        state.favMeta[f.listing_id] = { price: Number(f.price_at_add) || 0, ts: Date.now() };
+      }
+      changed = true;
+    }
+  }
+  // локальные облачные избранные, которых нет в облаке (добавляли до входа) → вверх
+  for (const id of state.favorites) {
+    if (typeof id === 'string' && id.includes('-') && !cloudIds.has(id)) {
+      const l = getListing(id);
+      BZ.favorites.add(id, l ? l.price : null, null, null);
+    }
+  }
+  if (changed) { lsSave(LS.favs, [...state.favorites]); lsSave(LS.favMeta, state.favMeta); updateBadges(); }
+}
+
+/* Сохранённые поиски: облако ↔ локально по имени. */
+async function syncSavedFromCloud() {
+  if (typeof BZ === 'undefined' || !BZ.available()) return;
+  const cloud = await BZ.savedSearches.list();
+  if (!Array.isArray(cloud)) return;
+  const localNames = new Set(state.saved.map(s => s.name));
+  let changed = false;
+  for (const c of cloud) {
+    if (!localNames.has(c.name)) {
+      state.saved.unshift({ id: c.id, name: c.name, f: c.query || {}, seen: 0, seenIds: [],
+        ts: Date.now(), cloud: true, notify: c.notify !== false });
+      changed = true;
+    }
+  }
+  const cloudNames = new Set(cloud.map(c => c.name));
+  for (const s of state.saved) {
+    if (!cloudNames.has(s.name)) BZ.savedSearches.add(s.name, s.f, s.notify !== false);
+  }
+  if (changed) { state.saved = state.saved.slice(0, 30); lsSave(LS.saved, state.saved); }
 }
 
 /* мягкая синхронизация открытого диалога: дорисовать новые сообщения без ререндера */
@@ -392,9 +444,13 @@ function saveCurrentSearch() {
   if (state.saved.some(s => JSON.stringify(s.f) === JSON.stringify(f))) { showToast(t('saved.dup')); return false; }
   const name = searchTitle(f).replace(/<[^>]*>/g, '');
   const ids = applyFilters(f).map(l => l.id).slice(0, 3000); // снапшот увиденных id
-  state.saved.unshift({ id: 's' + Date.now(), name, f: JSON.parse(JSON.stringify(f)), seen: ids.length, seenIds: ids, ts: Date.now() });
+  state.saved.unshift({ id: 's' + Date.now(), name, f: JSON.parse(JSON.stringify(f)), seen: ids.length, seenIds: ids, ts: Date.now(), notify: true });
   state.saved = state.saved.slice(0, 30);
   lsSave(LS.saved, state.saved);
+  // залогинен → в облако (уведомления о новых объявлениях приходят с сервера)
+  if (typeof BZ !== 'undefined' && BZ.available() && typeof isAuthed === 'function' && isAuthed()) {
+    BZ.savedSearches.add(name, f, true);
+  }
   return true;
 }
 function savedNewCount(s) {
@@ -405,7 +461,13 @@ function savedNewCount(s) {
   }
   return Math.max(0, applyFilters(s.f).length - (s.seen || 0)); // старые записи
 }
-function removeSaved(id) { state.saved = state.saved.filter(s => s.id !== id); lsSave(LS.saved, state.saved); }
+function removeSaved(id) {
+  const s = state.saved.find(x => x.id === id);
+  state.saved = state.saved.filter(x => x.id !== id);
+  lsSave(LS.saved, state.saved);
+  // облачную запись убираем и на сервере (id из БД — uuid)
+  if (s && s.cloud && typeof BZ !== 'undefined' && BZ.available()) BZ.savedSearches.remove(id);
+}
 function openSavedSearch(id) {
   const s = state.saved.find(x => x.id === id);
   if (!s) return;
@@ -1554,16 +1616,23 @@ function offerToChat(id, price) {
 /* ---------------- избранное ---------------- */
 
 function toggleFav(id) {
+  const l = getListing(id);
+  // облачное объявление + залогинен → зеркалим в облако (переживёт смену
+  // устройства). Демо-объявления (не-uuid id) FK к listings не пустит — они
+  // остаются локально, что для демо-каталога и правильно.
+  const toCloud = l && isCloudListing(l) && typeof BZ !== 'undefined' && BZ.available()
+    && typeof isAuthed === 'function' && isAuthed();
   if (state.favorites.has(id)) {
     state.favorites.delete(id);
+    if (toCloud) BZ.favorites.remove(id);
     showToast(t('toast.favDel'));
   } else {
     state.favorites.add(id);
     // запоминаем цену на момент добавления — потом покажем, подешевело или нет
-    const l = getListing(id);
     state.favMeta[id] = { ...(state.favMeta[id] || {}), price: l ? l.price : 0,
       title: l ? l.title : '', ts: Date.now() };
     lsSave(LS.favMeta, state.favMeta);
+    if (toCloud) BZ.favorites.add(id, l.price, null, null);
     showToast(t('toast.favAdd'), 'success');
   }
   lsSave(LS.favs, [...state.favorites]);
