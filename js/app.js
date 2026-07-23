@@ -426,6 +426,72 @@ function sellerStats(l) {
   };
 }
 
+/* Риск-скоринг доверия продавца (антифрод, виден покупателю).
+   Агрегирует сигналы: верификация, отзывы/рейтинг, возраст аккаунта, число и
+   качество объявлений, СКАМ-признаки в текстах (assessTextRisk) и жалобы.
+   Возвращает уровень + короткие «за»/«против» для честного объяснения. */
+const _RISK_RANK = { none: 0, low: 1, med: 2, high: 3, critical: 4 };
+function sellerTrust(listings, ss, sample) {
+  let score = 40;
+  const pros = [], cons = [];
+  const nowY = new Date().getFullYear();
+  const age = Math.max(0, nowY - (sample.sellerSinceYear || nowY));
+  const active = listings.filter(l => !isSold(l));
+
+  if (ss.verified) { score += 20; pros.push(t('trust.pVerified')); }
+  if (ss.reviews >= 10 && +ss.rating >= 4.5) { score += 18; pros.push(t('trust.pRated')); }
+  else if (ss.reviews >= 3) { score += 8; pros.push(t('trust.pReviews')); }
+  if (age >= 3) { score += 15; pros.push(t('trust.pEstablished')); }
+  else if (age >= 1) { score += 6; }
+  if (active.length >= 5) { score += 8; pros.push(t('trust.pManyAds')); }
+
+  const withPhoto = active.filter(l => getPhotos(l).length).length;
+  if (active.length && withPhoto === active.length) { score += 8; pros.push(t('trust.pPhotos')); }
+  else if (active.length && withPhoto / active.length < 0.5) { score -= 6; cons.push(t('trust.cPhotos')); }
+
+  // скам-признаки в ЛЮБОМ объявлении продавца — серьёзный минус
+  let worst = 'none';
+  for (const l of listings) {
+    const r = assessTextRisk((l.title || '') + ' ' + (l.description || ''));
+    if (_RISK_RANK[r.level] > _RISK_RANK[worst]) worst = r.level;
+  }
+  if (worst === 'critical' || worst === 'high') { score -= 45; cons.push(t('trust.cScam')); }
+  else if (worst === 'med') { score -= 20; cons.push(t('trust.cScamMed')); }
+
+  const reported = listings.filter(l => state.reported.has(l.id)).length;
+  if (reported) { score -= 15 * reported; cons.push(t('trust.cReported')); }
+
+  if (ss.isNew && listings.length <= 1) cons.push(t('trust.cNew'));
+
+  score = Math.max(0, Math.min(100, score));
+  const level = (worst === 'critical' || worst === 'high') ? 'caution'
+    : score >= 70 ? 'high'
+    : (ss.isNew && listings.length <= 1) ? 'new'
+    : score >= 45 ? 'ok' : 'low';
+  return { score, level, pros: pros.slice(0, 3), cons: cons.slice(0, 3) };
+}
+
+/* карточка доверия для страницы продавца */
+function sellerTrustHTML(tr) {
+  const meta = {
+    high: { icon: '🛡', cls: 'trust-high', label: t('trust.high') },
+    ok: { icon: '👍', cls: 'trust-ok', label: t('trust.ok') },
+    new: { icon: '🆕', cls: 'trust-new', label: t('trust.newSeller') },
+    low: { icon: 'ℹ️', cls: 'trust-low', label: t('trust.low') },
+    caution: { icon: '⚠️', cls: 'trust-caution', label: t('trust.caution') },
+  }[tr.level];
+  const chip = (txt, ok) => `<span class="trust-chip ${ok ? 'good' : 'bad'}">${ok ? '✓' : '!'} ${esc(txt)}</span>`;
+  const chips = [...tr.pros.map(p => chip(p, true)), ...tr.cons.map(c => chip(c, false))].join('');
+  return `
+    <div class="trust-card ${meta.cls}">
+      <div class="trust-head"><span class="trust-icon">${meta.icon}</span>
+        <div><div class="trust-label">${meta.label}</div>
+        <div class="trust-score">${t('trust.score')}: ${tr.score}/100</div></div></div>
+      ${chips ? `<div class="trust-chips">${chips}</div>` : ''}
+      ${tr.level === 'caution' || tr.level === 'new' ? `<div class="trust-note">${t('trust.tip')}</div>` : ''}
+    </div>`;
+}
+
 /* объявление продано/в архиве? (исключаем из поиска/ленты) */
 function isSold(l) { return l && (l.status === 'sold' || l.status === 'archived' || state.soldIds.has(l.id)); }
 function listingStatus(l) { return l.status || (state.soldIds.has(l.id) ? 'sold' : 'active'); }
@@ -3106,6 +3172,7 @@ function renderSeller(rawKey) {
         <div class="seller-hero-stats"><span><b>${active.length}</b> ${t('seller.activeAds')}</span>${ss.verified ? `<span class="ok">✓ ${t('seller.verifiedHint')}</span>` : ''}</div>
       </div>
     </div>
+    ${sellerTrustHTML(sellerTrust(listings, ss, sample))}
     <div class="section-title"><h2>${t('seller.allAds')} <span class="muted">${active.length}</span></h2></div>
     ${active.length ? `<div class="grid">${active.map(cardHTML).join('')}</div>` : emptyHTML('📭', t('seller.noListings'), '')}`;
 }
