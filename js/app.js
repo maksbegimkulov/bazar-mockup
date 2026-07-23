@@ -1071,6 +1071,7 @@ function renderSearch() {
             <option value="popular">${t('sort.popular')}</option>
           </select>
           <button class="save-search-btn ${state.saved.some(s => JSON.stringify(s.f) === JSON.stringify(state.filters)) ? 'on' : ''}" id="saveSearchBtn" data-action="save-search">🔔 ${state.saved.some(s => JSON.stringify(s.f) === JSON.stringify(state.filters)) ? t('saved.savedShort') : t('saved.save')}</button>
+          <a class="map-open-btn" href="${buildMapHash(state.filters)}" data-link title="${t('map.open')}">🗺 ${t('map.open')}</a>
           <div class="view-toggle">
             <button data-view="grid" title="${t('view.grid')}" aria-label="${t('view.grid')}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></button>
             <button data-view="list" title="${t('view.list')}" aria-label="${t('view.list')}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
@@ -3101,6 +3102,66 @@ function cmpBestIdx(key, nums) {
   return valid[0][1];
 }
 
+/* ---------------- карта объявлений ---------------- */
+function renderMap() {
+  const p = parseHash().params;
+  // на карту можно прийти с уточнением из поиска («показать это на карте»)
+  const f = defaultFilters();
+  f.city = 'all'; // карта показывает ВСЕ города — город выбирается на самой карте
+  if (p.get('cat')) f.cat = p.get('cat');
+  if (p.get('sub')) f.sub = p.get('sub');
+  if (p.get('q')) { f.q = p.get('q'); f.qRaw = p.get('q'); }
+  const scoped = !!(f.cat || f.sub || f.q);
+  const base = scoped
+    ? applyFilters(f)
+    : allListings().filter(l => !isSold(l) && !state.reported.has(l.id));
+
+  const stats = cityStats(base);
+  const total = stats.reduce((n, s) => n + s.count, 0);
+  const sel = (state._mapCity && stats.some(s => s.city === state._mapCity)) ? state._mapCity : null;
+
+  const regions = stats.map(s => `
+    <button class="map-region ${s.city === sel ? 'on' : ''}" data-action="map-city" data-mapcity="${esc(s.city)}">
+      <span class="map-region-city">${esc(s.city)}</span>
+      <span class="map-region-count">${nLabel(s.count)}</span>
+      <span class="map-region-price">${s.avg ? '~' + fmtNum(s.avg) + ' ' + t('som') : '—'}</span>
+    </button>`).join('');
+
+  let selBlock = '';
+  if (sel) {
+    const st = stats.find(s => s.city === sel);
+    const items = base.filter(l => l.city === sel).slice(0, 24);
+    selBlock = `
+      <div class="map-selected" id="mapSelected">
+        <div class="map-sel-head">
+          <div>
+            <h2>📍 ${esc(sel)}</h2>
+            <div class="map-sel-sub">${nLabel(st.count)} · ${t('map.avg')}: ${st.avg ? '~' + fmtNum(st.avg) + ' ' + t('som') : '—'}${st.min ? ` · ${t('map.from')} ${fmtNum(st.min)} ${t('som')}` : ''}</div>
+          </div>
+          <a class="btn btn-primary" href="${buildSearchHash({ ...f, city: sel })}" data-link>${t('map.inArea')}</a>
+        </div>
+        <div class="grid">${items.map(cardHTML).join('')}</div>
+      </div>`;
+  }
+
+  app.innerHTML = `
+    <div class="page-head">
+      <h1>${t('map.title')}</h1>
+      <span class="results-count">${nLabel(total)}</span>
+    </div>
+    <div class="map-page">
+      <div class="map-canvas">
+        ${kgClusterMapSVG(stats, sel)}
+        <div class="map-hint">${sel ? t('map.hintSel') : t('map.hint')}</div>
+      </div>
+      <aside class="map-regions">
+        <div class="map-regions-h">${t('map.regions')}</div>
+        <div class="map-regions-list">${regions || `<div class="map-empty">${t('map.none')}</div>`}</div>
+      </aside>
+    </div>
+    ${selBlock}`;
+}
+
 function renderCompare() {
   const items = [...state.compare].map(getListing).filter(Boolean).filter(l => !state.reported.has(l.id));
   if (items.length < 1) { app.innerHTML = `<div class="form-page">${emptyHTML('⚖️', t('cmp.empty'), t('cmp.emptyP'), `<a class="btn btn-primary" href="#/search" data-link>${t('cmp.browse')}</a>`)}</div>`; return; }
@@ -4056,6 +4117,17 @@ function buildSearchHash(f) {
   return '#/search' + (qs ? '?' + qs : '?reset=1');
 }
 
+/* фильтры → hash карты: несём только категорию/подкатегорию/запрос (город
+   выбирается на самой карте, цена/состояние там не нужны) */
+function buildMapHash(f) {
+  const p = new URLSearchParams();
+  if (f.cat) p.set('cat', f.cat);
+  if (f.sub) p.set('sub', f.sub);
+  if (f.q && f.q.trim()) p.set('q', f.q.trim());
+  const qs = p.toString();
+  return '#/map' + (qs ? '?' + qs : '');
+}
+
 function updateNav(path) {
   let key = 'home';
   if (path.startsWith('/favorites')) key = 'favorites';
@@ -4201,6 +4273,8 @@ function router() {
     renderSeller(path.slice('/seller/'.length));
   } else if (path.startsWith('/compare')) {
     renderCompare();
+  } else if (path.startsWith('/map')) {
+    renderMap();
   } else if (path.startsWith('/favorites')) {
     renderFavorites();
   } else if (path.startsWith('/sell')) {
@@ -4414,6 +4488,18 @@ document.addEventListener('click', async e => {
         // «Искать всё по запросу» из подсказок — просто запускаем умный поиск
         hideSuggest();
         doHeaderSearch();
+        break;
+      }
+      case 'map-city': {
+        // клик по городу на карте / в списке регионов — выбрать/снять
+        // (атрибут data-mapcity, НЕ data-city — тот перехватывает обработчик модалки города)
+        const city = actBtn.dataset.mapcity;
+        state._mapCity = (state._mapCity === city) ? null : city;
+        renderMap();
+        if (state._mapCity) {
+          const sb = document.getElementById('mapSelected');
+          if (sb) sb.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
         break;
       }
       case 'focus-search': {
