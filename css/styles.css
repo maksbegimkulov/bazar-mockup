@@ -923,6 +923,12 @@ main#app > .chats-layout { animation: none; }
 .seller-rating { color: var(--vip-text); font-weight: 700; }
 .seller-new { color: var(--accent); font-weight: 700; }
 .promoted { color: var(--vip-text); font-weight: 600; }
+.search-note { background: var(--accent-soft); color: var(--text); border: 1px solid var(--accent);
+  border-radius: var(--radius-s); padding: 10px 14px; font-size: 13.5px; margin-bottom: 14px; }
+.few-results { margin: 20px 0 8px; padding: 18px; border: 1px dashed var(--line-2); border-radius: var(--radius);
+  background: var(--card); display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+.few-results-head { font-weight: 700; font-size: 15px; }
+.few-results .btn { width: auto; }
 .seller-rating .star { color: var(--vip); }
 
 .safety-note {
