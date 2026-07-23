@@ -54,7 +54,7 @@ function defaultFilters() {
     city: state.city,
     condition: 'any', sellerType: 'any',
     withPhoto: false, delivery: false,
-    period: 'all', sort: 'date',
+    period: 'all', sort: 'smart', // умная выдача по умолчанию (релевантность+качество)
     attrs: {}, // фильтры по характеристикам (бренд/модель/год/спеки)
   };
 }
@@ -602,20 +602,51 @@ function applyFilters(f) {
     expensive: (a, b) => b.price - a.price,
     popular: (a, b) => b.views - a.views,
   };
-  const base = sorts[f.sort] || sorts.date;
-
   if (f._skipSort) return res; // подсчёт значений фильтра сортировка не нужна
-  if (qTokens) {
-    // релевантность первична при сортировке «по дате», вторична при явной сортировке
-    if (f.sort === 'date') res.sort((a, b) => (scores.get(b.id) - scores.get(a.id)) || sorts.date(a, b));
-    else res.sort((a, b) => base(a, b) || (scores.get(b.id) - scores.get(a.id)));
-  } else {
-    res.sort(base);
-    if (f.sort === 'date') {
-      res = [...res.filter(l => l.isVip), ...res.filter(l => !l.isVip)];
-    }
+
+  // Явные сортировки (дешевле/дороже/популярные/новые) — ЧИСТЫЕ: VIP в них не
+  // прыгает (раньше при «по дате» все VIP всплывали наверх — нарушение ТЗ
+  // «VIP не выше идеально подходящего обычного»). Реклама влияет только на
+  // умную выдачу и лишь как ОГРАНИЧЕННЫЙ буст среди сопоставимых.
+  if (f.sort === 'cheap') { res.sort(sorts.cheap); return res; }
+  if (f.sort === 'expensive') { res.sort(sorts.expensive); return res; }
+  if (f.sort === 'popular') { res.sort(sorts.popular); return res; }
+  if (f.sort === 'date') {
+    if (qTokens) res.sort((a, b) => (scores.get(b.id) - scores.get(a.id)) || sorts.date(a, b));
+    else res.sort(sorts.date);
+    return res;
   }
+
+  // 'smart' (по умолчанию): композит релевантность + качество + свежесть, а
+  // VIP получает лишь небольшой ограниченный буст — он поднимает объявление
+  // СРЕДИ сопоставимых, но не выше заметно лучше подходящего обычного.
+  let maxScore = 1;
+  if (qTokens) for (const l of res) maxScore = Math.max(maxScore, scores.get(l.id) || 0);
+  const smart = l => {
+    const rel = qTokens ? (scores.get(l.id) || 0) / maxScore : 0.5;
+    return rel * 0.55 + listingQuality(l) * 0.40 + (l.isVip ? 0.06 : 0);
+  };
+  res.sort((a, b) => (smart(b) - smart(a)) || sorts.date(a, b));
   return res;
+}
+
+/* Композитное качество объявления (0..1): полнота фото/описания/характеристик,
+   надёжность продавца, свежесть, доставка. Кормит умную выдачу и подсказки
+   продавцу «что улучшить». */
+function listingQuality(l) {
+  let q = 0;
+  const photos = (l.userPhotos && l.userPhotos.length) || l.photoCount || 0;
+  q += Math.min(photos, 3) / 3 * 0.25;                       // фото
+  q += Math.min((l.description || '').length, 200) / 200 * 0.15; // описание
+  const attrN = l.attrs ? Object.keys(l.attrs).filter(k => l.attrs[k]).length : 0;
+  q += Math.min(attrN, 5) / 5 * 0.20;                        // характеристики
+  if (l.sellerReal) q += l.sellerReviews ? Math.min((Number(l.sellerRating) || 0) / 5, 1) * 0.15 : 0.03;
+  else q += (Number(sellerStats(l).rating) || 0) / 5 * 0.15; // продавец
+  const h = hoursAgo(l);
+  q += h < 24 ? 0.15 : h < 168 ? 0.10 : h < 720 ? 0.05 : 0;  // свежесть
+  if (l.hasDelivery) q += 0.05;                              // доставка
+  if (state.reported.has(l.id)) q -= 0.30;                   // жалобы
+  return Math.max(0, Math.min(1, q));
 }
 
 function activeFilterCount(f) {
@@ -663,7 +694,7 @@ function cardHTML(l) {
       <div class="card-price">${priceHTML(l)}${(l.floor || l.hasFloor) ? `<span class="card-bargain">🤝 ${t('tag.bargain')}</span>` : ''}</div>
       <div class="card-title">${esc(l.title)}</div>
       ${(() => { const s = attrSubtitle(l.category, l.subcategory, getAttrs(l)); return s ? `<div class="card-attrs">${esc(s)}</div>` : ''; })()}
-      <div class="card-meta">${esc(l.city)}${l.district ? ', ' + esc(l.district) : ''} · ${postedLabel(l)}</div>
+      <div class="card-meta">${esc(l.city)}${l.district ? ', ' + esc(l.district) : ''} · ${postedLabel(l)}${l.isVip ? ` · <span class="promoted">${t('card.promoted')}</span>` : ''}</div>
     </div>
   </a>`;
 }
@@ -1022,6 +1053,7 @@ function renderSearch() {
             ${t('filters.title')} <span class="fcount" id="filtersCountBadge" hidden></span>
           </button>
           <select class="sort-select" id="sortSel">
+            <option value="smart">${t('sort.smart')}</option>
             <option value="date">${t('sort.new')}</option>
             <option value="cheap">${t('sort.cheap')}</option>
             <option value="expensive">${t('sort.exp')}</option>

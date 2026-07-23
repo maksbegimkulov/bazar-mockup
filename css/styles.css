@@ -922,6 +922,7 @@ main#app > .chats-layout { animation: none; }
 .seller-sub { color: var(--text-3); font-size: 12.5px; margin-top: 3px; }
 .seller-rating { color: var(--vip-text); font-weight: 700; }
 .seller-new { color: var(--accent); font-weight: 700; }
+.promoted { color: var(--vip-text); font-weight: 600; }
 .seller-rating .star { color: var(--vip); }
 
 .safety-note {
