@@ -3072,27 +3072,76 @@ function renderSeller(rawKey) {
 }
 
 /* ---- сравнение (как у Auto.ru): таблица характеристик бок о бок ---- */
+/* индекс «лучшего» значения строки, где есть объективно лучшее направление:
+   цена/пробег — меньше лучше; год/АКБ/память/рейтинг — больше лучше */
+const CMP_BEST_DIR = { price: -1, mileage: -1, year: 1, battery: 1, storage: 1, ram: 1, rating: 1 };
+function cmpBestIdx(key, nums) {
+  const dir = CMP_BEST_DIR[key];
+  if (!dir) return -1;
+  const valid = nums.map((n, i) => [n, i]).filter(([n]) => n != null && !isNaN(n));
+  if (valid.length < 2) return -1;
+  valid.sort((a, b) => dir > 0 ? b[0] - a[0] : a[0] - b[0]);
+  if (valid[0][0] === valid[1][0]) return -1; // ничья — не выделяем
+  return valid[0][1];
+}
+
 function renderCompare() {
   const items = [...state.compare].map(getListing).filter(Boolean).filter(l => !state.reported.has(l.id));
   if (items.length < 1) { app.innerHTML = `<div class="form-page">${emptyHTML('⚖️', t('cmp.empty'), t('cmp.emptyP'), `<a class="btn btn-primary" href="#/search" data-link>${t('cmp.browse')}</a>`)}</div>`; return; }
   const first = items[0];
   const schema = (typeof attrSchema === 'function') ? attrSchema(first.category, first.subcategory) : null;
+
+  // строим строки со значениями + сырыми числами (для «лучшего») + флагом различия
   const rows = [];
-  rows.push({ label: t('cmp.price'), vals: items.map(l => l.price ? fmtNum(l.price) + ' ' + t('som') : t('price.negotiable')) });
+  const addRow = (key, label, vals, nums) => {
+    const differ = new Set(vals.map(v => String(v))).size > 1;
+    rows.push({ key, label, vals, best: nums ? cmpBestIdx(key, nums) : -1, differ });
+  };
+  addRow('price', t('cmp.price'),
+    items.map(l => l.price ? fmtNum(l.price) + ' ' + t('som') : t('price.negotiable')),
+    items.map(l => l.price || null));
   if (schema) schema.forEach(fld => {
     const vals = items.map(l => { const a = getAttrs(l); return (a[fld.key] != null && a[fld.key] !== '') ? attrDisplayValue(fld, a[fld.key]) : '—'; });
-    if (vals.some(v => v !== '—')) rows.push({ label: aL(fld.label), vals });
+    if (!vals.some(v => v !== '—')) return;
+    const nums = items.map(l => { const a = getAttrs(l); const n = parseFloat(a[fld.key]); return isNaN(n) ? null : n; });
+    addRow(fld.key, aL(fld.label), vals, nums);
   });
-  rows.push({ label: t('item.cond'), vals: items.map(l => l.condition === 'new' ? t('cond.new') : l.condition === 'used' ? t('cond.used') : '—') });
-  rows.push({ label: t('item.city'), vals: items.map(l => l.city || '—') });
+  addRow('cond', t('item.cond'), items.map(l => l.condition === 'new' ? t('cond.new') : l.condition === 'used' ? t('cond.used') : '—'));
+  addRow('rating', t('cmp.seller'), items.map(l => { const s = sellerStats(l); return s.isNew ? t('seller.new') : '★ ' + s.rating; }),
+    items.map(l => { const s = sellerStats(l); return s.isNew ? 0 : parseFloat(s.rating) || null; }));
+  addRow('city', t('item.city'), items.map(l => l.city || '—'));
+  // различия сверху, одинаковое — ниже
+  rows.sort((a, b) => (b.differ - a.differ));
+
   app.innerHTML = `
     <div class="section-title"><h2>${t('cmp.title')} <span class="muted">${items.length}</span></h2>
       <button class="btn btn-outline btn-sm" data-action="compare-clear">${t('cmp.clear')}</button></div>
+    ${items.length >= 2 ? `<div class="cmp-verdict">💡 ${compareVerdict(items)}</div>` : ''}
     <div class="cmp-scroll"><table class="cmp-table">
       <thead><tr><th class="cmp-corner"></th>${items.map(l => `<th><button class="cmp-rm" data-action="compare-remove" data-id="${l.id}" aria-label="✕">✕</button><a href="#/item/${l.id}" data-link><span class="cmp-photo">${getPhotos(l).length ? `<img src="${esc(getPhotos(l)[0])}" alt="">` : '📷'}</span><span class="cmp-name">${esc(l.title)}</span></a></th>`).join('')}</tr></thead>
-      <tbody>${rows.map(r => `<tr><td class="cmp-lbl">${esc(r.label)}</td>${r.vals.map(v => `<td>${esc(String(v))}</td>`).join('')}</tr>`).join('')}</tbody>
+      <tbody>${rows.map(r => `<tr class="${r.differ ? '' : 'cmp-same'}"><td class="cmp-lbl">${esc(r.label)}</td>${r.vals.map((v, i) => `<td class="${i === r.best ? 'cmp-best' : ''}">${esc(String(v))}${i === r.best ? ' <span class="cmp-star">✓</span>' : ''}</td>`).join('')}</tr>`).join('')}</tbody>
     </table></div>`;
 }
+
+/* краткий честный вывод: факты, а не «победитель» (ТЗ) */
+function compareVerdict(items) {
+  const parts = [];
+  const byPrice = items.filter(l => l.price > 0).sort((a, b) => a.price - b.price);
+  if (byPrice.length >= 2 && byPrice[0].price !== byPrice[byPrice.length - 1].price) {
+    parts.push(`${t('cmp.vCheaper')} — «${shortTitle(byPrice[0].title)}»`);
+  }
+  const withYear = items.map(l => ({ l, y: +getAttrs(l).year || 0 })).filter(x => x.y).sort((a, b) => b.y - a.y);
+  if (withYear.length >= 2 && withYear[0].y !== withYear[withYear.length - 1].y) {
+    parts.push(`${t('cmp.vNewer')} — «${shortTitle(withYear[0].l.title)}»`);
+  }
+  const bySeller = items.map(l => ({ l, s: sellerStats(l) })).filter(x => !x.s.isNew)
+    .sort((a, b) => parseFloat(b.s.rating) - parseFloat(a.s.rating));
+  if (bySeller.length >= 2 && bySeller[0].s.rating !== bySeller[bySeller.length - 1].s.rating) {
+    parts.push(`${t('cmp.vSeller')} — «${shortTitle(bySeller[0].l.title)}»`);
+  }
+  return parts.length ? parts.join('. ') + '.' : t('cmp.vSimilar');
+}
+function shortTitle(s) { return String(s).length > 28 ? String(s).slice(0, 27) + '…' : String(s); }
 
 /* блок сохранённых поисков для кабинета */
 function savedSearchesHTML() {

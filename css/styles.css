@@ -2350,6 +2350,11 @@ a.seller-card { display: flex; gap: 12px; align-items: center; text-decoration: 
 
 /* таблица сравнения */
 .cmp-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; border: 1px solid var(--line); border-radius: var(--radius); }
+.cmp-verdict { background: var(--accent-soft); border: 1px solid var(--accent); border-radius: var(--radius);
+  padding: 12px 16px; margin-bottom: 16px; font-size: 14px; font-weight: 600; color: var(--text); line-height: 1.5; }
+.cmp-best { color: var(--accent); font-weight: 700; }
+.cmp-star { font-size: 11px; }
+.cmp-table tr.cmp-same td:not(.cmp-lbl) { color: var(--text-3); } /* одинаковые — тусклее */
 .cmp-table { border-collapse: collapse; min-width: 100%; font-size: 14px; }
 .cmp-table th, .cmp-table td { border-bottom: 1px solid var(--line); padding: 12px 14px; text-align: left; vertical-align: top; min-width: 150px; }
 .cmp-table thead th { position: relative; background: var(--bg-soft, transparent); vertical-align: bottom; }
