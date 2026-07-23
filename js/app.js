@@ -586,14 +586,18 @@ function applyFilters(f) {
   });
 
   let res = collect(qTokens ? requiredMatches(qTokens) : 0);
+  let relax = null; // что смягчили — покажем человеку явно (не молча)
   // мягкий режим: по строгому совпадению пусто — ищем по части слов
-  if (qTokens && !res.length && qTokens.length > 1) res = collect(1);
+  if (qTokens && !res.length && qTokens.length > 1) { res = collect(1); if (res.length) relax = 'partial'; }
   // категория распознана, но текст не совпал ни с чем («наушники») —
   // показываем категорию целиком вместо пустой выдачи
   if (qTokens && !res.length && (f.cat || f.sub)) {
     qTokens = null;
     res = collect(0);
+    if (res.length) relax = 'category';
   }
+  // флаг смягчения кладём только для реального рендера (не для проб-подсчётов)
+  if (!f._skipSort) state._searchRelax = relax;
 
   const cheapVal = l => (l.price === 0 ? Infinity : l.price);
   const sorts = {
@@ -1066,7 +1070,9 @@ function renderSearch() {
           </div>
         </div>
         <div class="active-chips" id="activeChips"></div>
+        <div id="searchNote"></div>
         <div class="grid" id="resultsGrid"></div>
+        <div id="fewResults"></div>
         <div class="show-more" id="showMoreWrap"></div>
       </section>
     </div>`;
@@ -1171,6 +1177,26 @@ function updateResults() {
     ? `<button class="btn btn-outline btn-lg" data-action="show-more">${t('more.show')} ${Math.min(PAGE_SIZE, res.length - shown.length)} ${t('more.of')} ${fmtNum(res.length - shown.length)}</button>`
     : '';
 
+  // Явно сообщаем, что поиск был расширен (раньше это происходило молча).
+  const noteBox = $('#searchNote');
+  if (noteBox) {
+    const rx = state._searchRelax;
+    noteBox.innerHTML = (rx && res.length)
+      ? `<div class="search-note">🔎 ${rx === 'category'
+          ? t('search.relaxCategory')
+          : t('search.relaxPartial').replace('{q}', esc(f.qRaw || f.q))}</div>`
+      : '';
+  }
+
+  // Малая выдача (1–4): не тупик — предлагаем расширить, как и при нуле.
+  const fewBox = $('#fewResults');
+  if (fewBox) {
+    const rec = (res.length >= 1 && res.length <= 4) ? emptyRecoveryHTML(f) : '';
+    fewBox.innerHTML = rec
+      ? `<div class="few-results"><div class="few-results-head">${t('search.few')}</div>${rec}</div>`
+      : '';
+  }
+
   $('#activeChips').innerHTML = activeChipsHTML(f);
 
   const n = activeFilterCount(f);
@@ -1192,6 +1218,20 @@ function updateResults() {
    условия вернёт результаты, и предлагаем убрать именно его — вместо
    единственной кнопки «сбросить всё», которая уносит и запрос, и фильтры.
    Плюс подсказка «Возможно, вы искали…» по каталогу (раскладка/опечатка). */
+/* человекочитаемая подпись ключа характеристики (для «снять фильтр X»);
+   raw-ключи вроде brand/model в интерфейсе показывать нельзя */
+const ATTR_KEY_LABELS = {
+  brand: { ru: 'Марка', en: 'Brand', ky: 'Марка' }, model: { ru: 'Модель', en: 'Model', ky: 'Модель' },
+  gen: { ru: 'Поколение', en: 'Generation', ky: 'Муун' }, year: { ru: 'Год', en: 'Year', ky: 'Жыл' },
+  gpu: { ru: 'Видеокарта', en: 'GPU', ky: 'Видеокарта' }, storage: { ru: 'Память', en: 'Storage', ky: 'Эс тутум' },
+  ram: { ru: 'ОЗУ', en: 'RAM', ky: 'ОЗУ' }, screen: { ru: 'Диагональ', en: 'Screen', ky: 'Экран' },
+};
+function attrKeyLabel(bare) {
+  if (ATTR_KEY_LABELS[bare]) return aL(ATTR_KEY_LABELS[bare]);
+  if (typeof NLU_KEY_LABELS !== 'undefined' && NLU_KEY_LABELS[bare]) return aL(NLU_KEY_LABELS[bare]);
+  return bare;
+}
+
 function emptyRecoveryHTML(f) {
   const opts = [];
 
@@ -1220,8 +1260,7 @@ function emptyRecoveryHTML(f) {
     if (probes.some(p => p[0] === 'attr:' + bare)) continue;
     const attrs = { ...f.attrs };
     delete attrs[bare]; delete attrs[bare + 'Min']; delete attrs[bare + 'Max'];
-    const lab = (typeof NLU_KEY_LABELS !== 'undefined' && NLU_KEY_LABELS[bare]) ? aL(NLU_KEY_LABELS[bare]) : bare;
-    probes.push(['attr:' + bare, `${t('empty.dropFilter')} «${lab}»`, { attrs }]);
+    probes.push(['attr:' + bare, `${t('empty.dropFilter')} «${attrKeyLabel(bare)}»`, { attrs }]);
   }
 
   for (const [key, label, patch] of probes) {
