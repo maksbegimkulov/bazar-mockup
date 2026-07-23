@@ -120,7 +120,7 @@ function allListings() { return [...state.myListings, ...state.dbListings, ...LI
 const DB_PHOTO_RE = /^data:image\/(png|jpe?g|webp|gif|avif);base64,[A-Za-z0-9+/=]+$/;
 
 /* строка из БД → форма объявления, понятная приложению */
-function dbToListing(r, names) {
+function dbToListing(r, profs) {
   const raw = Array.isArray(r.photos) ? r.photos : [];
   // реальные фото (камера/ИИ) приходят как data-URI строки → userPhotos (рендерим как есть);
   // демо-сиды (числа) → pickedSeeds (через photoURL-заглушки)
@@ -146,11 +146,24 @@ function dbToListing(r, names) {
     pickedSeeds: realPhotos ? null : photos, photoCount: photos.length, photoSeed: 11,
     attrs,
     specs: Array.isArray(_specs) ? _specs.filter(x => Array.isArray(x) && x.length === 2) : undefined,
-    sellerName: (names && names[r.owner_id]) || t('seller.anon'), sellerType: 'private',
-    sellerRating: 5.0, sellerAds: 1, sellerSinceYear: 2026,
+    // profs[owner] — публичный профиль (или строка-имя со старых мест вызова)
+    ...(() => {
+      const p = profs && profs[r.owner_id];
+      const prof = (p && typeof p === 'object') ? p : null;
+      return {
+        sellerName: (prof ? prof.name : (typeof p === 'string' ? p : '')) || t('seller.anon'),
+        sellerType: prof && prof.kind === 'business' ? 'business' : 'private',
+        // РЕАЛЬНЫЕ рейтинг/отзывы из профиля; 0 отзывов = новый продавец (честно)
+        sellerRating: prof ? Number(prof.rating) || 0 : 0,
+        sellerReviews: prof ? Number(prof.reviews_count) || 0 : 0,
+        sellerSinceYear: prof && prof.created_at ? new Date(prof.created_at).getFullYear() : 2026,
+        sellerReal: true, // отзывы/рейтинг — из БД, не из хеша
+      };
+    })(),
+    sellerAds: 1,
     createdAt: new Date(r.created_at).getTime(),
     postedHoursAgo: Math.max(0, Math.round((Date.now() - new Date(r.created_at).getTime()) / 3600000)),
-    views: 1, isVip: false, isUrgent: false, hasDelivery: false,
+    views: Number(r.views_count) || 0, isVip: false, isUrgent: false, hasDelivery: false,
     phone: typeof _phone === 'string' ? _phone.slice(0, 24) : '',
   };
 }
@@ -165,12 +178,15 @@ async function loadCloudData() {
     const ids = new Set();
     rows.forEach(r => ids.add(r.owner_id));
     chats.forEach(c => { ids.add(c.buyer_id); ids.add(c.seller_id); });
-    let names = {};
+    // тянем ПУБЛИЧНЫЙ профиль: реальные имя/рейтинг/отзывы/тип продавца.
+    // Раньше брали только name и рисовали рейтинг из хеша — теперь честно.
+    let profs = {};
     if (ids.size) {
-      const { data } = await sb.from('profiles').select('id,name').in('id', [...ids]);
-      (data || []).forEach(p => names[p.id] = p.name);
+      const { data } = await sb.from('public_profiles')
+        .select('id,name,rating,reviews_count,kind,created_at').in('id', [...ids]);
+      (data || []).forEach(p => profs[p.id] = p);
     }
-    state.dbListings = rows.map(r => dbToListing(r, names));
+    state.dbListings = rows.map(r => dbToListing(r, profs));
     state._cloudLoaded = true;
     // чистим «фантомы»: облачное объявление удалили — из избранного/сравнения тоже
     let pruned = false;
@@ -314,17 +330,39 @@ function ratingWord(n) {
   return n + ' ' + w;
 }
 
-/* детерминированные рейтинг/отзывы/верификация — для мок-данных выглядит как
-   у Авито (4,8 · 47 отзывов · проверен). Для реальных продавцов рейтинг
-   позже заменим на реальные отзывы из БД (stage 2). */
+/* Подпись рейтинга продавца: реальная звезда+отзывы, либо честный «Новый
+   продавец» когда отзывов ещё нет (вместо выдуманного ★4.8). */
+function sellerRatingHTML(ss) {
+  if (ss.isNew) return `<span class="seller-new">${t('seller.new')}</span>`;
+  return `<span class="seller-rating"><span class="star">★</span> ${ss.rating}</span> · ${ratingWord(ss.reviews)}`;
+}
+
+/* Рейтинг/отзывы продавца.
+   Реальные облачные продавцы (l.sellerReal) → честные данные из БД: если
+   отзывов ещё нет, это НОВЫЙ продавец (isNew), а не выдуманные «★4.8 · 47».
+   Демо-каталог (сгенерированные объявления) → детерминированные правдоподобные
+   значения; весь этот каталог — демонстрационный по своей природе. */
 function sellerStats(l) {
+  if (l && l.sellerReal) {
+    const reviews = Number(l.sellerReviews) || 0;
+    return {
+      rating: reviews ? (Number(l.sellerRating) || 0).toFixed(1) : null,
+      reviews,
+      isNew: reviews === 0,
+      verified: false,        // раздельные верификации подключим отдельно
+      business: l.sellerType === 'business',
+      real: true,
+    };
+  }
   const key = sellerKey(l);
   let h = 0; for (const ch of key) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   return {
     rating: ((40 + (h % 11)) / 10).toFixed(1),  // 4.0..5.0
     reviews: 3 + (h % 180),                       // 3..182
+    isNew: false,
     verified: (h % 3) !== 0,                      // ~2/3 проверены
     business: l.sellerType === 'business',
+    demo: true,
   };
 }
 
@@ -1180,6 +1218,9 @@ function renderItem(id) {
   if (!isMine) {
     state.viewed = [l.id, ...state.viewed.filter(x => x !== l.id)].slice(0, 12);
     lsSave(LS.viewed, state.viewed);
+    // облачное объявление → честный серверный счётчик (без накрутки обновлением:
+    // сервер режет по отпечатку в пределах суток). Демо-объявления не трогаем.
+    if (isCloudListing(l) && typeof BZ !== 'undefined' && BZ.available()) BZ.trackView(l.id);
   }
   const similar = applyFilters({ ...defaultFilters(), city: 'all', cat: l.category, sub: l.subcategory })
     .filter(x => x.id !== l.id).slice(0, 4);
@@ -1253,7 +1294,7 @@ function renderItem(id) {
       <div class="avatar" style="${avatarStyle(l.sellerName)}">${esc(l.sellerName[0] || 'U')}</div>
       <div class="seller-info">
         <div class="seller-name"><span>${esc(l.sellerName)}</span> ${ss.business ? `<span class="seller-badge">${t('seller.business')}</span>` : ''} ${ss.verified ? `<span class="verif-badge" title="${t('seller.verifiedHint')}">✓ ${t('seller.verified')}</span>` : ''}</div>
-        <div class="seller-sub"><span class="seller-rating"><span class="star">★</span> ${ss.rating}</span> · ${ratingWord(ss.reviews)} · ${t('seller.since')} ${l.sellerSinceYear} ${t('seller.sinceEnd')}</div>
+        <div class="seller-sub">${sellerRatingHTML(ss)} · ${t('seller.since')} ${l.sellerSinceYear} ${t('seller.sinceEnd')}</div>
         <div class="seller-sub">${nLabel(sellerActiveListings(sellerKey(l)).length || l.sellerAds)} · ${t('seller.viewAll')} ›</div>
       </div>
     </a>
@@ -2786,7 +2827,7 @@ function renderSeller(rawKey) {
       <div class="avatar avatar-xl" style="${avatarStyle(name)}">${esc(name[0] || 'U')}</div>
       <div class="seller-hero-info">
         <h1>${esc(name)} ${ss.business ? `<span class="seller-badge">${t('seller.business')}</span>` : ''} ${ss.verified ? `<span class="verif-badge">✓ ${t('seller.verified')}</span>` : ''}</h1>
-        <div class="seller-hero-sub"><span class="seller-rating"><span class="star">★</span> ${ss.rating}</span> · ${ratingWord(ss.reviews)} · ${t('seller.since')} ${sample.sellerSinceYear} ${t('seller.sinceEnd')}</div>
+        <div class="seller-hero-sub">${sellerRatingHTML(ss)} · ${t('seller.since')} ${sample.sellerSinceYear} ${t('seller.sinceEnd')}</div>
         <div class="seller-hero-stats"><span><b>${active.length}</b> ${t('seller.activeAds')}</span>${ss.verified ? `<span class="ok">✓ ${t('seller.verifiedHint')}</span>` : ''}</div>
       </div>
     </div>
@@ -4003,13 +4044,21 @@ document.addEventListener('click', e => {
       case 'report-submit': {
         closeModal();
         if (id) {
-          // причина раньше терялась: кнопка несёт data-reason, но её никто не читал.
-          // Пока нет серверной модерации — копим локально, чтобы было что отправить.
           const reason = actBtn.dataset.reason || 'other';
-          const log = lsLoad(LS.reportLog, []);
-          if (!log.some(r => r.id === id)) {
-            log.push({ id, reason, ts: Date.now() });
-            lsSave(LS.reportLog, log.slice(-200));
+          // Облачное объявление → жалоба уходит на сервер (3 жалобы от разных
+          // людей = автоблокировка + журнал модерации). Демо-объявления живут
+          // только локально, для них копим причину на будущее.
+          const l = getListing(id);
+          if (l && isCloudListing(l) && typeof BZ !== 'undefined' && BZ.available()) {
+            BZ.report(id, reason).then(r => {
+              if (r && !r.ok && r.reason === 'auth') showToast(t('report.needAuth') || t('auth.needLogin'), 'info');
+            });
+          } else {
+            const log = lsLoad(LS.reportLog, []);
+            if (!log.some(r => r.id === id)) {
+              log.push({ id, reason, ts: Date.now() });
+              lsSave(LS.reportLog, log.slice(-200));
+            }
           }
           state.reported.add(id); lsSave(LS.reported, [...state.reported]);
           state.favorites.delete(id); lsSave(LS.favs, [...state.favorites]);
