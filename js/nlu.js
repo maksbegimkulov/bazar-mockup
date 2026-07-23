@@ -254,6 +254,36 @@ function extractExclusions(sNorm) {
   return { exclude: out, rest: s.trim().replace(/\s+/g, ' ') };
 }
 
+/* Фаззи-поиск бренда/модели при опечатке в ОДНО изменение (дропнутая/лишняя/
+   переставленная/заменённая буква): «айфн»→«айфон», «саммунг»→«самсунг».
+   ЖЁСТКИЙ гард: исправляем ТОЛЬКО если кандидаты указывают на ОДИН бренд —
+   иначе не гадаем (лучше не найти, чем найти не то). */
+const _fuzzyCache = new Map();
+function fuzzyBrandMatch(word) {
+  if (!word || word.length < 4 || word.length > 14 || /\d/.test(word)) return null;
+  if (_fuzzyCache.has(word)) return _fuzzyCache.get(word);
+  const alpha = 'абвгдежзиклмнопрстуфхцчшщыэюяabcdefghijklmnopqrstuvwxyz';
+  const cands = new Set();
+  for (let i = 0; i < word.length; i++) cands.add(word.slice(0, i) + word.slice(i + 1)); // удаление
+  for (let i = 0; i < word.length - 1; i++) cands.add(word.slice(0, i) + word[i + 1] + word[i] + word.slice(i + 2)); // перестановка
+  for (let i = 0; i <= word.length; i++) for (const ch of alpha) cands.add(word.slice(0, i) + ch + word.slice(i)); // вставка
+  for (let i = 0; i < word.length; i++) for (const ch of alpha) cands.add(word.slice(0, i) + ch + word.slice(i + 1)); // замена
+  const found = new Map();
+  for (const c of cands) {
+    if (c.length < 3 || c === word) continue;
+    const hit = ALIAS_INDEX.get(c) || ALIAS_INDEX.get(phonetic(c));
+    if (hit && hit.brand) found.set(hit.brand + '|' + (hit.model || ''), hit);
+  }
+  let res = null;
+  if (found.size === 1) res = [...found.values()][0];
+  else if (found.size > 1) {
+    const brands = new Set([...found.values()].map(h => h.brand));
+    if (brands.size === 1) { const any = [...found.values()][0]; res = { kind: 'brand', cat: any.cat, sub: any.sub, brand: any.brand }; }
+  }
+  _fuzzyCache.set(word, res);
+  return res;
+}
+
 /* ---------- 6. Матч бренда/модели по индексу алиасов ---------- */
 /* Идём по n-граммам (до 4 слов), сначала длинные — «ли авто л9» бьёт «ли». */
 function matchCatalog(sNorm) {
@@ -323,6 +353,8 @@ function nluParse(raw) {
       if (c2.model || c2.brand) { fixed = ru; Object.assign(cat, c2); }
     }
   }
+  // фаззи по опечатке (одна буква) вынесен в parseSearchQuery: там известно,
+  // распозналась ли КАТЕГОРИЯ — иначе «стол» (мебель) ложно чинился в Kia Soul
 
   const attrs = Object.assign({}, sem.attrs, sp.attrs);
   let rest = cat.rest;

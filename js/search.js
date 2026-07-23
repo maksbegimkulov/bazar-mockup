@@ -391,6 +391,25 @@ function parseSearchQuery(raw) {
 
       if (n.exclude && n.exclude.length) filters.exclude = n.exclude;
       if (n.layoutFixed) filters._layoutFixed = n.layoutFixed;
+
+      // Фаззи по опечатке в ОДНУ букву («саммунг»→Samsung, «тайота»→Toyota) —
+      // только когда НИЧЕГО не распозналось (ни категория, ни бренд/модель):
+      // иначе обычные слова («стол», «куртка») ложно чинятся в бренды.
+      const a0 = filters.attrs || {};
+      if (!filters.cat && !a0.brand && !a0.model && typeof fuzzyBrandMatch === 'function') {
+        const ws = qRest.split(/\s+/).filter(w => w.length >= 4).sort((x, y) => y.length - x.length);
+        for (const w of ws) {
+          const fz = fuzzyBrandMatch(w);
+          if (fz && fz.brand) {
+            if (fz.cat) { filters.cat = fz.cat; if (fz.sub) filters.sub = fz.sub; }
+            const at = Object.assign({}, filters.attrs || {});
+            at.brand = fz.brand; if (fz.kind === 'model' && fz.model) at.model = fz.model;
+            filters.attrs = at;
+            qRest = qRest.replace(new RegExp('(?:^| )' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?= |$)'), ' ').trim();
+            break;
+          }
+        }
+      }
       // текстом для скоринга оставляем только то, что НЕ распознал ни базовый
       // парсер (цена/город/состояние), ни NLU (бренд/модель/характеристики)
       const keep = new Set(String(n.rest || '').split(/\s+/).filter(Boolean));
