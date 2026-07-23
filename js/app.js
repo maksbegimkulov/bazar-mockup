@@ -753,7 +753,7 @@ function renderHome() {
           <div class="ai-banner-title">${t('ai.banner.title')}</div>
           <div class="ai-banner-sub">${t('ai.banner.sub')}</div>
         </div>
-        <button class="btn btn-primary" data-ai-ask="">${t('ai.banner.btn')}</button>
+        <button class="btn btn-primary" data-action="focus-search">${t('ai.banner.btn')}</button>
       </div>
       <a class="ai-banner sell-banner" href="#/sell" data-link>
         <span class="ai-banner-icon sell-banner-icon">📷</span>
@@ -1071,6 +1071,7 @@ function renderSearch() {
         </div>
         <div class="active-chips" id="activeChips"></div>
         <div id="searchNote"></div>
+        <div id="aiResults"></div>
         <div class="grid" id="resultsGrid"></div>
         <div id="fewResults"></div>
         <div class="show-more" id="showMoreWrap"></div>
@@ -1186,6 +1187,14 @@ function updateResults() {
           ? t('search.relaxCategory')
           : t('search.relaxPartial').replace('{q}', esc(f.qRaw || f.q))}</div>`
       : '';
+  }
+
+  // Диана отвечает ПРЯМО в выдаче на советующие запросы («ноут для монтажа
+  // до 100к») — подборка над списком. Только на первой странице.
+  const aiBox = $('#aiResults');
+  if (aiBox) {
+    aiBox.innerHTML = (state.page === 1 && typeof aiResultsBlock === 'function')
+      ? aiResultsBlock(res, f.qRaw || f.q, f) : '';
   }
 
   // Малая выдача (1–4): не тупик — предлагаем расширить, как и при нуле.
@@ -4363,6 +4372,18 @@ document.addEventListener('click', async e => {
     const act = actBtn.dataset.action;
     const id = actBtn.dataset.id;
     switch (act) {
+      case 'ai-refine': {
+        // продолжить с Дианой из выдачи — панель открывается с текущим запросом
+        if (typeof openAI === 'function') openAI(state.filters.qRaw || state.filters.q || '');
+        break;
+      }
+      case 'focus-search': {
+        // «Спросить Диану» с главной = использовать умный поиск (единый вход)
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        const si = $('#searchInput');
+        if (si) { si.focus(); showSuggest(); }
+        break;
+      }
       case 'notif-open': {
         if (typeof BZ !== 'undefined' && BZ.available() && id) BZ.notifications.markRead(id);
         state.notifUnread = Math.max(0, (state.notifUnread || 0) - 1); updateBadges();
