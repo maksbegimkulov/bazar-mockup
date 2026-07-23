@@ -639,53 +639,185 @@ function recoverLayout(raw) {
 
 function parseSearchQuery(raw) {
   raw = recoverLayout(raw); // починка неверной раскладки до всего остального
-  // диапазон «30000-60000», «50-80 тыс»: дефис гибнет в normText, поэтому
-  // заранее переписываем в «от X .. до Y ..». НО не любой «X-Y» — цена:
-  // «камри 2010-2015» (годы) и «11-64gb» (спеки) ценой НЕ являются
-  const preranged = String(raw).replace(
-    /(\d[\d\s]*?)\s*[-–—]\s*(\d[\d\s]*)(\s*(?:к|k|тыс[а-яa-z]*|млн[а-яa-z]*))?(?=\s|$)/i,
-    (m0, a, b, unit) => {
+  // десятичные суммы до normText (он убьёт точку): «1.5 млн» → 1500000, «2,5 тыс» → 2500
+  const praw = String(raw)
+    .replace(/(\d+)[.,](\d)\s*(?:млн|миллион[а-яa-z]*)/gi, (_, a, b) => String(+a * 1e6 + +b * 1e5))
+    .replace(/(\d+)[.,](\d)\s*тыс[а-яa-z]*/gi, (_, a, b) => String(+a * 1000 + +b * 100));
+  // диапазон «30000-60000», «50-80 тыс», «60к-90к»: дефис гибнет в normText,
+  // поэтому заранее переписываем в «от X .. до Y ..». НО не любой «X-Y»:
+  // годы «2010-2015» и мелкие спеки/пробег «80-120» оставляем парой чисел —
+  // их разберут контекстные блоки (год/пробег/акб) ниже.
+  const preranged = praw.replace(
+    /(\d[\d\s]*?)\s*(к|k|тыс[а-яa-z]*|млн[а-яa-z]*|гб|gb|тб|tb)?\s*[-–—]\s*(\d[\d\s]*)\s*(к|k|тыс[а-яa-z]*|млн[а-яa-z]*|гб|gb|тб|tb)?(?=\s|$)/i,
+    (m0, a, u1, b, u2) => {
+      const unit = u2 || u1 || '';
       const A = parseInt(a.replace(/\s/g, ''), 10), B = parseInt(b.replace(/\s/g, ''), 10);
       const yearish = A >= 1950 && A <= 2035 && B >= 1950 && B <= 2035;
-      if (unit) return `от ${a}${unit} до ${b}${unit}`; // юнит достаётся обеим границам
-      if (yearish || A < 1000 || B < 1000) return m0;    // годы/мелкие спеки — не цена
+      if (yearish) return `${a} ${b}`;                    // пара лет — годовой блок
+      if (unit) return `от ${a}${unit} до ${b}${unit}`;   // юнит достаётся обеим границам
+      if (A < 1000 || B < 1000) return `${a} ${b}`;       // мелкая пара — контекстные блоки
       return `от ${a} до ${b}`;
     }
   );
   let s = ' ' + normText(preranged) + ' ';
+  // «не меньше»→«неменьше»: в JS нет lookbehind (старый iOS падает), а иначе
+  // «не меньше 20000» матчится ценовым «меньше» → неверное направление
+  s = s.replace(/ не (больше|более|меньше|менее|ниже|выше|хуже|превышает|дороже|дешевле|старше|старее|новее|моложе|позже|позднее|раньше|ранее)(?= )/g, ' не$1');
   const filters = {};
   filters.attrs = {};
   const A = filters.attrs;
   const eat = re => { const m = s.match(re); if (m) s = s.replace(m[0], ' '); return m; };
 
-  // КОНТЕКСТНЫЕ ЧИСЛА вытаскиваем ДО цены — иначе «до 90» (батарея) и «до 200 тыс»
-  // (пробег) жадно уходят в priceMax. normText уже убрал «%», опираемся на слова.
-  // Аккумулятор/АКБ. Направление важно: «от/более/не менее 90» → min (≥90, вкл. 100%);
-  // «до/менее/не более 90» → max (≤90, без 100% — дешевле); диапазон «85-90».
-  const bWord = '(?:аккумулятор[а-я]*|акб|акум[а-я]*|батаре[а-я]*|battery)\\s*(?:здоровь[а-я]*\\s*)?';
-  let mm = eat(new RegExp(' ' + bWord + '(?:от\\s*)?(\\d{2,3})\\s*(?:[-–—]|до)?\\s+(\\d{2,3})(?= )'));
-  if (mm && +mm[1] >= 40 && +mm[2] >= 40 && +mm[2] <= 100 && +mm[1] < +mm[2]) { A.batteryMin = String(+mm[1]); A.batteryMax = String(+mm[2]); }
-  if (!A.batteryMin && !A.batteryMax) {
-    mm = eat(new RegExp(' ' + bWord + '(не менее|не более|от|до|минимум|максимум|более|менее)?\\s*(\\d{2,3})(?= )'));
-    if (mm && +mm[2] >= 40 && +mm[2] <= 100) {
-      if (/^(до|менее|максимум|не более)$/.test(mm[1] || '')) A.batteryMax = String(+mm[2]);
-      else A.batteryMin = String(+mm[2]);
+  // ===== ОБЩИЙ ДВИЖОК ЧИСЛОВЫХ УСЛОВИЙ =====
+  // Вытаскиваем ДО цены — иначе «до 90» (батарея) и «до 150 тыс» (пробег) жадно
+  // уходят в priceMax, а нераспознанное число остаётся текстом, ничего не матчит
+  // и выдача «смягчается» до всей категории (юзер видит «тупо всё подряд»).
+  // Направление: до/не больше/не более/менее/максимум/в пределах → Max;
+  //              от/не меньше/не менее/более/минимум → Min; голое число → Max
+  //              (люди называют потолок). Число ДО и ПОСЛЕ слова. Диапазон X..Y.
+  // Направления («не X» уже склеены в «неX» выше):
+  const DIRW = '(непревышает|небольше|неболее|неменьше|неменее|нениже|невыше|нехуже|хотя бы|в пределах|свыше|выше|ниже|больше|более|меньше|менее|максимум|макс|минимум|от|до)';
+  const isMin = d => /^(от|неменьше|неменее|нениже|нехуже|хотя бы|больше|более|выше|свыше|минимум)$/.test(d || '');
+  // extractNum: слово-контекст + направление + число (+единицы) в любом порядке.
+  // wordRe — слово атрибута; norm(v, whole) — нормализация; [lo..hi] — валидность.
+  const extractNum = (wordRe, unitRe, norm, lo, hi, set) => {
+    const W = wordRe, U = unitRe ? '(?:' + unitRe + ')?\\s*' : '';
+    // 1) диапазон: «слово [напр] X [ед] (до|-) Y [ед]»
+    let m = eat(new RegExp(' ' + W + '\\s*' + DIRW + '?\\s*(?:от\\s*)?(\\d[\\d ]*)\\s*' + U + '(?:до|[-–—])\\s*(\\d[\\d ]*)\\s*' + U + '(?= )'))
+         || eat(new RegExp(' (?:от\\s*)?(\\d[\\d ]*)\\s*' + U + '(?:до|[-–—])\\s*(\\d[\\d ]*)\\s*' + U + W + '(?= )'));
+    if (m) {
+      const n1 = m.length > 3 ? m[2] : m[1], n2 = m.length > 3 ? m[3] : m[2];
+      const a = norm(n1, m[0]), b = norm(n2, m[0]);
+      if (a != null && b != null && a >= lo && b <= hi && a < b) { set('Min', a, 'range'); set('Max', b, 'range'); return; }
+    }
+    // 1b) диапазон парой чисел без «до»/дефиса (дефис умер в normText): «акб 85 95»
+    m = eat(new RegExp(' ' + W + '\\s*(?:в пределах\\s*|от\\s*)?(\\d{2,3}) (\\d{2,3})(?!\\d)\\s*' + U + '(?= )'));
+    if (m) {
+      const a = norm(m[1], m[0]), b = norm(m[2], m[0]);
+      if (a != null && b != null && a >= lo && b <= hi && a < b) { set('Min', a, 'range'); set('Max', b, 'range'); return; }
+    }
+    // 2) слово → [напр] число [ед] [+ хвост «и выше/и меньше»]
+    m = eat(new RegExp(' ' + W + '\\s*' + DIRW + '?\\s*(\\d[\\d ]*)\\s*' + U + '(?:и (выше|больше|более|меньше|менее|ниже)\\s*)?(?= )'));
+    if (m) {
+      const v = norm(m[2], m[0]);
+      if (v != null && v >= lo && v <= hi) {
+        const tail = m[3];
+        const kind = tail ? (/выше|больше|более/.test(tail) ? 'Min' : 'Max') : (isMin(m[1]) ? 'Min' : 'Max');
+        set(kind, v, m[1] || tail || null); return;
+      }
+    }
+    // 3) [напр] число [ед] → слово. Требуем направление ИЛИ единицу — иначе
+    // номер модели прилипает («приус 30 пробег» ≠ пробег 30 тыс)
+    m = eat(new RegExp(' ' + DIRW + '?\\s*(\\d[\\d ]*)\\s*' + U + W + '(?= )'));
+    if (m) {
+      const hasUnit = unitRe && new RegExp(unitRe).test(m[0]);
+      const n = String(m[2]).replace(/\s/g, '');
+      const yearish = +n >= 1950 && +n <= 2035;
+      if ((m[1] || hasUnit) && !(yearish && !hasUnit)) {
+        const v = norm(m[2], m[0]);
+        if (v != null && v >= lo && v <= hi) set(isMin(m[1]) ? 'Min' : 'Max', v, m[1] || null);
+      }
+    }
+  };
+
+  // БАТАРЕЯ (%): «акб 90+» → Min; голое «акб 90» без направления = «от 90» → Min
+  const BATW = '(?:здоровь[а-я]*\\s*|состояни[а-я]*\\s*)?(?:аккум[а-я]*|акум[а-я]*|акб|батаре[а-я]*|battery)\\s*(?:здоровь[а-я]*\\s*|состояни[а-я]*\\s*)?';
+  let mm = eat(new RegExp(' ' + BATW + '(\\d{2,3})\\s*\\+(?= )')) || eat(new RegExp(' (\\d{2,3})\\s*\\+\\s*' + BATW + '(?= )'));
+  if (mm && +mm[1] >= 40 && +mm[1] <= 100) A.batteryMin = String(+mm[1]);
+  const bSet = (k, v, dir) => { if (k === 'Max' && dir == null) k = 'Min'; A['battery' + k] = String(v); };
+  if (!A.batteryMin) extractNum(BATW, 'процент[а-я]*', x => +String(x).replace(/\s/g, ''), 40, 100, bSet);
+
+  // ПРОБЕГ (км): «тыс/к/k» ×1000; голое ≤999 — разговорное «пробег 150» = 150 тыс
+  const mNorm = (x, whole) => {
+    let v = +String(x).replace(/\s/g, ''); if (isNaN(v)) return null;
+    if (/тыс/.test(whole) || /\d\s*[кk](?= |$)/.test(whole)) v *= 1000;      // «150 тыс», «120к»
+    else if (!/км/.test(whole) && v <= 999) v *= 1000;                        // голое «пробег 150»
+    return v;
+  };
+  extractNum('пробег[а-я]*', '(?:тыс[а-я]*|[кk](?= )|км)\\s*(?:км)?', mNorm, 1000, 2000000, (k, v) => { A['mileage' + k] = String(v); });
+  // «до 150 тыс км» без слова «пробег» (км делает смысл однозначным)
+  if (!A.mileageMax) { let m2 = eat(/ до\s*(\d{2,4})\s*тыс[а-я]*\s*км(?= )/); if (m2) A.mileageMax = String(+m2[1] * 1000); }
+  if (!A.mileageMin) { let m2 = eat(/ от\s*(\d{2,4})\s*тыс[а-я]*\s*км(?= )/); if (m2) A.mileageMin = String(+m2[1] * 1000); }
+  if (!A.mileageMax) { let m2 = eat(/ до\s*(\d{4,7})\s*км(?= )/); if (m2) A.mileageMax = String(+m2[1]); }
+  // «с маленьким/небольшим пробегом» → до 100 тыс
+  if (!A.mileageMax && eat(/ (?:маленьк|небольш)[а-я]*\s*пробег[а-я]*(?= )/)) A.mileageMax = '100000';
+
+  // ОЗУ ПЕРВЫМ (иначе «озу от 8гб до 16гб» перехватит правило памяти):
+  // слово озу/оперативка/рам; голое → точное значение, направление → Min/Max
+  const GBU = '(?:гб|gb|гиг[а-я]*|тб|tb)';
+  const RAMW = '(?:озу|оперативк[а-я]*|оператив[а-я]*|ram|рам)';
+  mm = eat(new RegExp(' ' + RAMW + '\\s*от\\s*(\\d{1,3})\\s*' + GBU + '?\\s*до\\s*(\\d{1,3})\\s*' + GBU + '?(?= )'));
+  if (mm && +mm[1] < +mm[2]) { A.ramMin = mm[1]; A.ramMax = mm[2]; }
+  if (!A.ramMin && !A.ramMax && !A.ram) {
+    mm = s.match(new RegExp(' ' + RAMW + '\\s*' + DIRW + '?\\s*(\\d{1,3})\\s*' + GBU + '?(?= )'));
+    if (mm && +mm[2] >= 1 && +mm[2] <= 128) {
+      s = s.replace(mm[0], ' ');
+      if (mm[1]) A['ram' + (isMin(mm[1]) ? 'Min' : 'Max')] = String(+mm[2]);
+      else A.ram = String(+mm[2]);
     }
   }
-  // обратный порядок: «90% акб», «90 процентов батарея» (число перед словом)
-  if (!A.batteryMin) { mm = eat(/ (\d{2,3})\s*(?:%|процент[а-я]*)?\s*(?:акб|аккумулятор[а-я]*|батаре[а-я]*)(?= )/); if (mm && +mm[1] >= 40 && +mm[1] <= 100) A.batteryMin = String(+mm[1]); }
-  // Пробег: диапазон / от / до / просто «пробег N тыс», с «км» или без
-  mm = eat(/ пробег[а-я]*\s*от\s*(\d{1,3})\s*(?:тыс[а-я]*)?\s*до\s*(\d{1,3})\s*тыс[а-я]*(?:\s*км)?(?= )/);
-  if (mm) { A.mileageMin = String(+mm[1] * 1000); A.mileageMax = String(+mm[2] * 1000); }
-  else {
-    mm = eat(/ пробег[а-я]*\s*(?:от|не менее|минимум)\s*(\d{1,3})\s*тыс[а-я]*(?:\s*км)?(?= )/);
-    if (mm) A.mileageMin = String(+mm[1] * 1000);
-    mm = eat(/ пробег[а-я]*\s*(?:до|не более|менее|максимум)?\s*(\d{1,3})\s*тыс[а-я]*(?:\s*км)?(?= )/);
-    if (mm && !A.mileageMax) A.mileageMax = String(+mm[1] * 1000);
+  if (!A.ramMin && !A.ramMax && !A.ram) {
+    mm = s.match(new RegExp(' (\\d{1,3})\\s*' + GBU + '?\\s*' + RAMW + '(?= )'));
+    if (mm && +mm[1] >= 1 && +mm[1] <= 128) { s = s.replace(mm[0], ' '); A.ram = String(+mm[1]); }
   }
-  if (!A.mileageMax) { mm = eat(/ до\s*(\d{2,4})\s*тыс[а-я]*\s*км(?= )/); if (mm) A.mileageMax = String(+mm[1] * 1000); }
-  if (!A.mileageMin) { mm = eat(/ от\s*(\d{2,4})\s*тыс[а-я]*\s*км(?= )/); if (mm) A.mileageMin = String(+mm[1] * 1000); }
-  if (!A.mileageMax) { mm = eat(/ до\s*(\d{4,7})\s*км(?= )/); if (mm) A.mileageMax = String(+mm[1]); }
+
+  // ПАМЯТЬ (ГБ): диапазон → направление+единица → слово. Голое «256 гб» НЕ
+  // трогаем — это точное значение, его ставит NLU. Границы проверяем ДО съедания
+  // (иначе «озу 6 гб» съедалось правилом памяти и терялось).
+  const MEMW = '(?:памят[а-я]*|ссд|ssd|накопител[а-я]*|хранилищ[а-я]*)';
+  mm = eat(new RegExp(' (?:' + MEMW + '\\s*)?от\\s*(\\d{2,4})\\s*' + GBU + '?\\s*до\\s*(\\d{2,4})\\s*' + GBU + '(?= )'));
+  if (mm && +mm[1] < +mm[2]) { A.storageMin = mm[1]; A.storageMax = mm[2]; }
+  if (!A.storageMin && !A.storageMax) {
+    mm = s.match(new RegExp(' ' + DIRW + '\\s*(\\d{1,4})\\s*' + GBU + '(?:\\s*' + MEMW + ')?(?= )'));
+    // «про макс 256 гб» — «макс» часть модели iPhone, не направление!
+    if (mm && mm[1] !== 'макс') {
+      let v = +mm[2]; if (/тб|tb/.test(mm[0])) v *= 1024;
+      if (v >= 8 && v <= 4096) { s = s.replace(mm[0], ' '); A['storage' + (isMin(mm[1]) ? 'Min' : 'Max')] = String(v); }
+    }
+  }
+  if (!A.storageMin && !A.storageMax) {
+    mm = s.match(new RegExp(' ' + MEMW + '\\s*' + DIRW + '\\s*(\\d{1,4})\\s*' + GBU + '?(?= )'));
+    if (mm && +mm[2] >= 8 && +mm[2] <= 4096) { s = s.replace(mm[0], ' '); A['storage' + (isMin(mm[1]) ? 'Min' : 'Max')] = String(+mm[2]); }
+  }
+
+  // ДИАГОНАЛЬ (дюймы): «диагональ не меньше 24», «от 50 дюймов», «экран 15»
+  const SCRW = '(?:диагонал[а-я]*|экран[а-я]*)';
+  mm = eat(new RegExp(' от\\s*(\\d{2})\\s*до\\s*(\\d{2})\\s*дюйм[а-я]*(?= )'));
+  if (mm && +mm[1] < +mm[2]) { A.screenMin = mm[1]; A.screenMax = mm[2]; }
+  if (!A.screenMin && !A.screenMax) {
+    mm = eat(new RegExp(' ' + SCRW + '\\s*' + DIRW + '\\s*(\\d{2})(?:\\s*дюйм[а-я]*)?(?= )'))
+      || eat(new RegExp(' ' + DIRW + '\\s*(\\d{2})\\s*дюйм[а-я]*(?= )'));
+    if (mm && +mm[2] >= 10 && +mm[2] <= 90) A['screen' + (isMin(mm[1]) ? 'Min' : 'Max')] = String(+mm[2]);
+  }
+
+  // ГОД: полный набор формулировок. «от/до/с/минимум YYYY» требуют слова «год»
+  // рядом (иначе это цена), годовые слова («не старше») — нет.
+  mm = eat(/ ((?:19|20)\d{2})\s*\+(?= )/);                                        // «2018+»
+  if (mm) A.yearMin = mm[1];
+  mm = eat(/ ((?:19|20)\d{2})\s*(?:год[а-я]*\s*)?и (?:новее|свежее|моложе)(?= )/); // «2016 и новее»
+  if (mm) A.yearMin = A.yearMin || mm[1];
+  mm = eat(/ ((?:19|20)\d{2})\s*(?:год[а-я]*\s*)?и (?:старше|старее)(?= )/);       // «2012 и старше»
+  if (mm) A.yearMax = A.yearMax || mm[1];
+  mm = eat(/ (?:не старше|свежее|моложе|новее|неранее|нераньше|позже|после)\s*(?:чем\s*)?((?:19|20)\d{2})(?:\s*год[а-я]*)?(?:\s*выпуска)?(?= )/);
+  if (mm) A.yearMin = A.yearMin || mm[1];
+  mm = eat(/ (?:нестарше|нестарее)\s*(?:чем\s*)?((?:19|20)\d{2})(?:\s*год[а-я]*)?(?= )/);
+  if (mm) A.yearMin = A.yearMin || mm[1];
+  mm = eat(/ (?:старше|старее|непозже|непозднее|неновее|ранее|раньше)\s*(?:чем\s*)?((?:19|20)\d{2})(?:\s*год[а-я]*)?(?:\s*выпуска)?(?= )/);
+  if (mm) A.yearMax = A.yearMax || mm[1];
+  mm = eat(/ год[а-я]*\s*(?:выпуска\s*)?(?:нениже|нераньше|неранее|после|от|с)\s*((?:19|20)\d{2})(?= )/);
+  if (mm) A.yearMin = A.yearMin || mm[1];
+  mm = eat(/ год[а-я]*\s*(?:выпуска\s*)?(?:невыше|непозже|непозднее|до)\s*((?:19|20)\d{2})(?= )/);
+  if (mm) A.yearMax = A.yearMax || mm[1];
+  // «от 2018 до 2021 года» — диапазон со словом «год» в конце
+  mm = eat(/ (?:от|с)\s*((?:19|20)\d{2})\s*(?:год[а-я]*\s*)?до\s*((?:19|20)\d{2})\s*год[а-я]*(?= )/);
+  if (mm && +mm[1] < +mm[2]) { A.yearMin = A.yearMin || mm[1]; A.yearMax = A.yearMax || mm[2]; }
+  mm = eat(/ (?:от|с|минимум)\s*((?:19|20)\d{2})\s*год[а-я]*(?= )/);
+  if (mm) A.yearMin = A.yearMin || mm[1];
+  mm = eat(/ (?:до|максимум)\s*((?:19|20)\d{2})\s*год[а-я]*(?= )/);
+  if (mm) A.yearMax = A.yearMax || mm[1];
+  // пара лет «2015 2018» (дефис диапазона умер в normText)
+  mm = eat(/ (?:в пределах\s*)?((?:19|20)\d{2})\s+((?:19|20)\d{2})(?:\s*год[а-я]*)?(?= )/);
+  if (mm && +mm[1] < +mm[2]) { A.yearMin = A.yearMin || mm[1]; A.yearMax = A.yearMax || mm[2]; }
   // Комнаты (недвижимость): у демо-квартир НЕТ атрибута rooms (фильтр дал бы 0),
   // но в заголовках есть «N-комн.». Поэтому не фильтруем, а нормализуем любую форму
   // («2 комнатная», «от 2 комнат», «двухкомнатная») в ТЕКСТОВЫЙ токен «N комн»,
@@ -715,19 +847,31 @@ function parseSearchQuery(raw) {
   s = s.replace(/ цвет[а-я]*(?= )/g, ' ');           // «серый цвет» — слово «цвет» убираем
   s = s.replace(/ размер[а-я]*(?= )/g, ' ');          // размер как слово (size не в данных — не фильтруем)
 
-  // «до 50 000», «не дороже 50к», «дешевле 50 тыс», «в пределах 1 млн»
+  // ЦЕНА. Числа с «товарными» единицами следом (гб/дюйм/км/год/лет) — НЕ цена:
+  // их разобрали (или разберут) контекстные блоки/NLU
+  const NOT_PRICE = '(?!\\s*(?:гб|gb|гиг|тб|tb|дюйм|км|кг|мм|см|год|лет|г\\b))';
+  // «до 50 000», «не дороже 50к», «не больше 45к», «дешевле 50 тыс», «бюджет 40000»
   let maxUnit = null;
-  let m = s.match(new RegExp('(?:^| )(?:до|не дороже|дешевле|максимум|в пределах|за)\\s+' + AMOUNT_RE));
+  let m = s.match(new RegExp('(?:^| )(?:недороже|дешевле|небольше|неболее|бюджет[а-я]*|максимум|в пределах|ниже|меньше|менее|до|за)\\s+' + AMOUNT_RE + NOT_PRICE));
   if (m && !filters.priceMax) {
     const v = parseAmount(m[1], m[2]);
     if (v && v > 50) { filters.priceMax = String(v); maxUnit = m[2] || null; s = s.replace(m[0], ' '); }
   }
-  // «от 100 000», «дороже 1 млн»; юнит наследуется от максимума («от 5 до 8 млн»)
-  m = s.match(new RegExp('(?:^| )(?:от|дороже|не дешевле|минимум)\\s+' + AMOUNT_RE));
+  // «от 100 000», «дороже 1 млн», «не меньше 20000», «свыше 300 тысяч»
+  m = s.match(new RegExp('(?:^| )(?:недешевле|дороже|неменьше|неменее|минимум|свыше|выше|больше|более|от)\\s+' + AMOUNT_RE + NOT_PRICE));
   if (m && !filters.priceMin) {
     const v = parseAmount(m[1], m[2] || maxUnit);
     if (v && v > 10 && (!filters.priceMax || v <= +filters.priceMax)) {
       filters.priceMin = String(v); s = s.replace(m[0], ' ');
+    }
+  }
+  // постфикс: «100к максимум», «50 тысяч минимум»
+  m = eat(/ (\d[\d ]*)\s*(к|k|тыс[а-я]*|млн[а-я]*)?\s*(?:сом[а-я]*\s*)?(максимум|минимум)(?= )/);
+  if (m) {
+    const v = parseAmount(m[1], m[2]);
+    if (v && v > 50) {
+      if (m[3] === 'максимум') { if (!filters.priceMax) filters.priceMax = String(v); }
+      else if (!filters.priceMin) filters.priceMin = String(v);
     }
   }
 
@@ -849,7 +993,15 @@ function parseSearchQuery(raw) {
       if (n.cat && !filters.cat) { filters.cat = n.cat; if (n.sub) filters.sub = n.sub; }
       if (n.sub && !filters.sub && filters.cat === n.cat) filters.sub = n.sub;
 
-      const attrs = Object.assign({}, filters.attrs || {}, n.attrs || {});
+      // NLU парсит raw ЗАНОВО → на пересечениях приоритет у контекстного движка
+      // (он знает направление: «не старше 2018» = только Min, а NLU из голого
+      // «2018» делает Min+Max ±1 — обратную границу надо снять)
+      const mine = { ...(filters.attrs || {}) };
+      const attrs = Object.assign({}, n.attrs || {}, filters.attrs || {});
+      for (const base of ['year', 'mileage', 'battery', 'storage', 'ram', 'screen']) {
+        if (mine[base + 'Min'] && !mine[base + 'Max'] && attrs[base + 'Max']) delete attrs[base + 'Max'];
+        if (mine[base + 'Max'] && !mine[base + 'Min'] && attrs[base + 'Min']) delete attrs[base + 'Min'];
+      }
       if (n.brand) attrs.brand = n.brand;
       if (n.model) attrs.model = n.model;
       if (n.gen) attrs.gen = n.gen;
