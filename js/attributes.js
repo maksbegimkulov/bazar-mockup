@@ -290,6 +290,9 @@ const ATTR_SCHEMA = {
     fNum('engineVol', T3('Объём двигателя', 'Engine', 'Кыймылдаткыч'), T3('л', 'L', 'л'), 0, 10, true),
     fNum('mileage', T3('Пробег', 'Mileage', 'Жүрүшү'), T3('км', 'km', 'км'), 0, 1000000, true),
     fSelect('wheel', T3('Руль', 'Steering', 'Руль'), O_STEER, true),
+    fSelect('customs', T3('Растаможка', 'Customs', 'Бажы'), [opt('Растаможен', 'Растаможен', 'Cleared', 'Тазаланган'), opt('Не растаможен', 'Не растаможен', 'Not cleared', 'Тазаланбаган')], true),
+    fSelect('exchange', T3('Обмен', 'Exchange', 'Алмашуу'), [opt('Возможен', 'Возможен', 'Possible', 'Мүмкүн'), opt('Нет', 'Нет', 'No', 'Жок')], true),
+    fSelect('credit', T3('Кредит', 'Credit', 'Кредит'), [opt('Возможен', 'Возможен', 'Available', 'Бар'), opt('Нет', 'Нет', 'No', 'Жок')], true),
     fColor(),
   ],
   'Мото': [
@@ -315,6 +318,7 @@ const ATTR_SCHEMA = {
     fNum('battery', T3('Аккумулятор', 'Battery health', 'Аккумулятор'), T3('%', '%', '%'), 0, 100, true),
     fSelect('g5', T3('5G', '5G', '5G'), [opt('Есть','Есть','Yes','Бар'), opt('Нет','Нет','No','Жок')], true),
     fSelect('esim', T3('eSIM', 'eSIM', 'eSIM'), [opt('Есть','Есть','Yes','Бар'), opt('Нет','Нет','No','Жок')], true),
+    fSelect('warranty', T3('Гарантия', 'Warranty', 'Кепилдик'), [opt('Есть','Есть','Yes','Бар'), opt('Нет','Нет','No','Жок')], true),
     fColor(),
   ],
   'Ноутбуки': [
