@@ -310,7 +310,6 @@ function aiResultsBlock(res, raw, f) {
     <div class="ai-results-head">
       <span class="ai-results-ava">✨</span>
       <span class="ai-results-title">${t('ai.resultsTitle')}</span>
-      <button class="ai-results-refine" data-action="ai-refine">${t('ai.refine')} ›</button>
     </div>
     <div class="ai-results-picks">${picks.map(aiPickHTML).join('')}</div>
   </div>`;
@@ -586,15 +585,15 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape') closeAI();
 });
 
-/* первый визит — лёгкая пульсация кнопки */
-if (!lsLoad('bazar_ai_seen', false)) {
-  $('#aiFab').classList.add('pulse');
-}
+/* панель-ассистент убрана: ИИ встроен в поиск. Хендлеры ниже защищены на
+   случай отсутствия элементов (openAI/closeAI сами делают if(!panel) return). */
+const _aiFab = $('#aiFab');
+if (_aiFab && !lsLoad('bazar_ai_seen', false)) _aiFab.classList.add('pulse');
 
-/* кроссинг брейкпоинта: на десктопе панель плавает (лок не нужен),
-   на мобиле открытая панель — полноэкранный шит (лок обязателен) */
 onMediaChange('(min-width: 921px)', e => {
-  const open = !$('#aiPanel').hidden;
+  const panel = $('#aiPanel');
+  if (!panel) return;
+  const open = !panel.hidden;
   if (e.matches) unlockScroll('ai');
   else if (open) lockScroll('ai');
 });
