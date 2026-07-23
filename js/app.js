@@ -3347,6 +3347,42 @@ function updateCompareBar() {
   document.body.classList.toggle('has-compare-bar', show); // прячем ai-fab на мобиле, чтобы не наезжали
 }
 
+/* Аналитика продавца + КОНКРЕТНЫЕ рекомендации по своим объявлениям.
+   Считаем реальные сигналы (просмотры, фото, цена vs рынок, возраст, описание)
+   и превращаем в действия, а не в общие слова. */
+function sellerAnalyticsHTML(my) {
+  const active = my.filter(l => !isSold(l));
+  if (!active.length) return '';
+  const totalViews = active.reduce((n, l) => n + (l.views || 0), 0);
+  const avgViews = Math.round(totalViews / active.length);
+
+  const noPhoto = active.filter(l => getPhotos(l).length === 0);
+  const noDesc = active.filter(l => (l.description || '').trim().length < 40);
+  const overPriced = active.filter(l => { const v = priceVerdict(l); return v && v.cls === 'high'; });
+  const old = active.filter(l => !l.ownerId && hoursAgo(l) > 14 * 24); // локальные можно поднять
+
+  const recs = [];
+  if (noPhoto.length) recs.push({ ico: '📷', txt: t('analytics.recPhoto').replace('{n}', noPhoto.length) });
+  if (overPriced.length) recs.push({ ico: '💰', txt: t('analytics.recPrice').replace('{n}', overPriced.length) });
+  if (old.length) recs.push({ ico: '⬆️', txt: t('analytics.recOld').replace('{n}', old.length) });
+  if (noDesc.length) recs.push({ ico: '📝', txt: t('analytics.recDesc').replace('{n}', noDesc.length) });
+
+  const recsHTML = recs.length
+    ? recs.slice(0, 4).map(r => `<li class="an-rec"><span class="an-rec-ico">${r.ico}</span>${esc(r.txt)}</li>`).join('')
+    : `<li class="an-rec an-rec-good"><span class="an-rec-ico">👍</span>${t('analytics.allGood')}</li>`;
+
+  return `
+    <div class="analytics-card">
+      <div class="an-metrics">
+        <div class="an-metric"><b>${fmtNum(totalViews)}</b><span>${t('analytics.views')}</span></div>
+        <div class="an-metric"><b>${fmtNum(avgViews)}</b><span>${t('analytics.avgViews')}</span></div>
+        <div class="an-metric"><b>${active.length}</b><span>${t('analytics.active')}</span></div>
+      </div>
+      <div class="an-recs-h">${t('analytics.recs')}</div>
+      <ul class="an-recs">${recsHTML}</ul>
+    </div>`;
+}
+
 function renderProfile() {
   const me = currentUser();
   // мои объявления = локальные + мои облачные (опубликованные через форму/фото-флоу)
@@ -3428,6 +3464,7 @@ function renderProfile() {
         <h2 class="page-subtitle">${t('profile.my')}</h2>
         <a class="btn btn-primary" href="#/post" data-link>${t('post.btnShort')}</a>
       </div>
+      ${my.length ? sellerAnalyticsHTML(my) : ''}
       ${my.length ? rows : emptyHTML('📦', t('profile.empty.t'), t('profile.empty.p'),
         `<a class="btn btn-primary" href="#/post" data-link>${t('post.btn')}</a>`)}
       ${savedSearchesHTML()}
