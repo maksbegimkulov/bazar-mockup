@@ -392,22 +392,30 @@ function parseSearchQuery(raw) {
       if (n.exclude && n.exclude.length) filters.exclude = n.exclude;
       if (n.layoutFixed) filters._layoutFixed = n.layoutFixed;
 
-      // Фаззи по опечатке в ОДНУ букву («саммунг»→Samsung, «тайота»→Toyota) —
-      // только когда НИЧЕГО не распозналось (ни категория, ни бренд/модель):
-      // иначе обычные слова («стол», «куртка») ложно чинятся в бренды.
+      // Фаззи по опечатке в ОДНУ букву («саммунг»→Samsung, «айфн»→Apple, «тойта»→Toyota).
+      // Запускаем, пока не найден бренд/модель. Ложняки на обычных словах гасим двумя
+      // независимыми предохранителями:
+      //   • категория уже известна → принимаем ТОЛЬКО если она совпадает с брендовой
+      //     («стол»=Мебель ≠ транспорт(Kia Soul) → отказ; «саммунг»=Телефоны=Samsung → ок);
+      //   • категория неизвестна → требуем общий префикс ≥3 с ближайшим алиасом
+      //     («айфн»↔«айфон» делят «айф» → ок; «дрель»↔«дель» лишь «д» → отказ).
       const a0 = filters.attrs || {};
-      if (!filters.cat && !a0.brand && !a0.model && typeof fuzzyBrandMatch === 'function') {
+      if (!a0.brand && !a0.model && typeof fuzzyBrandMatch === 'function') {
+        const cpLen = (a, b) => { let i = 0; while (i < a.length && i < b.length && a[i] === b[i]) i++; return i; };
         const ws = qRest.split(/\s+/).filter(w => w.length >= 4).sort((x, y) => y.length - x.length);
         for (const w of ws) {
           const fz = fuzzyBrandMatch(w);
-          if (fz && fz.brand) {
-            if (fz.cat) { filters.cat = fz.cat; if (fz.sub) filters.sub = fz.sub; }
-            const at = Object.assign({}, filters.attrs || {});
-            at.brand = fz.brand; if (fz.kind === 'model' && fz.model) at.model = fz.model;
-            filters.attrs = at;
-            qRest = qRest.replace(new RegExp('(?:^| )' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?= |$)'), ' ').trim();
-            break;
-          }
+          if (!fz || !fz.brand) continue;
+          const ok = filters.cat
+            ? filters.cat === fz.cat
+            : cpLen(w, fz._cand || '') >= 3;
+          if (!ok) continue;
+          if (!filters.cat && fz.cat) { filters.cat = fz.cat; if (fz.sub) filters.sub = fz.sub; }
+          const at = Object.assign({}, filters.attrs || {});
+          at.brand = fz.brand; if (fz.kind === 'model' && fz.model) at.model = fz.model;
+          filters.attrs = at;
+          qRest = qRest.replace(new RegExp('(?:^| )' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?= |$)'), ' ').trim();
+          break;
         }
       }
       // текстом для скоринга оставляем только то, что НЕ распознал ни базовый

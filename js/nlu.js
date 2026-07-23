@@ -75,7 +75,7 @@ function buildAliasIndex() {
     .concat(typeof AUTO_CHINA !== 'undefined' ? AUTO_CHINA : []);
 
   for (const b of autoBrands) {
-    const brandPayload = { kind: 'brand', cat: 'transport', sub: 'Легковые авто', brand: b.name };
+    const brandPayload = { kind: 'brand', cat: 'transport', sub: 'Легковые авто', brand: b.name, pop: !!b.popular };
     [b.name, b.ru, ...(b.aliases || [])].filter(Boolean).forEach(a => _idxAdd(a, brandPayload));
     for (const m of b.models || []) {
       const mp = { kind: 'model', cat: 'transport', sub: 'Легковые авто', brand: b.name, model: m.name };
@@ -113,7 +113,7 @@ function buildAliasIndex() {
   }
   for (const [cat, sub, brands] of techGroups) {
     for (const b of brands || []) {
-      const bp = { kind: 'brand', cat, sub, brand: b.brand };
+      const bp = { kind: 'brand', cat, sub, brand: b.brand, pop: !!b.popular };
       [b.brand, b.ru, ...(b.aliases || [])].filter(Boolean).forEach(a => _idxAdd(a, bp));
       for (const m of b.models || []) {
         const mp = { kind: 'model', cat, sub, brand: b.brand, model: m.name };
@@ -262,24 +262,44 @@ const _fuzzyCache = new Map();
 function fuzzyBrandMatch(word) {
   if (!word || word.length < 4 || word.length > 14 || /\d/.test(word)) return null;
   if (_fuzzyCache.has(word)) return _fuzzyCache.get(word);
-  const alpha = 'абвгдежзиклмнопрстуфхцчшщыэюяabcdefghijklmnopqrstuvwxyz';
+  const alpha = 'абвгдеёжзийклмнопрстуфхцчшщыэюяabcdefghijklmnopqrstuvwxyz';
   const cands = new Set();
   for (let i = 0; i < word.length; i++) cands.add(word.slice(0, i) + word.slice(i + 1)); // удаление
   for (let i = 0; i < word.length - 1; i++) cands.add(word.slice(0, i) + word[i + 1] + word[i] + word.slice(i + 2)); // перестановка
   for (let i = 0; i <= word.length; i++) for (const ch of alpha) cands.add(word.slice(0, i) + ch + word.slice(i)); // вставка
   for (let i = 0; i < word.length; i++) for (const ch of alpha) cands.add(word.slice(0, i) + ch + word.slice(i + 1)); // замена
-  const found = new Map();
+  const found = new Map();          // brand|model → payload
+  const bestCand = new Map();        // brand|model → кандидат с макс. общим префиксом
+  const cpLen = (a, b) => { let i = 0; while (i < a.length && i < b.length && a[i] === b[i]) i++; return i; };
   for (const c of cands) {
     if (c.length < 3 || c === word) continue;
     const hit = ALIAS_INDEX.get(c) || ALIAS_INDEX.get(phonetic(c));
-    if (hit && hit.brand) found.set(hit.brand + '|' + (hit.model || ''), hit);
+    if (hit && hit.brand) {
+      const key = hit.brand + '|' + (hit.model || '');
+      if (!found.has(key)) found.set(key, hit);
+      const prev = bestCand.get(key);
+      if (prev === undefined || cpLen(word, c) > cpLen(word, prev)) bestCand.set(key, c);
+    }
   }
-  let res = null;
-  if (found.size === 1) res = [...found.values()][0];
+  let res = null, resKey = null;
+  if (found.size === 1) { resKey = [...found.keys()][0]; res = found.get(resKey); }
   else if (found.size > 1) {
-    const brands = new Set([...found.values()].map(h => h.brand));
-    if (brands.size === 1) { const any = [...found.values()][0]; res = { kind: 'brand', cat: any.cat, sub: any.sub, brand: any.brand }; }
+    const entries = [...found.entries()];
+    const brands = new Set(entries.map(([, h]) => h.brand));
+    if (brands.size === 1) {
+      resKey = entries[0][0];
+      res = { kind: 'brand', cat: entries[0][1].cat, sub: entries[0][1].sub, brand: entries[0][1].brand };
+    } else {
+      // разные бренды на равном расстоянии («айфн»: Apple vs Aion) — берём популярный,
+      // если он ровно один: обычный человек имел в виду мейнстрим, а не экзотику.
+      const popEntries = entries.filter(([, h]) => h.pop);
+      const popBrands = new Set(popEntries.map(([, h]) => h.brand));
+      if (popBrands.size === 1) { resKey = popEntries[0][0]; res = popEntries[0][1]; }
+    }
   }
+  // _cand = ближайший по написанию алиас (для проверки префикса на стороне поиска):
+  // «айфн»↔«айфон» делят «айф» (сильно), «дрель»↔«дель» — лишь «д» (слабо, ложняк).
+  if (res) res = Object.assign({}, res, { _cand: bestCand.get(resKey) || '' });
   _fuzzyCache.set(word, res);
   return res;
 }
