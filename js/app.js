@@ -4020,8 +4020,8 @@ function showSuggest() {
   if (catRows.length) html += head(t('sug.cats')) + catRows.join('');
   if (brandRows.length) html += head(t('sug.brands')) + brandRows.join('');
   if (itemRows.length) html += head(t('sug.items')) + itemRows.join('');
-  // ИИ — внизу и только как дополнение, а не первым перехватом внимания
-  html += `<button class="sug-aiRow" data-ai-ask="${esc(raw)}"><span class="sug-ai">${t('sug.ai')}</span>&nbsp;«${esc(raw)}»</button>`;
+  // «Искать всё по запросу» — поиск сам умный, отдельного ИИ-ассистента нет
+  html += `<button class="sug-aiRow" data-action="run-search"><span class="sug-ai">🔍</span>&nbsp;${t('sug.searchAll')} «${esc(raw)}»</button>`;
 
   box.innerHTML = html;
   box.hidden = false;
@@ -4410,9 +4410,10 @@ document.addEventListener('click', async e => {
     const act = actBtn.dataset.action;
     const id = actBtn.dataset.id;
     switch (act) {
-      case 'ai-refine': {
-        // продолжить с Дианой из выдачи — панель открывается с текущим запросом
-        if (typeof openAI === 'function') openAI(state.filters.qRaw || state.filters.q || '');
+      case 'run-search': {
+        // «Искать всё по запросу» из подсказок — просто запускаем умный поиск
+        hideSuggest();
+        doHeaderSearch();
         break;
       }
       case 'focus-search': {
