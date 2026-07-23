@@ -1311,21 +1311,45 @@ function clearFilter(key) {
 /* сравнение с рынком: медиана цен той же подкатегории */
 function priceVerdict(l) {
   if (!l.price || l.negotiable) return null;
-  const peers = allListings().filter(x =>
-    x.subcategory === l.subcategory && x.id !== l.id && x.price > 0 && x.priceSuffix === l.priceSuffix);
+  const la = getAttrs(l);
+  const sameModel = !!(la.brand && la.model);
+  const yr = +la.year || null;
+  // Самые точные пиры: та же марка+модель И близкий год (±3). Раньше сравнивали
+  // со всей подкатегорией — дешёвая Corolla на фоне ВСЕХ авто казалась «ниже
+  // рынка», а старый Camry 2012 — на фоне новых Camry.
+  const modelPeers = (withYear) => allListings().filter(x => {
+    if (x.id === l.id || !(x.price > 0) || x.priceSuffix !== l.priceSuffix || x.subcategory !== l.subcategory) return false;
+    const xa = getAttrs(x);
+    if (xa.brand !== la.brand || xa.model !== la.model) return false;
+    if (withYear && yr && xa.year && Math.abs(+xa.year - yr) > 3) return false;
+    return true;
+  });
+  let peers = [], byModel = sameModel;
+  if (sameModel) {
+    peers = modelPeers(true);                          // модель + близкий год
+    if (peers.length < 6) peers = modelPeers(false);   // мало — модель без года
+  }
+  if (peers.length < 6) { // мало по модели — расширяем до подкатегории
+    peers = allListings().filter(x => x.subcategory === l.subcategory && x.id !== l.id && x.price > 0 && x.priceSuffix === l.priceSuffix);
+    byModel = false;
+  }
   if (peers.length < 6) return null;
   const prices = peers.map(x => x.price).sort((a, b) => a - b);
-  // честная медиана: для чётного n — среднее двух центральных (иначе завышаем рынок)
   const mid = prices.length >> 1;
   const median = prices.length % 2 ? prices[mid] : Math.round((prices[mid - 1] + prices[mid]) / 2);
+  const at = q => prices[Math.min(prices.length - 1, Math.max(0, Math.floor(q * prices.length)))];
+  const lo = at(0.1), hi = at(0.9); // диапазон похожих (p10–p90, без крайних выбросов)
   const r = l.price / median;
   const unit = `${t('som')}${esc(l.priceSuffix)}`; // «сом/мес» у аренды, не голый «сом»
-  const avg = `${t('verdict.avg')} ${fmtNum(median)} ${unit}`;
+  const range = `${fmtNum(lo)}–${fmtNum(hi)} ${unit}`;
+  const basis = byModel ? t('verdict.byModel') : t('verdict.bySub');
+  const avg = `${t('verdict.avg')} ${fmtNum(median)} ${unit} · ${basis}`;
+  const out = { median, lo, hi, range, byModel };
   // ≤45% медианы — не «выгодно», а тревога: заниженная цена частая приманка мошенника
-  if (r <= 0.45) return { cls: 'danger', label: t('verdict.low'), hint: t('verdict.lowHint'), danger: true };
-  if (r <= 0.87) return { cls: 'good', label: t('verdict.good'), hint: `${t('verdict.goodHint')} (${fmtNum(median)} ${unit})` };
-  if (r <= 1.12) return { cls: 'fair', label: t('verdict.fair'), hint: avg };
-  return { cls: 'high', label: t('verdict.high'), hint: avg };
+  if (r <= 0.45) return { ...out, cls: 'danger', label: t('verdict.low'), hint: t('verdict.lowHint'), danger: true };
+  if (r <= 0.87) return { ...out, cls: 'good', label: t('verdict.good'), hint: `${t('verdict.goodHint')} (${range})` };
+  if (r <= 1.12) return { ...out, cls: 'fair', label: t('verdict.fair'), hint: avg };
+  return { ...out, cls: 'high', label: t('verdict.high'), hint: avg };
 }
 
 function renderItem(id) {
