@@ -459,7 +459,12 @@ main#app > .chats-layout { animation: none; }
   transition: box-shadow var(--dur-2) var(--ease), transform var(--dur-2) var(--ease), border-color var(--dur-2) var(--ease);
   display: flex;
   flex-direction: column;
+  /* производительность длинных лент: браузер не рендерит карточки вне экрана.
+     auto-размер запоминается после первой отрисовки, поэтому скролл не прыгает */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 300px;
 }
+.grid.list-view .card { contain-intrinsic-size: auto 150px; }
 .card:active { transform: scale(0.985); }
 .card.vip::after {
   content: '';
