@@ -2196,6 +2196,21 @@ function attrModelFieldHTML(catId, subName, attrs) {
   return attrSelectHTML('model', lbl, models.map(m => [m, m]), cur, { ru: 'Своя модель', en: 'Custom model', ky: 'Өз модель' });
 }
 
+/* допустимые значения характеристики по каталогу выбранной модели
+   (память/цвет/ОЗУ), или null если модель не выбрана / нет данных */
+function catalogValidValues(schema, attrs, key) {
+  if (!attrs.brand || !attrs.model || typeof catalogModel !== 'function') return null;
+  const bf = schema.find(x => x.type === 'brand');
+  const sub = (bf && typeof GROUP_TO_SUB !== 'undefined') ? GROUP_TO_SUB[bf.group] : null;
+  if (!sub) return null;
+  const m = catalogModel(sub, attrs.brand, attrs.model);
+  if (!m) return null;
+  if (key === 'storage' && Array.isArray(m.storage) && m.storage.length) return m.storage.map(String);
+  if (key === 'color' && Array.isArray(m.colors) && m.colors.length) return m.colors;
+  if (key === 'ram' && m.ram) return [String(m.ram)];
+  return null;
+}
+
 function attrFieldsHTML(catId, subName, attrs) {
   const schema = attrSchema(catId, subName);
   if (!schema) return '';
@@ -2221,7 +2236,12 @@ function attrFieldsHTML(catId, subName, attrs) {
         ? catalogGens(sub, attrs.brand, attrs.model) : [];
       if (!gens.length) return ''; // марка/модель ещё не выбраны — поле не нужно
       pairs = gens.map(g => [g.name, g.ru ? `${g.name} (${g.ru})` : g.name]);
-    } else pairs = f.options.map(o => [o.v, aL(o.l)]);
+    } else {
+      // валидация по каталогу: для памяти/цвета/ОЗУ показываем только значения,
+      // реально существующие у выбранной модели (ТЗ: не предлагать несуществующее)
+      const valid = catalogValidValues(schema, attrs, f.key);
+      pairs = valid ? valid.map(v => [String(v), String(v)]) : f.options.map(o => [o.v, aL(o.l)]);
+    }
     const extra = f.type === 'brand' ? `data-attr-brand="${f.group}"` : '';
     return attrSelectHTML(f.key, aL(f.label), pairs, attrs[f.key], _L_CUSTOM, extra);
   }).join('');
@@ -2508,11 +2528,17 @@ function renderPost(params) {
       const other = $('#pAttrs').querySelector(`[data-attr-other="${key}"]`);
       if (other) { other.hidden = val !== OTHER_VAL; if (val === OTHER_VAL) other.focus(); }
     }
-    if (key === 'brand') { // марка сменилась → пересобрать поле модели
+    // держим curAttrs актуальным для перерисовки зависимых полей
+    curAttrs[key] = (val === OTHER_VAL) ? (curAttrs[key] || '') : val;
+    if (key === 'brand') { // марка сменилась → пересобрать модель + зависимые
       curAttrs.brand = val === OTHER_VAL ? '' : val;
-      curAttrs.model = '';
+      curAttrs.model = ''; delete curAttrs.storage; delete curAttrs.color;
       const mf = $('#pAttrs').querySelector('[data-attr-field="model"]');
       if (mf) mf.outerHTML = attrModelFieldHTML($('#pCat').value, $('#pSub').value, curAttrs);
+    } else if (key === 'model') { // модель выбрана → память/цвет теперь из каталога
+      curAttrs.model = val === OTHER_VAL ? '' : val;
+      delete curAttrs.storage; delete curAttrs.color;
+      renderPostAttrs();
     }
   });
 

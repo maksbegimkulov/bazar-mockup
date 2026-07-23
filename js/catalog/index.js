@@ -73,6 +73,11 @@ function catalogGens(sub, brandName, modelName) {
   return m ? (m.gens || []) : [];
 }
 
+/* полный объект модели (storage/colors/ram/… для валидации характеристик) */
+function catalogModel(sub, brandName, modelName) {
+  return catalogModels(sub, brandName).find(x => x.name === modelName) || null;
+}
+
 /* популярные бренды подкатегории: сначала помеченные popular, затем остальные */
 function catalogPopularBrands(sub, limit = 12) {
   const all = catalogBrands(sub);
