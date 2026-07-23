@@ -10,7 +10,7 @@
    а не для скорости.
    ============================================================ */
 
-const VERSION = 63;                    // бампается вместе с BUILD в index.html
+const VERSION = 64;                    // бампается вместе с BUILD в index.html
 const CACHE = 'bazar-v' + VERSION;
 
 /* Оболочка = всё, что перечислено в index.html. Узкий список не годится:
@@ -25,7 +25,7 @@ const SHELL = ['./', './index.html', './manifest.webmanifest'].concat([
   'js/catalog/auto-world.js', 'js/catalog/auto-china.js',
   'js/catalog/tech-mobile.js', 'js/catalog/tech-compute.js', 'js/catalog/index.js',
   'js/data.js', 'js/generate.js', 'js/nlu.js', 'js/i18n.js', 'js/attributes.js',
-  'js/search.js', 'js/map.js', 'js/vision.js', 'js/auth.js', 'js/app.js', 'js/ai.js',
+  'js/search.js', 'js/map.js', 'js/vision.js', 'js/auth.js', 'js/api.js', 'js/app.js', 'js/ai.js',
 ].map(u => './' + u + V));
 
 self.addEventListener('install', e => {
