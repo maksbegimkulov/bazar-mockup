@@ -290,7 +290,10 @@ function fuzzyBrandMatch(word) {
   const cpLen = (a, b) => { let i = 0; while (i < a.length && i < b.length && a[i] === b[i]) i++; return i; };
   for (const c of cands) {
     if (c.length < 3 || c === word) continue;
-    const hit = ALIAS_INDEX.get(c) || ALIAS_INDEX.get(phonetic(c));
+    // фонетический мост — только для ключей ≥4: трёхбуквенные («kia») ловят
+    // случайные слова («кийим»→кандидат «кийиа»→ph «kia»→Kia, кырг. «одежда»!)
+    const ph = phonetic(c);
+    const hit = ALIAS_INDEX.get(c) || (ph.length >= 4 ? ALIAS_INDEX.get(ph) : undefined);
     if (hit && hit.brand) {
       const key = hit.brand + '|' + (hit.model || '');
       if (!found.has(key)) found.set(key, hit);
