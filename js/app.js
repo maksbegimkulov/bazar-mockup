@@ -4187,6 +4187,7 @@ function doHeaderSearch() {
   // строку НЕ очищаем: когда NLU разобрал запрос целиком («камри»), parsed.q
   // пуст, и поле обнулялось — уточнить запрос можно было только набрав заново
   input.value = raw;
+  if (typeof syncSearchClear === 'function') syncSearchClear();
 
   if (parseHash().path.startsWith('/search')) {
     renderSearch(); // полный рендер: панель и сортировка должны отразить новые фильтры
@@ -4484,6 +4485,7 @@ function router() {
       state.page = 1;
       delete state._scroll[location.hash];
       $('#searchInput').value = f.qRaw || f.q;
+      if (typeof syncSearchClear === 'function') syncSearchClear();
     }
     if (hasQuery) state._appliedQS = qs;
     renderSearch();
@@ -5024,11 +5026,24 @@ document.addEventListener('keydown', e => {
 });
 
 let suggestTimer;
+/* крестик очистки: виден только когда в поле есть текст */
+function syncSearchClear() {
+  const btn = $('#searchClear'), inp = $('#searchInput');
+  if (btn && inp) btn.hidden = !inp.value;
+}
 $('#searchInput').addEventListener('input', () => {
+  syncSearchClear();
   clearTimeout(suggestTimer);
   suggestTimer = setTimeout(showSuggest, 100); // дебаунс скоринга ~570 объявлений
 });
 $('#searchInput').addEventListener('focus', showSuggest); // пустое поле → история + популярное
+$('#searchClear').addEventListener('click', () => {
+  const inp = $('#searchInput');
+  inp.value = '';
+  syncSearchClear();
+  inp.focus();
+  showSuggest();   // очистили → снова история + популярное
+});
 $('#searchGo').addEventListener('click', doHeaderSearch);
 setupVoiceSearch();
 setupPhotoSearch();
