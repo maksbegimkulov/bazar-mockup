@@ -1,7 +1,7 @@
 const AUTO_WORLD = [
   { id:'toyota', name:'Toyota', ru:'Тойота', country:'jp', popular:true, aliases:['тойота','тайота','тоета','toyota','тоёта'],
     models:[
-      { id:'camry', name:'Camry', ru:'Камри', popular:true, aliases:['камри','camry','камрик'], body:'Седан',
+      { id:'camry', name:'Camry', ru:'Камри', popular:true, aliases:['камри','camry','камрик','камрюха'], body:'Седан',
         gens:[
           { name:'XV50', ru:'50', years:[2011,2017], body:['Седан'],
             engines:[{vol:2.0,hp:148,fuel:'Бензин'},{vol:2.5,hp:181,fuel:'Бензин'},{vol:3.5,hp:249,fuel:'Бензин'},{vol:2.5,hp:205,fuel:'Гибрид'}],
@@ -49,7 +49,7 @@ const AUTO_WORLD = [
             engines:[{vol:2.4,hp:326,fuel:'Гибрид'},{vol:2.8,hp:204,fuel:'Дизель'}],
             gearbox:['Автомат'], drive:['Полный'], price:[6500000,10000000] }
         ] },
-      { id:'land-cruiser', name:'Land Cruiser', ru:'Ленд Крузер', popular:true, aliases:['крузак','ленд крузер','лк200','lc200','lc300','ленкрузер','кукурузер','ленд круизер'], body:'Внедорожник',
+      { id:'land-cruiser', name:'Land Cruiser', ru:'Ленд Крузер', popular:true, aliases:['крузак','ленд крузер','лк200','lc200','lc300','ленкрузер','ланкрузер','кукурузер','ленд круизер'], body:'Внедорожник',
         gens:[
           { name:'J100', ru:'100', years:[1998,2007], body:['Внедорожник'],
             engines:[{vol:4.7,hp:288,fuel:'Бензин'},{vol:4.2,hp:204,fuel:'Дизель'}],
@@ -85,7 +85,7 @@ const AUTO_WORLD = [
             engines:[{vol:1.8,hp:140,fuel:'Гибрид'},{vol:2.0,hp:196,fuel:'Гибрид'}],
             gearbox:['Вариатор'], drive:['Передний','Полный'], price:[2400000,3800000] }
         ] },
-      { id:'vitz', name:'Vitz', ru:'Витц', popular:false, aliases:['витц','витз','vitz','виц'], body:'Хэтчбек',
+      { id:'vitz', name:'Vitz', ru:'Витц', popular:false, aliases:['витц','витз','vitz','виц','вицик'], body:'Хэтчбек',
         gens:[
           { name:'XP90', ru:'90', years:[2005,2010], body:['Хэтчбек'],
             engines:[{vol:1.0,hp:69,fuel:'Бензин'},{vol:1.3,hp:87,fuel:'Бензин'},{vol:1.5,hp:110,fuel:'Бензин'}],
@@ -127,7 +127,7 @@ const AUTO_WORLD = [
             engines:[{vol:2.4,hp:170,fuel:'Бензин'},{vol:3.5,hp:280,fuel:'Бензин'},{vol:2.4,hp:150,fuel:'Гибрид'}],
             gearbox:['Автомат','Вариатор'], drive:['Передний','Полный'], price:[900000,2000000] }
         ] },
-      { id:'harrier', name:'Harrier', ru:'Харриер', popular:false, aliases:['харриер','харьер','harrier','хариер'], body:'Кроссовер',
+      { id:'harrier', name:'Harrier', ru:'Харриер', popular:false, aliases:['харриер','харьер','harrier','хариер','харик'], body:'Кроссовер',
         gens:[
           { name:'XU60', ru:'60', years:[2013,2020], body:['Кроссовер'],
             engines:[{vol:2.0,hp:151,fuel:'Бензин'},{vol:2.0,hp:231,fuel:'Бензин'},{vol:2.5,hp:197,fuel:'Гибрид'}],
@@ -191,7 +191,7 @@ const AUTO_WORLD = [
             engines:[{vol:2.4,hp:279,fuel:'Бензин'},{vol:2.5,hp:250,fuel:'Гибрид'},{vol:2.4,hp:371,fuel:'Гибрид'}],
             gearbox:['Автомат','Вариатор'], drive:['Передний','Полный'], price:[6000000,10000000] }
         ] },
-      { id:'lx', name:'LX', ru:'ЭлИкс', popular:true, aliases:['лх','lx','лх 570','лексус лх','эликс','лх570'], body:'Внедорожник',
+      { id:'lx', name:'LX', ru:'ЭлИкс', popular:true, aliases:['лх','lx','лх 570','лексус лх','эликс','лх570','лыжик'], body:'Внедорожник',
         gens:[
           { name:'J200 LX570', ru:'570', years:[2007,2021], body:['Внедорожник'],
             engines:[{vol:5.7,hp:367,fuel:'Бензин'},{vol:4.5,hp:272,fuel:'Дизель'}],
@@ -348,7 +348,7 @@ const AUTO_WORLD = [
             engines:[{vol:2.4,hp:175,fuel:'Бензин'},{vol:2.0,hp:184,fuel:'Гибрид'}],
             gearbox:['Вариатор'], drive:['Передний','Полный'], price:[1500000,3000000] }
         ] },
-      { id:'stepwgn', name:'Stepwgn', ru:'Степвагон', popular:false, aliases:['степвагон','степ вагон','stepwgn','степвгн'], body:'Минивэн',
+      { id:'stepwgn', name:'Stepwgn', ru:'Степвагон', popular:false, aliases:['степвагон','степ вагон','stepwgn','степвгн','степ'], body:'Минивэн',
         gens:[
           { name:'RK', ru:'4', years:[2009,2015], body:['Минивэн'],
             engines:[{vol:2.0,hp:150,fuel:'Бензин'}],
@@ -1145,7 +1145,7 @@ const AUTO_WORLD = [
             engines:[{vol:1.3,hp:163,fuel:'Бензин'},{vol:2.0,hp:224,fuel:'Бензин'},{vol:2.0,hp:150,fuel:'Дизель'}],
             gearbox:['Робот'], drive:['Передний','Полный'], price:[3200000,5500000] }
         ] },
-      { id:'g-class', name:'G-Class', ru:'Г-класс', popular:false, aliases:['гелик','гелендваген','g class','г класс','гелендос','g63','гелик амг'], body:'Внедорожник',
+      { id:'g-class', name:'G-Class', ru:'Г-класс', popular:false, aliases:['гелик','гелендваген','g class','г класс','гелендос','g63','гелик амг','гелен','гешка'], body:'Внедорожник',
         gens:[
           { name:'W463', ru:'463', years:[1990,2018], body:['Внедорожник'],
             engines:[{vol:3.0,hp:184,fuel:'Дизель'},{vol:5.0,hp:296,fuel:'Бензин'},{vol:5.5,hp:388,fuel:'Бензин'},{vol:5.5,hp:571,fuel:'Бензин'}],
@@ -1213,7 +1213,7 @@ const AUTO_WORLD = [
         ] }
     ] },
 
-  { id:'bmw', name:'BMW', ru:'БМВ', country:'de', popular:true, aliases:['бмв','бэмэвэ','bmw','бумер','бэха'],
+  { id:'bmw', name:'BMW', ru:'БМВ', country:'de', popular:true, aliases:['бмв','бэмэвэ','bmw','бумер','бэха','бэшка','беха','бимер','бэшечка'],
     models:[
       { id:'3-series', name:'3 Series', ru:'3 серия', popular:true, aliases:['бмв 3','бмв тройка','тройка','3 series','е90','f30','бмв 3 серии'], body:'Седан',
         gens:[
@@ -2962,7 +2962,7 @@ const AUTO_WORLD = [
         ] }
     ] },
 
-  { id:'lada', name:'Lada', ru:'Лада (ВАЗ)', country:'ru', popular:true, aliases:['лада','ваз','lada','жигули','автоваз'],
+  { id:'lada', name:'Lada', ru:'Лада (ВАЗ)', country:'ru', popular:true, aliases:['лада','ваз','lada','жигули','автоваз','тазик'],
     models:[
       { id:'priora', name:'Priora', ru:'Приора', popular:true, aliases:['приора','priora','приорa','2170','приорка'], body:'Седан',
         gens:[
