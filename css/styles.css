@@ -199,30 +199,37 @@ main#app > .chats-layout { animation: none; }
 .city-btn svg { color: var(--accent); flex-shrink: 0; }
 .city-btn span { overflow: hidden; text-overflow: ellipsis; }
 
+/* Обводка — ЕДИНАЯ на контейнере (один ровный контур-пилюля). Инпут, иконки
+   голоса/фото и кнопка внутри БЕЗ собственных бордеров — иначе стыки кусков с
+   разной обводкой ломали ровность строки поиска. */
 .searchbar {
   position: relative;
   flex: 1;
   display: flex;
   min-width: 0;
+  height: 42px;
+  border: 2px solid var(--accent);
+  border-radius: var(--radius-s);
+  background: var(--card);
+  transition: box-shadow var(--dur-2) var(--ease);
 }
+.searchbar:focus-within { box-shadow: 0 0 0 3px var(--accent-soft); }
 .searchbar input {
   flex: 1;
   min-width: 0;
-  height: 42px;
-  border: 2px solid var(--accent);
-  border-right: none;
+  height: 100%;
+  border: none;
   border-radius: var(--radius-s) 0 0 var(--radius-s);
   padding: 0 14px;
   font-size: 14.5px;
   outline: none;
-  background: var(--card);
+  background: transparent;
 }
-.searchbar input { transition: box-shadow var(--dur-2) var(--ease); }
 .searchbar input::placeholder { color: var(--text-3); }
-.searchbar input:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
-/* иконки голоса/фото — бесшовно продолжают бордер строки поиска */
-.searchbar-icon { height: 42px; width: 40px; flex-shrink: 0; border: 2px solid var(--accent);
-  border-left: none; border-right: none; background: var(--card); color: var(--text-2);
+.searchbar input:focus-visible { outline: none; }
+/* иконки голоса/фото — часть строки поиска, без своей обводки */
+.searchbar-icon { height: 100%; width: 40px; flex-shrink: 0; border: none;
+  background: transparent; color: var(--text-2);
   display: flex; align-items: center; justify-content: center; cursor: pointer;
   transition: color var(--dur-1) var(--ease); }
 .searchbar-icon:hover { color: var(--accent); }
@@ -237,12 +244,14 @@ main#app > .chats-layout { animation: none; }
 .voice-hint { font-weight: 700; font-size: 17px; margin: 12px 0 6px; }
 .voice-transcript { min-height: 24px; color: var(--text-2); font-size: 15px; margin-bottom: 18px; }
 .searchbar-btn {
-  height: 42px;
+  height: 100%;
   padding: 0 22px;
   background: var(--accent-grad);
   color: #fff;
   font-weight: 700;
-  border-radius: 0 var(--radius-s) var(--radius-s) 0;
+  border: none;
+  /* скругление на 2px меньше контейнера — зелёная заливка ровно вписана в его контур */
+  border-radius: 0 calc(var(--radius-s) - 2px) calc(var(--radius-s) - 2px) 0;
   flex-shrink: 0;
   transition: filter var(--dur-1) var(--ease);
 }
@@ -2277,8 +2286,8 @@ main#app > .chats-layout { animation: none; }
   .header-actions { order: 3; }
   .header-actions .icon-btn { display: none; }
   .post-btn { display: none; }
-  .searchbar input { height: 44px; }
-  .searchbar-btn { height: 44px; padding: 0 16px; }
+  .searchbar { height: 44px; }
+  .searchbar-btn { padding: 0 16px; }
   .search-suggest { top: 50px; }
 
   .bottomnav { display: flex; }
