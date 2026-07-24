@@ -227,6 +227,12 @@ main#app > .chats-layout { animation: none; }
 }
 .searchbar input::placeholder { color: var(--text-3); }
 .searchbar input:focus-visible { outline: none; }
+/* крестик очистки — виден только когда в поле есть текст */
+.searchbar-clear { height: 100%; width: 30px; flex-shrink: 0; border: none; background: transparent;
+  color: var(--text-3); display: flex; align-items: center; justify-content: center; cursor: pointer;
+  transition: color var(--dur-1) var(--ease); }
+.searchbar-clear:hover { color: var(--text); }
+.searchbar-clear[hidden] { display: none; }
 /* иконки голоса/фото — часть строки поиска, без своей обводки */
 .searchbar-icon { height: 100%; width: 40px; flex-shrink: 0; border: none;
   background: transparent; color: var(--text-2);
