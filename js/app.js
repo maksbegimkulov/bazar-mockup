@@ -3207,7 +3207,8 @@ async function onAuthSubmit(e) {
     showErr({
       'email-exists': t('auth.errEmailExists'), 'phone-exists': t('auth.errPhoneExists'),
       'no-user': t('auth.errNoUser'), 'bad-pass': t('auth.errBadPass'),
-      'bad-creds': t('auth.errBadCreds'), 'weak-pass': t('auth.errPass'), 'bad-email': t('auth.errEmail'),
+      'bad-creds': t('auth.errBadCreds'), 'bad-phone-creds': t('auth.errBadCreds'),
+      'weak-pass': t('auth.errPass'), 'bad-email': t('auth.errEmail'), 'bad-phone': t('auth.errPhone'),
       'phone-unavailable': t('auth.phoneSoon'), 'provider-unavailable': t('auth.socialSoon').replace('{provider}', 'Google/Apple'),
       'no-backend': t('auth.errGeneric'),
     }[ex.message] || t('auth.errGeneric'));
