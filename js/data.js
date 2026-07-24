@@ -457,6 +457,50 @@ function generateListings() {
    (марки/модели/поколения) сразу после загрузки — см. конец generate.js */
 let LISTINGS = generateListings();
 
+/* --- Ручные объявления: носки и трусы (разные размеры и цвета) ---
+   Явные объекты (а не TEMPLATES) — чтобы получить ровно эти позиции без
+   случайного размножения на 2–4 копии. Фото = SVG-заглушка подкатегории. */
+(function addBasicsListings() {
+  const base = {
+    priceSuffix: '', negotiable: false, floor: 0, district: 'Восток-5',
+    condition: 'new', photoCount: 3, sellerType: 'business',
+    sellerSinceYear: 2022, isVip: false, isUrgent: false, hasDelivery: true,
+  };
+  const items = [
+    {
+      id: 'socks-men', category: 'fashion', subcategory: 'Мужская одежда', photoSeed: 42,
+      title: 'Носки мужские хлопок, набор 10 пар, р. 41–44',
+      price: 450, city: 'Бишкек',
+      description: 'Набор из 10 пар мужских носков. Хлопок с добавлением лайкры, дышащие, не сползают. Размеры 41–44. Ассорти цветов: чёрные, серые, тёмно-синие. Бесшовный мысок, усиленная пятка. Новые, в упаковке. Доставка по Бишкеку и отправка по КР.',
+      sellerName: 'Текстиль Маркет', sellerRating: 4.7, sellerAds: 84, postedHoursAgo: 14, views: 132,
+    },
+    {
+      id: 'socks-women', category: 'fashion', subcategory: 'Женская одежда', photoSeed: 45,
+      title: 'Носки женские хлопок, набор 12 пар, р. 36–40',
+      price: 550, city: 'Бишкек',
+      description: 'Набор 12 пар женских носков. Мягкий хлопок, бесшовный мысок, аккуратная резинка не давит. Размеры 36–40. Разные цвета: пастельные и классические (белые, бежевые, розовые, серые, чёрные). Новые, запакованы. Доставка по городу.',
+      sellerName: 'НоскиОпт KG', sellerRating: 4.8, sellerAds: 61, postedHoursAgo: 30, views: 98,
+    },
+    {
+      id: 'boxers-men', category: 'fashion', subcategory: 'Мужская одежда', photoSeed: 48,
+      title: 'Трусы-боксеры мужские хлопок, набор 5 шт, р. M/L/XL',
+      price: 750, city: 'Ош',
+      description: 'Комплект из 5 мужских трусов-боксеров. Хлопок 95% / эластан 5%, широкая мягкая резинка, не натирают. Размеры на выбор: M, L, XL. Цвета: чёрный, серый, тёмно-синий. Новые, в фирменной упаковке. Доставка по Ошу и по Кыргызстану.',
+      sellerName: 'Underwear Store', sellerRating: 4.6, sellerAds: 47, postedHoursAgo: 52, views: 76,
+      district: null,
+    },
+    {
+      id: 'panties-women', category: 'fashion', subcategory: 'Женская одежда', photoSeed: 51,
+      title: 'Трусы женские хлопок, набор 6 шт, р. S–L',
+      price: 600, city: 'Бишкек',
+      description: 'Набор из 6 женских трусиков. Натуральный хлопок, мягкая посадка, не просвечивают. Размеры S, M, L. Ассорти цветов: белый, бежевый, чёрный, пудровый. Новые, запечатаны. Доставка по городу и отправка в регионы.',
+      sellerName: 'Текстиль Маркет', sellerRating: 4.7, sellerAds: 84, postedHoursAgo: 8, views: 145,
+    },
+  ];
+  const phones = ['+996 555 240 118', '+996 700 861 305', '+996 770 512 447', '+996 709 330 962'];
+  items.forEach((it, i) => LISTINGS.push({ ...base, phone: phones[i], ...it }));
+})();
+
 /* ============================================================
    Демо-товары для флоу «Продажа за 30 секунд»:
    что пользователь «фотографирует», а ИИ-помощница распознаёт.
