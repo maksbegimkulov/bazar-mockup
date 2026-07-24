@@ -25,12 +25,14 @@ const AUTH = { user: null, ready: false, _subs: [] };
 function authPublic(u) {
   if (!u) return null;
   const m = u.user_metadata || {};
-  const provider = (u.app_metadata && u.app_metadata.provider) || 'email';
+  const byPhone = isPhoneEmail(u.email);          // технический email вида 996…@phone.bazar.kg
+  const phone = m.phone || u.phone || (byPhone ? '+' + String(u.email).split('@')[0] : '');
+  const provider = byPhone ? 'phone' : ((u.app_metadata && u.app_metadata.provider) || 'email');
   return {
     id: u.id,
-    name: m.name || m.full_name || (u.email ? u.email.split('@')[0] : (u.phone || 'Пользователь')),
-    email: u.email || '',
-    phone: u.phone || '',
+    name: m.name || m.full_name || (byPhone ? phone : (u.email ? u.email.split('@')[0] : 'Пользователь')),
+    email: byPhone ? '' : (u.email || ''),          // синтетический email юзеру не показываем
+    phone,
     provider,
   };
 }
@@ -64,25 +66,46 @@ async function authInit() {
 }
 
 /* код ошибки → наш короткий ключ (app.js покажет локализованный текст) */
-function mapAuthError(error) {
+function mapAuthError(error, byPhone) {
   const m = ((error && error.message) || '').toLowerCase();
-  if (m.includes('already registered') || m.includes('already been registered') || m.includes('exists')) return 'email-exists';
-  if (m.includes('invalid login') || m.includes('invalid credentials')) return 'bad-creds';
+  if (m.includes('already registered') || m.includes('already been registered') || m.includes('exists')) return byPhone ? 'phone-exists' : 'email-exists';
+  if (m.includes('invalid login') || m.includes('invalid credentials')) return byPhone ? 'bad-phone-creds' : 'bad-creds';
   if (m.includes('password') && (m.includes('6') || m.includes('short') || m.includes('least'))) return 'weak-pass';
   if (m.includes('not enabled') || m.includes('unsupported provider') || m.includes('provider')) return 'provider-unavailable';
   if (m.includes('email')) return 'bad-email';
   return 'generic';
 }
 
+/* Вход/регистрация по НОМЕРУ без платного SMS: номер нормализуем к 996XXXXXXXXX
+   и превращаем в технический email <номер>@phone.bazar.kg. Юзер входит «номер +
+   пароль». Один и тот же номер в любом формате (+996…, 0…, 7…) → один аккаунт.
+   Честно: без SMS-подтверждения (стартовый вариант); настоящую верификацию
+   добавим платным SMS-провайдером позже — интерфейс не изменится. */
+const PHONE_EMAIL_DOMAIN = 'phone.bazar.kg';
+function normPhoneKG(phone) {
+  let d = String(phone || '').replace(/\D/g, '');
+  if (d.startsWith('00')) d = d.slice(2);
+  if (d.startsWith('996')) { /* уже с кодом страны */ }
+  else if (d.startsWith('0')) d = '996' + d.slice(1);   // 0700… → 996700…
+  else if (d.length === 9) d = '996' + d;                // 700123456 → 996700…
+  return d;
+}
+function phoneToEmail(phone) { return normPhoneKG(phone) + '@' + PHONE_EMAIL_DOMAIN; }
+function isPhoneEmail(email) { return String(email || '').endsWith('@' + PHONE_EMAIL_DOMAIN); }
+
 async function authSignUp({ name, email, phone, password }) {
   if (!sb) throw new Error('no-backend');
-  if (phone && !email) throw new Error('phone-unavailable'); // SMS-провайдер пока не настроен
+  const byPhone = !!(phone && !email);
+  if (byPhone && normPhoneKG(phone).length < 11) throw new Error('bad-phone');
+  const loginEmail = byPhone ? phoneToEmail(phone) : (email || '').trim().toLowerCase();
+  const meta = { name: (name || '').trim() };
+  if (byPhone) meta.phone = '+' + normPhoneKG(phone);
   const { data, error } = await sb.auth.signUp({
-    email: (email || '').trim().toLowerCase(),
+    email: loginEmail,
     password,
-    options: { data: { name: (name || '').trim() } },
+    options: { data: meta },
   });
-  if (error) throw new Error(mapAuthError(error));
+  if (error) throw new Error(mapAuthError(error, byPhone));
   AUTH.user = authPublic(data.user);
   authEmit();
   return AUTH.user;
@@ -90,12 +113,14 @@ async function authSignUp({ name, email, phone, password }) {
 
 async function authSignIn({ email, phone, password }) {
   if (!sb) throw new Error('no-backend');
-  if (phone && !email) throw new Error('phone-unavailable');
+  const byPhone = !!(phone && !email);
+  if (byPhone && normPhoneKG(phone).length < 11) throw new Error('bad-phone');
+  const loginEmail = byPhone ? phoneToEmail(phone) : (email || '').trim().toLowerCase();
   const { data, error } = await sb.auth.signInWithPassword({
-    email: (email || '').trim().toLowerCase(),
+    email: loginEmail,
     password,
   });
-  if (error) throw new Error(mapAuthError(error));
+  if (error) throw new Error(mapAuthError(error, byPhone));
   AUTH.user = authPublic(data.user);
   authEmit();
   return AUTH.user;
