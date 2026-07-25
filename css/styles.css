@@ -2924,3 +2924,24 @@ a.seller-card { display: flex; gap: 12px; align-items: center; text-decoration: 
   background: no-repeat center/contain url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%2300a06a' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 8.5l3.5 3.5L13 4'/%3E%3C/svg%3E");
 }
 @media (max-width: 720px) { .cs-opt { padding: 13px 15px; font-size: 16px; } }
+
+/* ============================================================
+   РЕДИЗАЙН — Фаза 2b: страница товара (чище иерархия, без дублей).
+   ============================================================ */
+.btn svg { flex-shrink: 0; }
+/* дубли контактов: на мобиле (там показывается липкий contactbar) прячем
+   телефон/написать/избранное из buy-card — остаётся только «Предложить цену» */
+@media (max-width: 920px) {
+  .buy-actions .contact-dup { display: none; }
+}
+.buy-meta { display: flex; flex-wrap: wrap; gap: 3px 12px; align-items: center; }
+.buy-meta span { display: inline-flex; align-items: center; gap: 5px; }
+.buy-meta svg { flex-shrink: 0; opacity: 0.8; }
+.buy-mini-actions { align-items: center; }
+.buy-mini-actions button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; }
+.buy-mini-actions button svg { flex-shrink: 0; }
+.buy-idnum { margin-left: auto; color: var(--text-3); font-size: var(--fs-xs); }
+.verif-badge, .bargain-badge, .scam-note, .sold-banner, .map-caption { display: inline-flex; align-items: center; gap: 6px; }
+.verif-badge svg, .bargain-badge svg, .scam-note svg, .sold-banner svg, .map-caption svg { flex-shrink: 0; }
+.scam-banner .sb-ico { display: inline-flex; }
+.nophoto { flex-direction: column; gap: 8px; }

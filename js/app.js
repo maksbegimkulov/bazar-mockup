@@ -1605,19 +1605,17 @@ function renderItem(id) {
   const similar = applyFilters({ ...defaultFilters(), city: 'all', cat: l.category, sub: l.subcategory })
     .filter(x => x.id !== l.id).slice(0, 4);
 
+  // ТОЛЬКО структурные характеристики (влияют на решение). Служебные мета
+  // (город/дата/просмотры/№) вынесены из таблицы — они в buy-meta, чтобы не
+  // подавать «просмотры» и «№ объявления» как характеристику товара.
   const params = [
     [t('item.cat'), catName(cat) || l.category],
     [t('item.section'), subName(l.subcategory)],
-    // структурированные характеристики (бренд/модель/год/спеки)
     ...attrPairs(l.category, l.subcategory, getAttrs(l)),
     l.condition ? [t('item.cond'), l.condition === 'new' ? t('cond.new') : t('cond.used')] : null,
     // характеристики, распознанные ИИ при «продаже за 30 секунд»
     ...(Array.isArray(l.specs) ? l.specs.map(([k, v]) => [t(k), v]) : []),
-    [t('item.city'), l.city + (l.district ? ', ' + l.district : '')],
     [t('item.delivery'), l.hasDelivery ? t('item.yes') : t('item.no')],
-    [t('item.views'), fmtNum(l.views)],
-    [t('item.posted'), postedLabel(l)],
-    [t('item.num'), '№ ' + l.id.replace(/^m/, '')],
   ].filter(Boolean);
 
   const galleryHTML = `
@@ -1629,7 +1627,7 @@ function renderItem(id) {
              <button class="gallery-nav prev" data-action="gallery-prev" aria-label="‹">‹</button>
              <button class="gallery-nav next" data-action="gallery-next" aria-label="›">›</button>
              <span class="gallery-counter" id="galleryCounter">1 / ${photos.length}</span>` : ''}`
-          : `<div class="nophoto">📷 ${t('item.noPhotoSeller')}</div>`}
+          : `<div class="nophoto">${icon('camera',{size:34,stroke:1.6})}<span>${t('item.noPhotoSeller')}</span></div>`}
       </div>
       ${photos.length > 1 ? `
       <div class="gallery-thumbs" id="galleryThumbs">
@@ -1637,33 +1635,39 @@ function renderItem(id) {
       </div>` : ''}
     </div>`;
 
+  const idNum = '№ ' + l.id.replace(/^m/, '');
   const buyCardHTML = `
     <div class="buy-card">
       <div class="buy-title">${esc(l.title)}</div>
       <div class="buy-price">${priceHTML(l)}</div>
       ${verdict ? `<div class="price-verdict ${verdict.cls}" title="${esc(verdict.hint)}">${verdict.label} · ${esc(verdict.hint)}</div>` : ''}
-      ${riskHigh ? `<div class="scam-banner"><span class="sb-ico">⚠️</span><div class="sb-text"><b>${t('safety.itemScamT')}</b><span>${t(risk.reasons.includes('otp') ? 'safety.itemOtpP' : 'safety.itemScamP')}</span></div></div>`
-        : riskMed ? `<div class="scam-note">⚠️ ${t('safety.itemNoteP')}</div>` : ''}
-      ${(l.floor || l.hasFloor) && !isMine ? `<div class="bargain-badge">🤝 ${t('item.bargainOk')}</div>` : ''}
-      <div class="buy-meta">${esc(l.city)}${l.district ? ', ' + esc(l.district) : ''} · ${postedLabel(l)} · 👁️ ${fmtNum(l.views)}</div>
-      ${isMine && isSold(l) ? `<div class="sold-banner">✅ ${t('status.soldNote')}</div>` : ''}
+      ${riskHigh ? `<div class="scam-banner"><span class="sb-ico">${icon('warning', { size: 20 })}</span><div class="sb-text"><b>${t('safety.itemScamT')}</b><span>${t(risk.reasons.includes('otp') ? 'safety.itemOtpP' : 'safety.itemScamP')}</span></div></div>`
+        : riskMed ? `<div class="scam-note">${icon('warning', { size: 15 })} ${t('safety.itemNoteP')}</div>` : ''}
+      ${(l.floor || l.hasFloor) && !isMine ? `<div class="bargain-badge">${icon('handshake', { size: 15 })} ${t('item.bargainOk')}</div>` : ''}
+      <div class="buy-meta">
+        <span>${icon('location', { size: 14 })} ${esc(l.city)}${l.district ? ', ' + esc(l.district) : ''}</span>
+        <span>${icon('clock', { size: 14 })} ${postedLabel(l)}</span>
+        <span>${icon('eye', { size: 14 })} ${fmtNum(l.views)}</span>
+      </div>
+      ${isMine && isSold(l) ? `<div class="sold-banner">${icon('check', { size: 15 })} ${t('status.soldNote')}</div>` : ''}
       <div class="buy-actions">
         ${isMine ? `
-          <button class="btn ${isSold(l) ? 'btn-primary' : 'btn-secondary'}" data-action="toggle-sold" data-id="${l.id}">${isSold(l) ? '↩️ ' + t('status.reactivate') : '✅ ' + t('status.markSold')}</button>
-          <a class="btn btn-secondary" href="#/post?edit=${l.id}" data-link>✏️ ${t('item.edit')}</a>
-          ${l.id.startsWith('m') ? `<button class="btn btn-outline" data-action="bump" data-id="${l.id}">⬆️ ${t('item.bump')}</button>` : ''}
-          <button class="btn btn-danger-soft" data-action="delete-my" data-id="${l.id}">${t('item.delete')}</button>
+          <button class="btn ${isSold(l) ? 'btn-primary' : 'btn-secondary'}" data-action="toggle-sold" data-id="${l.id}">${icon(isSold(l) ? 'refresh' : 'check', { size: 17 })} ${isSold(l) ? t('status.reactivate') : t('status.markSold')}</button>
+          <a class="btn btn-secondary" href="#/post?edit=${l.id}" data-link>${icon('edit', { size: 17 })} ${t('item.edit')}</a>
+          ${l.id.startsWith('m') ? `<button class="btn btn-outline" data-action="bump" data-id="${l.id}">${icon('bump', { size: 17 })} ${t('item.bump')}</button>` : ''}
+          <button class="btn btn-danger-soft" data-action="delete-my" data-id="${l.id}">${icon('trash', { size: 17 })} ${t('item.delete')}</button>
         ` : `
-          ${(l.floor || l.hasFloor) ? `<button class="btn btn-bargain btn-lg" data-action="offer-price" data-id="${l.id}">🤝 ${t('item.offerPrice')}</button>` : ''}
-          ${l.phone ? `<button class="btn btn-primary btn-lg" data-action="show-phone" data-id="${l.id}">📞 ${t('item.showPhone')}</button>` : ''}
-          <button class="btn ${l.phone ? 'btn-secondary' : 'btn-primary'} btn-lg" data-action="write-seller" data-id="${l.id}">💬 ${t('item.write')}</button>
-          <button class="btn btn-outline" data-fav="${l.id}">${isFav ? '❤️ ' + t('item.faved') : '🤍 ' + t('item.fav')}</button>
+          ${(l.floor || l.hasFloor) ? `<button class="btn btn-bargain btn-lg" data-action="offer-price" data-id="${l.id}">${icon('handshake', { size: 18 })} ${t('item.offerPrice')}</button>` : ''}
+          ${l.phone ? `<button class="btn btn-primary btn-lg contact-dup" data-action="show-phone" data-id="${l.id}">${icon('call', { size: 18 })} ${t('item.showPhone')}</button>` : ''}
+          <button class="btn ${l.phone ? 'btn-secondary' : 'btn-primary'} btn-lg contact-dup" data-action="write-seller" data-id="${l.id}">${icon('message', { size: 18 })} ${t('item.write')}</button>
+          <button class="btn btn-outline contact-dup" data-fav="${l.id}">${icon('heart', { size: 17, fill: isFav })} ${isFav ? t('item.faved') : t('item.fav')}</button>
         `}
       </div>
       <div class="buy-mini-actions">
-        <button data-action="share" data-id="${l.id}">🔗 ${t('item.share')}</button>
-        <button data-action="compare-toggle" data-id="${l.id}" class="${inCompare(l.id) ? 'on' : ''}">⚖️ ${inCompare(l.id) ? t('cmp.inList') : t('cmp.add')}</button>
-        ${isMine ? '' : `<button data-action="report" data-id="${l.id}">⚑ ${t('item.report')}</button>`}
+        <button data-action="share" data-id="${l.id}">${icon('share', { size: 15 })} ${t('item.share')}</button>
+        <button data-action="compare-toggle" data-id="${l.id}" class="${inCompare(l.id) ? 'on' : ''}">${icon('scale', { size: 15 })} ${inCompare(l.id) ? t('cmp.inList') : t('cmp.add')}</button>
+        ${isMine ? '' : `<button data-action="report" data-id="${l.id}">${icon('flag', { size: 15 })} ${t('item.report')}</button>`}
+        <span class="buy-idnum">${idNum}</span>
       </div>
     </div>`;
 
@@ -1673,7 +1677,7 @@ function renderItem(id) {
     <a class="seller-card" href="#/seller/${encodeURIComponent(sellerKey(l))}" data-link>
       <div class="avatar" style="${avatarStyle(l.sellerName)}">${esc(l.sellerName[0] || 'U')}</div>
       <div class="seller-info">
-        <div class="seller-name"><span>${esc(l.sellerName)}</span> ${ss.business ? `<span class="seller-badge">${t('seller.business')}</span>` : ''} ${ss.verified ? `<span class="verif-badge" title="${t('seller.verifiedHint')}">✓ ${t('seller.verified')}</span>` : ''}</div>
+        <div class="seller-name"><span>${esc(l.sellerName)}</span> ${ss.business ? `<span class="seller-badge">${t('seller.business')}</span>` : ''} ${ss.verified ? `<span class="verif-badge" title="${t('seller.verifiedHint')}">${icon('check',{size:12,stroke:3})} ${t('seller.verified')}</span>` : ''}</div>
         <div class="seller-sub">${sellerRatingHTML(ss)} · ${t('seller.since')} ${l.sellerSinceYear} ${t('seller.sinceEnd')}</div>
         <div class="seller-sub">${nLabel(sellerActiveListings(sellerKey(l)).length || l.sellerAds)} · ${t('seller.viewAll')} ›</div>
       </div>
@@ -1697,7 +1701,7 @@ function renderItem(id) {
     <div class="panel">
       <h2>${t('item.location')}</h2>
       <div class="map-wrap">${kgMapSVG(l.city)}</div>
-      <div class="map-caption">📍 ${esc(l.city)}${l.district ? ', ' + esc(l.district) : ''} · ${t('item.mapNote')}</div>
+      <div class="map-caption">${icon('location',{size:14})} ${esc(l.city)}${l.district ? ', ' + esc(l.district) : ''} · ${t('item.mapNote')}</div>
       <a class="btn btn-secondary" href="${buildSearchHash({ ...defaultFilters(), city: l.city })}" data-link>${t('item.inCity')} ${esc(l.city)}</a>
     </div>`;
 
@@ -1716,8 +1720,8 @@ function renderItem(id) {
     ${isMine ? '' : `
     <div class="item-contactbar" id="itemContactBar">
       <button class="icon-btn cb-fav fav-btn ${isFav ? 'active' : ''}" data-fav="${l.id}" aria-label="${t('item.fav')}">${HEART_SVG}</button>
-      ${l.phone ? `<button class="btn btn-secondary cb-call" data-action="show-phone" data-id="${l.id}">📞 ${t('item.callShort')}</button>` : ''}
-      <button class="btn btn-primary cb-write" data-action="write-seller" data-id="${l.id}">💬 ${t('item.writeShort')}</button>
+      ${l.phone ? `<button class="btn btn-secondary cb-call" data-action="show-phone" data-id="${l.id}">${icon('call',{size:17})} ${t('item.callShort')}</button>` : ''}
+      <button class="btn btn-primary cb-write" data-action="write-seller" data-id="${l.id}">${icon('message',{size:17})} ${t('item.writeShort')}</button>
     </div>`}
     ${similar.length ? `
     <section>
