@@ -273,6 +273,7 @@ function generateCatalogListings() {
       screenOrig: chance(0.92) ? 'Оригинал' : 'Замена',
       imei: chance(0.6) ? 'Есть' : 'Нет',
       warranty: isNew && chance(0.7) ? 'Есть' : 'Нет',
+      region: pick(['Официальный', 'Официальный', 'США', 'Европа', 'Дубай', 'Китай', 'Гонконг']),
     };
 
     out.push(base('electronics', 'Телефоны', `${m.name} ${storage}${storage >= 1024 ? 'ТБ' : 'ГБ'}, ${color}`, price, {

@@ -270,6 +270,52 @@ const O_ROOMS = [opt('Студия', 'Студия', 'Studio', 'Студия'), 
 const O_BIKETYPE = [opt('Горный', 'Горный', 'Mountain', 'Тоо'), opt('Шоссейный', 'Шоссейный', 'Road', 'Жол'), opt('Городской', 'Городской', 'City', 'Шаар'), opt('BMX', 'BMX', 'BMX', 'BMX'), opt('Складной', 'Складной', 'Folding', 'Бүктөлмө'), opt('Детский', 'Детский', 'Kids', 'Балдар'), opt('Электро', 'Электро', 'Electric', 'Электро')];
 const O_MOTOTYPE = [opt('Спорт', 'Спорт', 'Sport', 'Спорт'), opt('Туризм', 'Туризм', 'Touring', 'Туризм'), opt('Эндуро', 'Эндуро', 'Enduro', 'Эндуро'), opt('Скутер', 'Скутер', 'Scooter', 'Скутер'), opt('Чоппер', 'Чоппер', 'Chopper', 'Чоппер'), opt('Кросс', 'Кросс', 'Motocross', 'Кросс'), opt('Питбайк', 'Питбайк', 'Pit bike', 'Питбайк')];
 
+/* --- телефоны: комплект / регион поставки (проф-фильтры) --- */
+const O_COMPLETE = [
+  opt('Полный комплект', 'Полный комплект', 'Full box', 'Толук комплект'),
+  opt('Коробка и документы', 'Коробка и документы', 'Box & docs', 'Кутуча жана документтер'),
+  opt('Телефон и кабель', 'Телефон и кабель', 'Phone & cable', 'Телефон жана кабель'),
+  opt('Только телефон', 'Только телефон', 'Phone only', 'Телефон гана'),
+];
+const O_PHONE_REGION = [
+  opt('Официальный', 'Официальный', 'Official', 'Расмий'),
+  opt('США', 'США', 'USA', 'АКШ'),
+  opt('Европа', 'Европа', 'Europe', 'Европа'),
+  opt('Дубай', 'Дубай', 'Dubai', 'Дубай'),
+  opt('Китай', 'Китай', 'China', 'Кытай'),
+  opt('Гонконг', 'Гонконг', 'Hong Kong', 'Гонконг'),
+];
+/* --- недвижимость: тип дома / отопление / мебель / документы / район (проф-фильтры) --- */
+const O_HOUSETYPE = [
+  opt('Панельный', 'Панельный', 'Panel', 'Панелдүү'),
+  opt('Кирпичный', 'Кирпичный', 'Brick', 'Кыштан'),
+  opt('Монолит', 'Монолит', 'Monolithic', 'Монолит'),
+  opt('Элитка', 'Элитка', 'Premium', 'Элитка'),
+  opt('Новостройка', 'Новостройка', 'New build', 'Жаңы курулуш'),
+  opt('Саманный', 'Саманный', 'Adobe', 'Саман'),
+  opt('Деревянный', 'Деревянный', 'Wooden', 'Жыгач'),
+  opt('Каркасный', 'Каркасный', 'Frame', 'Каркас'),
+  opt('Блочный', 'Блочный', 'Block', 'Блок'),
+];
+const O_HEATING = [
+  opt('Центральное', 'Центральное', 'Central', 'Борбордук'),
+  opt('Автономное', 'Автономное', 'Autonomous', 'Автономдук'),
+  opt('Газовое', 'Газовое', 'Gas', 'Газ'),
+  opt('Электрическое', 'Электрическое', 'Electric', 'Электр'),
+  opt('Печное', 'Печное', 'Stove', 'Меш'),
+];
+const O_FURNITURE = [
+  opt('С мебелью', 'С мебелью', 'Furnished', 'Эмерек менен'),
+  opt('Частично', 'Частично', 'Partly furnished', 'Жарым-жартылай'),
+  opt('Без мебели', 'Без мебели', 'Unfurnished', 'Эмереги жок'),
+];
+const O_DOCS = [
+  opt('Красная книга', 'Красная книга', 'Red book (title)', 'Кызыл китеп'),
+  opt('Тех. паспорт', 'Тех. паспорт', 'Tech passport', 'Тех. паспорт'),
+  opt('Договор купли-продажи', 'Договор', 'Sale contract', 'Келишим'),
+];
+const O_DISTRICT = ['Центр', 'Джал', 'Аламедин-1', 'Асанбай', 'Восток-5', 'Кок-Жар', 'Тунгуч', 'Арча-Бешик', 'Ак-Орго', 'Политех'].map(d => opt(d, d, d, d));
+
 /* поля-конструкторы */
 const fBrand = (group) => ({ key: 'brand', label: T3('Марка', 'Brand', 'Марка'), type: 'brand', group });
 const fModel = () => ({ key: 'model', label: T3('Модель', 'Model', 'Модель'), type: 'model' });
@@ -319,6 +365,8 @@ const ATTR_SCHEMA = {
     fSelect('g5', T3('5G', '5G', '5G'), [opt('Есть','Есть','Yes','Бар'), opt('Нет','Нет','No','Жок')], true),
     fSelect('esim', T3('eSIM', 'eSIM', 'eSIM'), [opt('Есть','Есть','Yes','Бар'), opt('Нет','Нет','No','Жок')], true),
     fSelect('warranty', T3('Гарантия', 'Warranty', 'Кепилдик'), [opt('Есть','Есть','Yes','Бар'), opt('Нет','Нет','No','Жок')], true),
+    fSelect('complete', T3('Комплект', 'What\'s included', 'Комплект'), O_COMPLETE, true),
+    fSelect('region', T3('Регион', 'Region', 'Регион'), O_PHONE_REGION, true),
     fColor(),
   ],
   'Ноутбуки': [
@@ -363,18 +411,31 @@ const ATTR_SCHEMA = {
   /* --- недвижимость --- */
   'Продажа квартир': [
     fSelect('rooms', T3('Комнат', 'Rooms', 'Бөлмөлөр'), O_ROOMS, true),
+    fSelect('district', T3('Район', 'District', 'Район'), O_DISTRICT, true),
     fNum('area', T3('Площадь', 'Area', 'Аянты'), T3('м²', 'm²', 'м²'), 1, 1000, true),
     fNum('floor', T3('Этаж', 'Floor', 'Кабат'), null, 1, 100, true),
     fNum('floors', T3('Этажей в доме', 'Total floors', 'Үйдөгү кабаттар'), null, 1, 100, true),
+    fSelect('houseType', T3('Тип дома', 'Building type', 'Үй түрү'), O_HOUSETYPE, true),
+    fSelect('heating', T3('Отопление', 'Heating', 'Жылытуу'), O_HEATING, true),
+    fSelect('furniture', T3('Мебель', 'Furniture', 'Эмерек'), O_FURNITURE, true),
+    fSelect('docs', T3('Документы', 'Documents', 'Документтер'), O_DOCS, true),
   ],
   'Аренда квартир': [
     fSelect('rooms', T3('Комнат', 'Rooms', 'Бөлмөлөр'), O_ROOMS, true),
+    fSelect('district', T3('Район', 'District', 'Район'), O_DISTRICT, true),
     fNum('area', T3('Площадь', 'Area', 'Аянты'), T3('м²', 'm²', 'м²'), 1, 1000, true),
     fNum('floor', T3('Этаж', 'Floor', 'Кабат'), null, 1, 100, true),
+    fSelect('heating', T3('Отопление', 'Heating', 'Жылытуу'), O_HEATING, true),
+    fSelect('furniture', T3('Мебель', 'Furniture', 'Эмерек'), O_FURNITURE, true),
   ],
   'Дома и участки': [
     fNum('area', T3('Площадь дома', 'House area', 'Үйдүн аянты'), T3('м²', 'm²', 'м²'), 1, 5000, true),
     fNum('land', T3('Участок', 'Land', 'Жер'), T3('сот.', 'are', 'сот.'), 0, 10000, true),
+    fSelect('district', T3('Район', 'District', 'Район'), O_DISTRICT, true),
+    fSelect('houseType', T3('Тип строения', 'Building type', 'Курулуш түрү'), O_HOUSETYPE, true),
+    fSelect('heating', T3('Отопление', 'Heating', 'Жылытуу'), O_HEATING, true),
+    fSelect('furniture', T3('Мебель', 'Furniture', 'Эмерек'), O_FURNITURE, true),
+    fSelect('docs', T3('Документы', 'Documents', 'Документтер'), O_DOCS, true),
   ],
 
   /* --- хобби и спорт --- */

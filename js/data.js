@@ -501,6 +501,63 @@ let LISTINGS = generateListings();
   items.forEach((it, i) => LISTINGS.push({ ...base, phone: phones[i], ...it }));
 })();
 
+/* --- Обогащение недвижимости структурными атрибутами (проф-фильтры) ---
+   Объявления недвижимости приходят из TEMPLATES без attrs → фильтры комнат/
+   площади/этажа/района/отопления/мебели/документов/типа дома были мертвы.
+   Парсим из заголовка что можем (комнаты «2-комн», площадь «78 м²», этаж «5/9»,
+   район, «мебель», «красная книга», «элитка/новостройка/104 серия»), остальное
+   заполняем сид-детерминированно (стабильно между перезагрузками). */
+(function enrichRealty() {
+  const rnd = mulberry32(70125);
+  const pick = a => a[Math.floor(rnd() * a.length)];
+  const range = (a, b) => a + Math.floor(rnd() * (b - a + 1));
+  for (const l of LISTINGS) {
+    if (l.category !== 'realty') continue;
+    const t = (l.title || '').toLowerCase();
+    const sub = l.subcategory;
+    const isApt = sub === 'Продажа квартир' || sub === 'Аренда квартир';
+    const a = {};
+    // комнаты
+    const rm = t.match(/(\d+)\s?[-\s]?комн/);
+    if (/студи/.test(t) || /комнат[аеу]\b/.test(t)) a.rooms = 'Студия';
+    else if (rm) a.rooms = (+rm[1] >= 5) ? '5+' : String(rm[1]);
+    else if (isApt) a.rooms = pick(['Студия', '1', '2', '2', '3', '3', '4']);
+    // площадь (м²)
+    const am = t.match(/(\d{2,4})\s?м²/);
+    if (am) a.area = am[1];
+    else if (sub === 'Дома и участки') a.area = String(range(80, 260));
+    else if (isApt) a.area = String(range(30, 110));
+    // этаж «5/9»
+    const fm = t.match(/(\d{1,2})\s?\/\s?(\d{1,2})/);
+    if (fm) { a.floor = fm[1]; a.floors = fm[2]; }
+    else if (isApt) { const tot = range(5, 16); a.floors = String(tot); a.floor = String(range(1, tot)); }
+    // район: из заголовка, иначе — если Бишкек — существующий/случайный
+    const distr = BISHKEK_DISTRICTS.find(d => t.includes(d.toLowerCase()));
+    if (distr) { a.district = distr; l.district = distr; l.city = 'Бишкек'; }
+    else if (l.city === 'Бишкек') a.district = l.district || pick(BISHKEK_DISTRICTS);
+    // отопление
+    a.heating = sub === 'Дома и участки'
+      ? pick(['Автономное', 'Газовое', 'Электрическое', 'Печное'])
+      : pick(['Центральное', 'Центральное', 'Автономное', 'Газовое', 'Электрическое']);
+    // мебель
+    a.furniture = /мебел/.test(t) ? 'С мебелью'
+      : (sub === 'Аренда квартир' ? pick(['С мебелью', 'С мебелью', 'Частично', 'Без мебели'])
+        : pick(['С мебелью', 'Частично', 'Без мебели']));
+    // документы
+    a.docs = /красная книга/.test(t) ? 'Красная книга'
+      : pick(['Красная книга', 'Тех. паспорт', 'Договор купли-продажи']);
+    // тип дома / строения
+    if (sub === 'Дома и участки') a.houseType = pick(['Кирпичный', 'Саманный', 'Деревянный', 'Каркасный', 'Блочный']);
+    else if (isApt) {
+      if (/элитк/.test(t)) a.houseType = 'Элитка';
+      else if (/новостройк|псо|сдача|ак-кеме|магистрал/.test(t)) a.houseType = 'Новостройка';
+      else if (/сери|104|105|106/.test(t)) a.houseType = 'Панельный';
+      else a.houseType = pick(['Панельный', 'Кирпичный', 'Монолит', 'Элитка', 'Новостройка']);
+    }
+    l.attrs = a;
+  }
+})();
+
 /* ============================================================
    Демо-товары для флоу «Продажа за 30 секунд»:
    что пользователь «фотографирует», а ИИ-помощница распознаёт.
