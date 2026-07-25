@@ -164,8 +164,45 @@ async function authUpdateProfile(patch) {
    Данные через Supabase: объявления, чаты, сообщения, realtime.
    ============================================================ */
 
+const PHOTO_BUCKET = 'listing-photos';
+function _dataUrlToBlob(dataUrl) {
+  const [head, body] = String(dataUrl).split(',');
+  const mime = (head.match(/data:([^;]+)/) || [, 'image/jpeg'])[1];
+  const bin = atob(body);
+  const buf = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+  return new Blob([buf], { type: mime });
+}
+/* Загрузить base64-фото в Supabase Storage → вернуть массив public-URL.
+   Числа (демо-сиды) и уже-URL проходят как есть. Путь {uid}/{listingId}/{rand}.jpg
+   — RLS проверяет первый сегмент (чужую папку залить нельзя). ФОЛБЭК: если
+   загрузка не удалась (напр. бакет ещё не создан) — оставляем base64, объявление
+   всё равно опубликуется (обратная совместимость). */
+async function uploadListingPhotos(listingId, photos) {
+  if (!sb || !AUTH.user || !photos || !photos.length) return photos || [];
+  const me = AUTH.user.id;
+  const out = [];
+  for (let i = 0; i < photos.length && i < 10; i++) {
+    const p = photos[i];
+    if (typeof p !== 'string') { out.push(p); continue; }       // демо-сид (число)
+    if (!p.startsWith('data:')) { out.push(p); continue; }      // уже URL/путь
+    try {
+      const blob = _dataUrlToBlob(p);
+      if (blob.size > 5 * 1024 * 1024) { out.push(p); continue; }
+      const name = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8) + '.jpg';
+      const path = me + '/' + listingId + '/' + name;
+      const { error } = await sb.storage.from(PHOTO_BUCKET).upload(path, blob, { contentType: blob.type || 'image/jpeg', upsert: false });
+      if (error) { console.warn('[storage] загрузка не удалась, оставляю base64:', error.message); out.push(p); continue; }
+      const pub = sb.storage.from(PHOTO_BUCKET).getPublicUrl(path);
+      out.push((pub && pub.data && pub.data.publicUrl) || p);
+    } catch (e) { out.push(p); }
+  }
+  return out;
+}
+
 async function dbCreateListing(l) {
   if (!sb || !AUTH.user) throw new Error('no-auth');
+  // 1) строка без фото — путь в Storage содержит id, а до вставки его нет
   const { data, error } = await sb.from('listings').insert({
     owner_id: AUTH.user.id,
     title: l.title, price: l.price || 0,
@@ -173,9 +210,16 @@ async function dbCreateListing(l) {
     floor: l.floor > 0 ? l.floor : null,
     category: l.category, subcategory: l.subcategory, city: l.city, district: l.district || null,
     condition: l.condition || null, description: l.description || '',
-    photos: l.photos || [], negotiable: !!l.negotiable, attrs: l.attrs || {},
+    photos: [], negotiable: !!l.negotiable, attrs: l.attrs || {},
   }).select().single();
   if (error) throw error;
+  // 2) фото → Storage (public-URL), обновляем строку
+  const photos = await uploadListingPhotos(data.id, l.photos || []);
+  if (photos.length) {
+    const { data: upd } = await sb.from('listings').update({ photos }).eq('id', data.id).eq('owner_id', AUTH.user.id).select().single();
+    if (upd) return upd;
+    data.photos = photos;
+  }
   return data;
 }
 
@@ -183,12 +227,13 @@ async function dbCreateListing(l) {
    даже при подделанном id (RLS режет это и на сервере, но проверяем сразу) */
 async function dbUpdateListing(id, p) {
   if (!sb || !AUTH.user) throw new Error('no-auth');
+  const photos = await uploadListingPhotos(id, p.photos || []); // новые base64 → Storage
   const { data, error } = await sb.from('listings')
     .update({
       title: p.title, price: p.price || 0, floor: p.floor > 0 ? p.floor : null,
       category: p.category, subcategory: p.subcategory, city: p.city,
       district: p.district || null, condition: p.condition || null,
-      description: p.description || '', photos: p.photos || [],
+      description: p.description || '', photos: photos,
       negotiable: !!p.negotiable, attrs: p.attrs || {},
     })
     .eq('id', id).eq('owner_id', AUTH.user.id)

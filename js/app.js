@@ -124,14 +124,15 @@ function allListings() { return [...state.myListings, ...state.dbListings, ...LI
 
 /* строгий allowlist фото из чужой БД: только настоящие base64-картинки.
    Любая другая строка (потенциальный XSS через кавычку в src) отбрасывается. */
-const DB_PHOTO_RE = /^data:image\/(png|jpe?g|webp|gif|avif);base64,[A-Za-z0-9+/=]+$/;
+// реальное фото: base64 data-URI (старые/локальные) ИЛИ https-URL из Supabase Storage
+const DB_PHOTO_RE = /^(data:image\/(png|jpe?g|webp|gif|avif);base64,[A-Za-z0-9+/=]+|https:\/\/\S+)$/;
 
 /* строка из БД → форма объявления, понятная приложению */
 function dbToListing(r, profs) {
   const raw = Array.isArray(r.photos) ? r.photos : [];
   // реальные фото (камера/ИИ) приходят как data-URI строки → userPhotos (рендерим как есть);
   // демо-сиды (числа) → pickedSeeds (через photoURL-заглушки)
-  const realPhotos = raw.length && typeof raw[0] === 'string' && String(raw[0]).startsWith('data:');
+  const realPhotos = raw.length && typeof raw[0] === 'string' && (String(raw[0]).startsWith('data:') || String(raw[0]).startsWith('http'));
   const photos = realPhotos
     ? raw.filter(p => typeof p === 'string' && DB_PHOTO_RE.test(p))
     : raw.filter(p => typeof p === 'number');
