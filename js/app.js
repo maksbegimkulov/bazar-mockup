@@ -3721,6 +3721,7 @@ function renderProfile() {
           <button class="seg-btn ${THEME === 'system' ? 'active' : ''}" data-set-theme="system"><span class="seg-emoji">${icon('auto',{size:16})}</span> ${t('theme.system')}</button>
         </div>
       </div>
+      ${(window.bzInstall && window.bzInstall.rowHTML()) ? `<div class="setting-row setting-row-full">${window.bzInstall.rowHTML()}</div>` : ''}
     </div>`;
 
   const u = currentUser();
@@ -5071,6 +5072,7 @@ document.addEventListener('click', async e => {
       }
       case 'fav-collect': { openFavCollectModal(id); break; }
       case 'fav-coll-create': { favCollCreate(id); break; }
+      case 'pwa-install': { if (window.bzInstall) window.bzInstall.prompt(); break; }
       case 'not-interested': {
         state.hidden.add(id);
         lsSave(LS.hidden, [...state.hidden]);

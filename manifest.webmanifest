@@ -1,16 +1,57 @@
 {
+  "id": "/bazar-mockup/",
   "name": "BAZAR — объявления Кыргызстана",
   "short_name": "BAZAR",
-  "description": "Покупай и продавай по всему Кыргызстану: авто, недвижимость, электроника и всё остальное",
+  "description": "Покупай и продавай по всему Кыргызстану: авто, недвижимость, электроника и всё остальное. Умный поиск, ИИ-помощница и защита от мошенников.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#1a1f26",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "any",
+  "background_color": "#0f1318",
   "theme_color": "#00a06a",
   "lang": "ru",
+  "dir": "ltr",
+  "categories": ["shopping", "business", "lifestyle"],
+  "prefer_related_applications": false,
+  "launch_handler": { "client_mode": "navigate-existing" },
   "icons": [
     { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
     { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
     { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    {
+      "name": "Подать объявление",
+      "short_name": "Подать",
+      "description": "Продать за 30 секунд с ИИ",
+      "url": "./#/sell",
+      "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Поиск",
+      "short_name": "Поиск",
+      "description": "Умный поиск по объявлениям",
+      "url": "./#/search",
+      "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Избранное",
+      "short_name": "Избранное",
+      "description": "Сохранённые объявления и коллекции",
+      "url": "./#/favorites",
+      "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Сообщения",
+      "short_name": "Чаты",
+      "description": "Переписка с продавцами и покупателями",
+      "url": "./#/chats",
+      "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }]
+    }
+  ],
+  "screenshots": [
+    { "src": "icons/og-image.png", "sizes": "1200x630", "type": "image/png", "form_factor": "wide", "label": "BAZAR — маркетплейс Кыргызстана" }
   ]
 }

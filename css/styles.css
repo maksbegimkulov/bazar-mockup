@@ -3075,3 +3075,26 @@ a.seller-card { display: flex; gap: 12px; align-items: center; text-decoration: 
 /* выравнивание иконок в sell/safety кнопках */
 .sell-can-cancel, [data-sell-restart], [data-sell-exit], .sell-ready-check, .cpb-x { display: inline-flex; align-items: center; gap: 5px; }
 .sell-ready-check svg, .cpb-x svg { flex-shrink: 0; }
+
+/* установка PWA как приложения (баннер + кнопка в профиле) */
+.install-banner {
+  position: fixed; left: 50%;
+  bottom: calc(var(--bottomnav-h, 62px) + env(safe-area-inset-bottom) + 12px);
+  width: calc(100% - 20px); max-width: 480px; z-index: 80;
+  display: flex; align-items: center; gap: 11px;
+  background: var(--card); border: 1px solid var(--line-2);
+  border-radius: var(--radius-lg); box-shadow: var(--shadow-lg);
+  padding: 11px 12px 11px 13px;
+  transform: translateX(-50%) translateY(150%); opacity: 0;
+  transition: transform var(--dur-3) var(--ease-spring), opacity var(--dur-2) var(--ease);
+}
+.install-banner.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+.ib-ico { display: inline-grid; place-items: center; width: 42px; height: 42px; border-radius: 12px; background: var(--accent-soft); color: var(--accent-dark); flex-shrink: 0; }
+.ib-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.ib-title { font-weight: var(--w-bold); font-size: var(--fs-base); line-height: 1.2; }
+.ib-sub { color: var(--text-3); font-size: var(--fs-xs); margin-top: 1px; }
+.ib-go { flex-shrink: 0; }
+.ib-x { display: inline-grid; place-items: center; width: 30px; height: 30px; color: var(--text-3); flex-shrink: 0; border-radius: 50%; }
+.ib-x:active { transform: scale(0.9); }
+.setting-row-full { display: block; }
+.install-row-btn { justify-content: center; width: 100%; }
