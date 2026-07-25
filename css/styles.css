@@ -2847,3 +2847,80 @@ a.seller-card { display: flex; gap: 12px; align-items: center; text-decoration: 
 .card-bargain, .save-search-btn, .map-open-btn, .seg-btn, .notif-pref-lbl, .sn-ico, .trust-chip { display: inline-flex; align-items: center; gap: 5px; }
 .card-bargain svg, .save-search-btn svg, .map-open-btn svg, .seg-btn svg, .sug-ico svg, .notif-ico svg { flex-shrink: 0; }
 .seg-emoji { display: inline-flex; }
+
+/* ============================================================
+   КАСТОМНЫЙ DROPDOWN (js/select.js) — единый вид на iOS/Android.
+   Нативный <select> спрятан, но остаётся источником состояния.
+   ============================================================ */
+.cs-block { position: relative; display: block; width: 100%; }
+.cs-inline { position: relative; display: inline-block; vertical-align: middle; }
+.cs > select {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  opacity: 0; margin: 0; pointer-events: none; z-index: -1;
+}
+.cs-trigger {
+  display: inline-flex; align-items: center;
+  text-align: left; cursor: pointer; overflow: hidden;
+  padding-right: 30px;                 /* место под chevron-фон исходного select */
+}
+.cs-inline .cs-trigger { width: 100%; }
+.cs-trigger .cs-value {
+  flex: 1; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.cs-trigger:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); outline: none; }
+.cs-open .cs-trigger, .cs-trigger[aria-expanded="true"] { border-color: var(--accent); }
+
+/* слой поповера (десктоп) */
+.cs-layer { position: fixed; inset: 0; z-index: 2000; }
+.cs-panel { background: var(--card); border: 1px solid var(--line-2); box-shadow: var(--shadow-lg); }
+.cs-pop {
+  position: fixed; border-radius: var(--radius-s);
+  overflow: auto; overscroll-behavior: contain; padding: 5px;
+  animation: cs-fade var(--dur-1) var(--ease);
+}
+@keyframes cs-fade { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+
+/* нижний шит (мобайл) */
+.cs-backdrop {
+  position: fixed; inset: 0; z-index: 2000;
+  background: rgba(0,0,0,0.45);
+  -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
+  display: flex; align-items: flex-end;
+  animation: cs-fade var(--dur-1) var(--ease);
+}
+.cs-sheet {
+  width: 100%;
+  border: none;
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  max-height: 74vh; max-height: 74dvh;
+  overflow: auto; overscroll-behavior: contain;
+  padding: 6px 6px calc(6px + env(safe-area-inset-bottom));
+  animation: cs-slide var(--dur-2) var(--ease);
+}
+@keyframes cs-slide { from { transform: translateY(100%); } to { transform: none; } }
+.cs-sheet-head {
+  position: sticky; top: 0; z-index: 1;
+  background: var(--card);
+  font-weight: var(--w-bold); font-size: var(--fs-md);
+  padding: 12px 12px 10px; margin-bottom: 2px;
+}
+.cs-sheet-head::after {
+  content: ''; position: absolute; top: 7px; left: 50%; transform: translateX(-50%);
+  width: 38px; height: 4px; border-radius: 999px; background: var(--line-2);
+}
+
+.cs-list { display: flex; flex-direction: column; }
+.cs-opt {
+  display: block; width: 100%; text-align: left;
+  padding: 11px 13px; border-radius: 10px;
+  font-size: var(--fs-base); color: var(--text);
+  transition: background var(--dur-1) var(--ease);
+}
+.cs-opt:hover { background: var(--stripe-a); }
+.cs-opt.sel { color: var(--accent-dark); font-weight: var(--w-bold); background: var(--accent-soft); }
+.cs-opt.sel::after {
+  content: ''; float: right; width: 16px; height: 16px; margin-top: 2px;
+  background: no-repeat center/contain url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%2300a06a' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 8.5l3.5 3.5L13 4'/%3E%3C/svg%3E");
+}
+@media (max-width: 720px) { .cs-opt { padding: 13px 15px; font-size: 16px; } }
