@@ -413,21 +413,46 @@ function sellerStats(l) {
       rating: reviews ? (Number(l.sellerRating) || 0).toFixed(1) : null,
       reviews,
       isNew: reviews === 0,
-      verified: false,        // раздельные верификации подключим отдельно
+      verified: false,        // у реального продавца данных верификации ещё нет
+      verifications: { phone: false, identity: false, business: l.sellerType === 'business', docs: false },
       business: l.sellerType === 'business',
       real: true,
     };
   }
   const key = sellerKey(l);
   let h = 0; for (const ch of key) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  const biz = l.sellerType === 'business';
+  // раздельные верификации (детерминированно из хеша ключа — стабильны у продавца):
+  // телефон/личность/бизнес/документы вместо одной непонятной галочки
+  const verifications = {
+    phone: (h % 5) !== 0,                  // ~80% — телефон подтверждён
+    identity: (h % 3) === 0,               // ~33% — личность
+    business: biz,                          // бизнес-аккаунт
+    docs: biz && (h % 2) === 0,             // документы (только у бизнеса, ~50%)
+  };
   return {
     rating: ((40 + (h % 11)) / 10).toFixed(1),  // 4.0..5.0
     reviews: 3 + (h % 180),                       // 3..182
     isNew: false,
-    verified: (h % 3) !== 0,                      // ~2/3 проверены
-    business: l.sellerType === 'business',
+    verified: verifications.phone || verifications.identity, // общий индикатор для скоринга/карточки
+    verifications,
+    business: biz,
     demo: true,
   };
+}
+
+/* раздельные верификации → чипы (телефон/личность/бизнес/документы) */
+function verificationsHTML(ss) {
+  if (!ss || !ss.verifications) return '';
+  const L = ({
+    ru: { phone: 'Телефон', identity: 'Личность', business: 'Бизнес', docs: 'Документы', head: 'Подтверждено' },
+    en: { phone: 'Phone', identity: 'Identity', business: 'Business', docs: 'Documents', head: 'Verified' },
+    ky: { phone: 'Телефон', identity: 'Инсандыгы', business: 'Бизнес', docs: 'Документтер', head: 'Ырасталган' },
+  })[LANG] || { phone: 'Телефон', identity: 'Личность', business: 'Бизнес', docs: 'Документы', head: 'Подтверждено' };
+  const chips = ['phone', 'identity', 'business', 'docs'].filter(k => ss.verifications[k]).map(k =>
+    `<span class="verif-chip"><span class="verif-chip-ic">${icon('check', { size: 11, stroke: 3 })}</span>${L[k]}</span>`).join('');
+  if (!chips) return '';
+  return `<div class="verif-list"><span class="verif-list-head">${icon('shield', { size: 14 })} ${L.head}:</span>${chips}</div>`;
 }
 
 /* Риск-скоринг доверия продавца (антифрод, виден покупателю).
@@ -3385,9 +3410,10 @@ function renderSeller(rawKey) {
     <div class="seller-hero">
       <div class="avatar avatar-xl" style="${avatarStyle(name)}">${esc(name[0] || 'U')}</div>
       <div class="seller-hero-info">
-        <h1>${esc(name)} ${ss.business ? `<span class="seller-badge">${t('seller.business')}</span>` : ''} ${ss.verified ? `<span class="verif-badge">✓ ${t('seller.verified')}</span>` : ''}</h1>
+        <h1>${esc(name)} ${ss.business ? `<span class="seller-badge">${t('seller.business')}</span>` : ''}</h1>
         <div class="seller-hero-sub">${sellerRatingHTML(ss)} · ${t('seller.since')} ${sample.sellerSinceYear} ${t('seller.sinceEnd')}</div>
-        <div class="seller-hero-stats"><span><b>${active.length}</b> ${t('seller.activeAds')}</span>${ss.verified ? `<span class="ok">✓ ${t('seller.verifiedHint')}</span>` : ''}</div>
+        <div class="seller-hero-stats"><span><b>${active.length}</b> ${t('seller.activeAds')}</span></div>
+        ${verificationsHTML(ss)}
       </div>
     </div>
     ${sellerTrustHTML(sellerTrust(listings, ss, sample))}

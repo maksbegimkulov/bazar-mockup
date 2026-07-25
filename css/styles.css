@@ -3019,3 +3019,15 @@ a.seller-card { display: flex; gap: 12px; align-items: center; text-decoration: 
 }
 .msg.has-photo time { padding: 2px 6px 0; }
 .lightbox-img { display: block; max-width: 100%; max-height: 78vh; border-radius: 10px; margin: 0 auto; }
+
+/* раздельные верификации продавца (телефон/личность/бизнес/документы) */
+.verif-list { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 9px; }
+.verif-list-head { display: inline-flex; align-items: center; gap: 5px; font-size: var(--fs-sm); font-weight: var(--w-semibold); color: var(--text-2); }
+.verif-list-head svg { flex-shrink: 0; }
+.verif-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: var(--fs-xs); font-weight: var(--w-bold);
+  color: var(--ok-text); background: var(--ok-soft);
+  padding: 4px 10px; border-radius: var(--radius-pill);
+}
+.verif-chip-ic { display: inline-flex; color: var(--ok); }
