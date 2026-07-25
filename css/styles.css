@@ -21,7 +21,7 @@
   --stripe-a: #f1f2f4;
   --stripe-b: #ececef;
   --map-land: #eef4ee;
-  --map-border: #cfdacd;
+  --map-border: #a6c6b3;
   --map-lake: #bfe3f5;
   --map-lake-border: #9fd2ec;
   --map-dot: #b9c2cc;
@@ -83,7 +83,7 @@
   --stripe-a: #1f252d;
   --stripe-b: #242b34;
   --map-land: #1d242c;
-  --map-border: #303a45;
+  --map-border: #3f4e5b;
   --map-lake: #143049;
   --map-lake-border: #1d4a6e;
   --map-dot: #4d5863;
@@ -1921,9 +1921,10 @@ main#app > .chats-layout { animation: none; }
 @keyframes mapPulse { 0% { transform: scale(0.5); opacity: 0.4; } 100% { transform: scale(1.4); opacity: 0; } }
 .map-caption { color: var(--text-2); font-size: 13px; margin: 12px 0; }
 
-.kg-map .land { fill: var(--map-land); stroke: var(--map-border); }
-.kg-map .lake { fill: var(--map-lake); stroke: var(--map-lake-border); }
+.kg-map .region { fill: var(--map-land); stroke: var(--map-border); stroke-width: 1.2; fill-rule: evenodd; stroke-linejoin: round; vector-effect: non-scaling-stroke; transition: fill .15s ease; }
+.kg-map .lake { fill: var(--map-lake); stroke: var(--map-lake-border); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .kg-map .citydot { fill: var(--map-dot); }
+.kg-map .land { fill: var(--map-land); stroke: var(--map-border); } /* совместимость */
 
 /* ---------------- карта объявлений (страница #/map) ---------------- */
 .map-page { display: grid; grid-template-columns: 1fr 300px; gap: var(--sp-4, 18px); align-items: start; margin-top: 12px; }
@@ -1937,7 +1938,7 @@ main#app > .chats-layout { animation: none; }
 .kg-map-cluster .map-bub:focus-visible .map-bub-c { opacity: 1; }
 .kg-map-cluster .map-bub.on .map-bub-c { fill: var(--accent); opacity: 1; stroke-width: 3; }
 .kg-map-cluster .map-bub-labels { pointer-events: none; }
-.kg-map-cluster .map-bub-n { fill: #fff; font-size: 13px; font-weight: 800; pointer-events: none; }
+.kg-map-cluster .map-bub-n { fill: #fff; font-size: 13px; font-weight: 800; pointer-events: none; paint-order: stroke; stroke: rgba(6, 34, 22, 0.4); stroke-width: 2.5px; stroke-linejoin: round; }
 .kg-map-cluster .map-bub-city { fill: var(--text); font-size: 13px; font-weight: 700; paint-order: stroke; stroke: var(--card); stroke-width: 3px; pointer-events: none; }
 .kg-map-cluster .map-bub:focus-visible { outline: none; }
 
