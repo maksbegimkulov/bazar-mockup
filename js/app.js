@@ -23,6 +23,7 @@ const LS = {
   postDraft: 'bazar_post_draft', // незаконченное объявление (не терять при уходе)
   favMeta: 'bazar_fav_meta',     // по избранному: цена на момент добавления, заметка, статус
   favColls: 'bazar_fav_colls',   // коллекции избранного: { название: [id,…] }
+  hidden: 'bazar_hidden',        // «Не интересно»: id, скрытые ИЗ РЕКОМЕНДАЦИЙ (не из поиска)
   aiq: 'bazar_aiq',              // кэш ИИ-разбора сложных запросов (не жечь API повторно)
 };
 
@@ -45,6 +46,7 @@ state.chatRead = lsLoad(LS.chatRead, {});          // chatId → ts прочит
 state.favMeta = lsLoad(LS.favMeta, {});            // id → {price, ts, note, gone}
 state.favColls = lsLoad(LS.favColls, {});          // коллекции: { название: [id,…] }
 state.favActiveCol = null;                          // текущий фильтр по коллекции (сессия)
+state.hidden = new Set(lsLoad(LS.hidden, [])); // «Не интересно» — скрыто из рекомендаций
 state.page = 1;
 state.galleryIndex = 0;
 state.auth = { mode: 'login', method: 'email' };  // экран входа/регистрации
@@ -872,18 +874,18 @@ function renderHome() {
     viewedAll.forEach(l => { subCount[l.subcategory] = (subCount[l.subcategory] || 0) + 1; });
     const topSub = Object.keys(subCount).sort((a, b) => subCount[b] - subCount[a])[0];
     const viewedIds = new Set(state.viewed);
-    const reco = all.filter(l => l.subcategory === topSub && !viewedIds.has(l.id))
+    const reco = all.filter(l => l.subcategory === topSub && !viewedIds.has(l.id) && !state.hidden.has(l.id))
       .sort((a, b) => hoursAgo(a) - hoursAgo(b)).slice(0, 4);
     if (reco.length >= 2) {
       const RC = ({
-        ru: { title: 'Рекомендуем вам', why: s => `Потому что вы смотрели: ${s}` },
-        en: { title: 'Recommended for you', why: s => `Because you viewed: ${s}` },
-        ky: { title: 'Сизге сунуштайбыз', why: s => `Себеби сиз карадыңыз: ${s}` },
-      })[LANG] || { title: 'Рекомендуем вам', why: s => `Потому что вы смотрели: ${s}` };
+        ru: { title: 'Рекомендуем вам', why: s => `Потому что вы смотрели: ${s}`, hide: 'Не интересно' },
+        en: { title: 'Recommended for you', why: s => `Because you viewed: ${s}`, hide: 'Not interested' },
+        ky: { title: 'Сизге сунуштайбыз', why: s => `Себеби сиз карадыңыз: ${s}`, hide: 'Кызык эмес' },
+      })[LANG] || { title: 'Рекомендуем вам', why: s => `Потому что вы смотрели: ${s}`, hide: 'Не интересно' };
       recoSection = `<section>
         <div class="section-title"><h2>${RC.title}</h2></div>
         <div class="reco-why">${icon('sparkle', { size: 14 })} ${esc(RC.why(subName(topSub)))}</div>
-        <div class="grid">${reco.map(cardHTML).join('')}</div>
+        <div class="grid">${reco.map(l => `<div class="reco-card">${cardHTML(l)}<button class="reco-dismiss" data-action="not-interested" data-id="${l.id}" title="${RC.hide}" aria-label="${RC.hide}">${icon('close', { size: 14, stroke: 2.4 })}</button></div>`).join('')}</div>
       </section>`;
     }
   }
@@ -3577,7 +3579,7 @@ function renderCompare() {
     ${items.length >= 2 ? `<div class="cmp-verdict">${icon('bulb',{size:16})} ${compareVerdict(items)}</div>` : ''}
     <div class="cmp-scroll"><table class="cmp-table">
       <thead><tr><th class="cmp-corner"></th>${items.map(l => `<th><button class="cmp-rm" data-action="compare-remove" data-id="${l.id}" aria-label="${t('cmp.clear')}">${icon('close',{size:14,stroke:2.4})}</button><a href="#/item/${l.id}" data-link><span class="cmp-photo">${getPhotos(l).length ? `<img src="${esc(getPhotos(l)[0])}" alt="">` : icon('image',{size:22,stroke:1.6})}</span><span class="cmp-name">${esc(l.title)}</span></a></th>`).join('')}</tr></thead>
-      <tbody>${rows.map(r => `<tr class="${r.differ ? '' : 'cmp-same'}"><td class="cmp-lbl">${esc(r.label)}</td>${r.vals.map((v, i) => `<td class="${i === r.best ? 'cmp-best' : ''}">${esc(String(v))}${i === r.best ? ' <span class="cmp-star">✓</span>' : ''}</td>`).join('')}</tr>`).join('')}</tbody>
+      <tbody>${rows.map(r => `<tr class="${r.differ ? '' : 'cmp-same'}"><td class="cmp-lbl">${esc(r.label)}</td>${r.vals.map((v, i) => `<td class="${i === r.best ? 'cmp-best' : ''}">${esc(String(v))}${i === r.best ? ` <span class="cmp-star">${icon('check', { size: 12, stroke: 3 })}</span>` : ''}</td>`).join('')}</tr>`).join('')}</tbody>
     </table></div>`;
 }
 
@@ -5066,6 +5068,13 @@ document.addEventListener('click', async e => {
       }
       case 'fav-collect': { openFavCollectModal(id); break; }
       case 'fav-coll-create': { favCollCreate(id); break; }
+      case 'not-interested': {
+        state.hidden.add(id);
+        lsSave(LS.hidden, [...state.hidden]);
+        showToast(({ ru: 'Скрыто из рекомендаций', en: 'Hidden from recommendations', ky: 'Сунуштардан жашырылды' })[LANG] || 'Скрыто из рекомендаций');
+        renderHome();
+        break;
+      }
       case 'fav-forget': {
         state.favorites.delete(id);
         delete state.favMeta[id];
