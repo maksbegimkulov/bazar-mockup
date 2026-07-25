@@ -851,16 +851,16 @@ function renderHome() {
   // «свежие» — строго по дате, без VIP-буста
   const fresh = [...all].sort((a, b) => hoursAgo(a) - hoursAgo(b)).slice(0, 12);
 
-  // категории — по популярности (больше объявлений → выше): пользователь чаще
-  // ищет в ходовых, они не должны прятаться внизу сетки
+  // категории на главной — МИНИМИЗИРОВАНЫ: компактная строка чипов (иконка +
+  // название), горизонтальный скролл, без счётчиков; полное дерево — в «Каталоге».
+  // По популярности (ходовые первыми), чтобы верхние были сразу видны.
   const tiles = CATEGORIES
     .map(c => ({ c, count: all.filter(l => l.category === c.id).length }))
     .sort((a, b) => b.count - a.count)
-    .map(({ c, count }) => `
-    <a class="cat-tile" href="#/search?cat=${c.id}" data-link>
-      <span class="cat-tile-icon" data-cat="${c.id}">${icon(c.id, { size: 25 })}</span>
-      <span class="cat-tile-name">${catName(c)}</span>
-      <span class="cat-tile-count">${nLabel(count)}</span>
+    .map(({ c }) => `
+    <a class="cat-chip" href="#/search?cat=${c.id}" data-link>
+      <span class="cat-chip-ico">${icon(c.id, { size: 18 })}</span>
+      <span class="cat-chip-name">${catName(c)}</span>
     </a>`).join('');
 
   // блок «вы смотрели» шёл мимо applyFilters, и объявление, на которое
@@ -928,8 +928,8 @@ function renderHome() {
       <div class="hero-examples">${exChips}</div>
     </section>
     <section>
-      <div class="section-title"><h2>${t('home.cats')}</h2></div>
-      <div class="cat-grid">${tiles}</div>
+      <div class="section-title"><h2>${t('home.cats')}</h2><a href="#/catalog" data-link>${(CAT_COPY[LANG] || CAT_COPY.ru).allCats}</a></div>
+      <div class="cat-strip">${tiles}</div>
     </section>
     <a class="sell-cta" href="#/sell" data-link>
       <span class="sell-cta-ico">${icon('camera', { size: 24 })}</span>
@@ -979,6 +979,45 @@ const HERO_COPY = {
     examples: ['айфон 15 про 60000 чейин', 'камри 2015 автомат', 'Жалда 2 бөлмө', 'оюн ноутбугу', 'диван жеткирүү менен'],
   },
 };
+
+/* Каталог: всё дерево разделов на одном экране — видно сразу, вход в раздел
+   или подраздел в один тап. Категории по популярности, под каждой — её
+   подкатегории с числом объявлений. Локализация инлайн (парити i18n не трогаем). */
+const CAT_COPY = {
+  ru: { catalog: 'Каталог', allCats: 'Все категории', sub: 'Все разделы — выберите нужный', empty: 'В выбранном городе пока нет объявлений — смените город.' },
+  en: { catalog: 'Catalog', allCats: 'All categories', sub: 'All sections — pick one', empty: 'No listings in the selected city yet — change the city.' },
+  ky: { catalog: 'Каталог', allCats: 'Бардык категориялар', sub: 'Бардык бөлүмдөр — тандаңыз', empty: 'Тандалган шаарда азырынча жарыя жок — шаарды өзгөртүңүз.' },
+};
+function renderCatalog() {
+  const C = CAT_COPY[LANG] || CAT_COPY.ru;
+  const base = { ...defaultFilters(), city: state.city };
+  const all = applyFilters(base);
+  const blocks = CATEGORIES
+    .map(c => ({ c, count: all.filter(l => l.category === c.id).length }))
+    .filter(({ count }) => count > 0)          // пустые в выбранном городе разделы не показываем (стена нулей)
+    .sort((a, b) => b.count - a.count)
+    .map(({ c, count }) => {
+      const subs = (c.subs || [])
+        .map(s => ({ s, n: all.filter(l => l.category === c.id && l.subcategory === s).length }))
+        .filter(({ n }) => n > 0)              // и пустые подкатегории тоже скрываем
+        .map(({ s, n }) => `<a class="cat-sub" href="#/search?cat=${c.id}&sub=${encodeURIComponent(s)}" data-link>
+          <span class="cat-sub-name">${esc(subName(s))}</span>
+          <span class="cat-sub-n">${fmtNum(n)}</span>
+        </a>`).join('');
+      return `<section class="cat-block">
+        <a class="cat-block-head" href="#/search?cat=${c.id}" data-link>
+          <span class="cat-block-icon" data-cat="${c.id}">${icon(c.id, { size: 22 })}</span>
+          <span class="cat-block-name">${catName(c)}</span>
+          <span class="cat-block-count">${nLabel(count)}</span>
+          <span class="cat-block-arrow">${icon('chevron', { size: 16, stroke: 2.2 })}</span>
+        </a>
+        <div class="cat-subs">${subs}</div>
+      </section>`;
+    }).join('');
+  app.innerHTML = `
+    <div class="page-head"><h1>${C.catalog}</h1><span class="page-head-sub">${C.sub}</span></div>
+    <div class="catalog-list">${blocks || `<p class="catalog-empty">${C.empty}</p>`}</div>`;
+}
 
 /* ---------------- поиск ---------------- */
 
@@ -1245,7 +1284,15 @@ function activeChipsHTML(f) {
    уточнение в 1 тап вместо фильтр-панели. Показываются, когда выбрана категория. */
 function subChipsHTML(f) {
   const cat = catById(f.cat);
-  if (!cat || !cat.subs || !cat.subs.length) return '';
+  // категория НЕ выбрана → строка категорий: быстрый вход в раздел прямо из
+  // выдачи. КНОПКА с мутацией на месте (как подкатегории ниже), а не ссылка —
+  // так сохраняются уже выставленные фильтры (цена/состояние/город/пресеты/запрос),
+  // а не сбрасываются роутером к дефолту
+  if (!cat) {
+    const chip = c => `<button class="sub-chip cat-jump" data-catjump="${c.id}">${icon(c.id, { size: 15 })}<span>${catName(c)}</span></button>`;
+    return `<div class="sub-chips" id="subChips">${CATEGORIES.map(chip).join('')}</div>`;
+  }
+  if (!cat.subs || !cat.subs.length) return '';
   const chip = (val, label, active) =>
     `<button class="sub-chip ${active ? 'on' : ''}" data-subchip="${esc(val)}">${label}</button>`;
   return `<div class="sub-chips" id="subChips">
@@ -4783,6 +4830,8 @@ function router() {
     if (requireAuth('#/notifications')) renderNotifications();
   } else if (path.startsWith('/analytics')) {
     if (typeof renderAnalytics === 'function') renderAnalytics(); else renderHome();
+  } else if (path.startsWith('/catalog')) {
+    renderCatalog();
   } else if (path.startsWith('/profile')) {
     renderProfile();
   } else {
@@ -4988,6 +5037,18 @@ document.addEventListener('click', async e => {
     const val = subChip.dataset.subchip;
     f.sub = f.sub === val ? '' : val;   // повторный тап по активной — снять
     f.attrs = {};                        // подкатегория сменилась — сбрасываем спец-атрибуты
+    state.page = 1;
+    renderSearch();
+    return;
+  }
+  // быстрый вход в категорию из строки разделов (когда категория не выбрана):
+  // мутируем на месте — прочие фильтры (цена/состояние/город/пресеты/запрос) сохраняются
+  const catJump = e.target.closest('[data-catjump]');
+  if (catJump) {
+    const f = state.filters;
+    f.cat = catJump.dataset.catjump;
+    f.sub = '';                          // новая категория — своя ветка подкатегорий
+    f.attrs = {};                        // спец-атрибуты прошлой категории не применимы
     state.page = 1;
     renderSearch();
     return;

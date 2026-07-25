@@ -3135,6 +3135,70 @@ a.seller-card { display: flex; gap: 12px; align-items: center; text-decoration: 
 .sub-chip.on { color: #fff; background: var(--accent-grad); border-color: transparent; box-shadow: var(--accent-glow); }
 @media (hover: hover) and (pointer: fine) { .sub-chip:hover:not(.on) { border-color: var(--accent); color: var(--accent-dark); } }
 
-/* сетка категорий главной — чуть компактнее и живее (популярные уже отсортированы кодом) */
-@media (max-width: 720px) { .cat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; } }
-@media (max-width: 400px) { .cat-grid { gap: 8px; } .cat-tile { padding: 11px; } }
+/* категории на главной МИНИМИЗИРОВАНЫ: компактная строка чипов в один ряд
+   с горизонтальным скроллом (вместо крупной сетки карточек) — экономит экран,
+   ходовые видны сразу, полное дерево в «Каталоге» */
+.cat-strip {
+  display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none;
+  padding-bottom: 2px; -webkit-overflow-scrolling: touch;
+}
+.cat-strip::-webkit-scrollbar { display: none; }
+.cat-chip {
+  flex-shrink: 0; display: inline-flex; align-items: center; gap: 8px;
+  padding: 9px 15px 9px 12px; border-radius: var(--radius-pill);
+  background: var(--card); border: 1px solid var(--line);
+  font-size: var(--fs-sm); font-weight: var(--w-semibold); color: var(--text);
+  box-shadow: var(--shadow);
+  transition: border-color var(--dur-1) var(--ease), background var(--dur-1) var(--ease), transform var(--dur-1) var(--ease);
+}
+.cat-chip:active { transform: scale(0.96); }
+.cat-chip-ico { display: inline-flex; color: var(--accent-dark); flex-shrink: 0; }
+.cat-chip-name { white-space: nowrap; }
+@media (hover: hover) and (pointer: fine) {
+  .cat-chip:hover { border-color: var(--accent); background: var(--accent-soft); }
+  .cat-chip:hover .cat-chip-name { color: var(--accent-dark); }
+}
+
+/* чип-категория в строке разделов на поиске (когда категория не выбрана):
+   пилюля с SVG-иконкой раздела → вход в категорию в один тап */
+.sub-chip.cat-jump { display: inline-flex; align-items: center; gap: 6px; padding-left: 12px; }
+.sub-chip.cat-jump svg { flex-shrink: 0; color: var(--accent-dark); }
+@media (hover: hover) and (pointer: fine) { .sub-chip.cat-jump:hover svg { color: var(--accent-dark); } }
+
+/* ═══ ЭКРАН «КАТАЛОГ»: всё дерево разделов видно сразу, вход в раздел/подраздел в 1 тап ═══ */
+.page-head-sub { color: var(--text-3); font-size: var(--fs-sm); font-weight: var(--w-medium); width: 100%; margin-top: -6px; }
+.catalog-list { display: flex; flex-direction: column; gap: 10px; }
+.catalog-empty { color: var(--text-3); font-size: var(--fs-md); text-align: center; padding: 40px 16px; }
+.cat-block {
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 12px 14px 14px; box-shadow: var(--shadow);
+}
+.cat-block-head {
+  display: flex; align-items: center; gap: 11px;
+  padding-bottom: 11px; margin-bottom: 11px; border-bottom: 1px solid var(--line);
+}
+.cat-block-icon {
+  width: 38px; height: 38px; flex-shrink: 0; display: grid; place-items: center;
+  background: var(--accent-soft); color: var(--accent-dark); border-radius: var(--radius-s);
+}
+.cat-block-name { font-weight: var(--w-extra); font-size: var(--fs-md); letter-spacing: -0.2px; }
+.cat-block-count { color: var(--text-3); font-size: var(--fs-xs); font-weight: var(--w-medium); margin-left: 9px; }
+.cat-block-arrow { margin-left: auto; color: var(--text-3); display: inline-flex; transition: transform var(--dur-2) var(--ease), color var(--dur-1) var(--ease); }
+@media (hover: hover) and (pointer: fine) {
+  .cat-block-head:hover .cat-block-name { color: var(--accent-dark); }
+  .cat-block-head:hover .cat-block-arrow { transform: translateX(3px); color: var(--accent-dark); }
+}
+.cat-subs { display: flex; flex-wrap: wrap; gap: 8px; }
+.cat-sub {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 8px 13px; border-radius: var(--radius-pill);
+  background: var(--bg); border: 1px solid var(--line);
+  font-size: var(--fs-sm); font-weight: var(--w-semibold); color: var(--text-2);
+  transition: background var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease), color var(--dur-1) var(--ease), transform var(--dur-1) var(--ease);
+}
+.cat-sub:active { transform: scale(0.96); }
+.cat-sub-n { color: var(--text-3); font-size: var(--fs-xs); font-weight: var(--w-medium); }
+@media (hover: hover) and (pointer: fine) {
+  .cat-sub:hover { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-dark); }
+  .cat-sub:hover .cat-sub-n { color: var(--accent-dark); }
+}
