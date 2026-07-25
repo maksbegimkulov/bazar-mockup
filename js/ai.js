@@ -32,7 +32,7 @@ function aiItemHTML(id) {
     ${photos.length ? `<img src="${esc(photos[0])}" alt="">` : `<div class="thumb-fallback" style="width:56px;height:44px">${icon('image', { size: 20, stroke: 1.6 })}</div>`}
     <span class="ai-item-info">
       <span class="ai-item-title">${esc(l.title)}</span>
-      <span class="ai-item-meta">${l.negotiable ? t('price.negotiable') : fmtNum(l.price) + ' ' + t('som') + esc(l.priceSuffix)} · ${esc(l.city)}</span>
+      <span class="ai-item-meta">${l.negotiable ? t('price.negotiable') : fmtMoney(l.price) + esc(l.priceSuffix)} · ${esc(l.city)}</span>
     </span>
     <span class="ai-item-arrow">›</span>
   </a>`;
@@ -52,7 +52,7 @@ function aiPickHTML(pick) {
       ${photos.length ? `<img src="${esc(photos[0])}" alt="">` : `<span class="thumb-fallback" style="width:52px;height:52px">${icon('image', { size: 20, stroke: 1.6 })}</span>`}
       <span class="ai-pick-info">
         <span class="ai-pick-title">${esc(l.title)}</span>
-        <span class="ai-pick-price">${l.negotiable ? t('price.negotiable') : fmtNum(l.price) + ' ' + t('som') + esc(l.priceSuffix)}</span>
+        <span class="ai-pick-price">${l.negotiable ? t('price.negotiable') : fmtMoney(l.price) + esc(l.priceSuffix)}</span>
         <span class="ai-pick-reason">${esc(pick.reason)}</span>
       </span>
       <span class="ai-item-arrow">›</span>
@@ -164,10 +164,10 @@ function aiFilterPhrase(f) {
   if (f.sub) parts.push(subName(f.sub).toLowerCase());
   else if (f.cat) { const c = catById(f.cat); if (c) parts.push(catName(c).toLowerCase()); }
   if (f.q) parts.push(`«${f.q}»`);
-  const som = t('som');
-  if (f.priceMin && f.priceMax) parts.push(`${fmtNum(f.priceMin)}–${fmtNum(f.priceMax)} ${som}`);
-  else if (f.priceMax) parts.push(`${t('filters.to')} ${fmtNum(f.priceMax)} ${som}`);
-  else if (f.priceMin) parts.push(`${t('filters.from')} ${fmtNum(f.priceMin)} ${som}`);
+  const som = curSym();
+  if (f.priceMin && f.priceMax) parts.push(`${curNum(f.priceMin)}–${curNum(f.priceMax)} ${som}`);
+  else if (f.priceMax) parts.push(`${t('filters.to')} ${curNum(f.priceMax)} ${som}`);
+  else if (f.priceMin) parts.push(`${t('filters.from')} ${curNum(f.priceMin)} ${som}`);
   if (f.city && f.city !== 'all') parts.push(f.city);
   if (f.condition === 'new') parts.push(t('ai.q.new'));
   if (f.condition === 'used') parts.push(t('ai.q.used'));
@@ -334,7 +334,7 @@ function aiSearchReply(raw) {
   if (!res.length && f.priceMax) {
     const f2 = { ...f, priceMax: String(Math.round(+f.priceMax * 1.4)) };
     const r2 = applyFilters(f2);
-    if (r2.length) { res = r2; Object.assign(f, f2); note = t('ai.relaxPrice').replace('{max}', fmtNum(f2.priceMax)).replace('{som}', t('som')); }
+    if (r2.length) { res = r2; Object.assign(f, f2); note = t('ai.relaxPrice').replace('{max}', curNum(f2.priceMax)).replace('{som}', curSym()); }
   }
   if (!res.length && f.condition !== 'any') {
     const f2 = { ...f, condition: 'any' };
@@ -366,9 +366,9 @@ function aiSearchReply(raw) {
     const ps = res.map(l => l.price).filter(Boolean);
     if (ps.length) {
       const range = t('ai.priceRange')
-        .replace('{min}', fmtNum(Math.min(...ps)))
-        .replace('{max}', fmtNum(Math.max(...ps)))
-        .replace('{som}', t('som'))
+        .replace('{min}', curNum(Math.min(...ps)))
+        .replace('{max}', curNum(Math.max(...ps)))
+        .replace('{som}', curSym())
         .replace('{n}', nLabel(ps.length)); // только с ценой — договорные вне вилки
       text = `${note ? note + '. ' : ''}${t('ai.priceFrom')} ${phrase || ''}: ${range}`;
     }
@@ -420,11 +420,11 @@ function aiGiftReply(raw) {
 
   const cands = allListings().filter(l => pools(l) && l.price > 0 && l.price <= budget && getPhotos(l).length && !isSold(l) && !state.reported.has(l.id));
   if (!cands.length) {
-    return { text: t('ai.gift.none').replace('{budget}', fmtNum(budget)).replace('{som}', t('som')), actions: [{ label: t('ai.gift.upTo50k'), act: { type: 'ask', text: raw.replace(BUDGET_RE, '').trim() + ' до 50000' } }] };
+    return { text: t('ai.gift.none').replace('{budget}', curNum(budget)).replace('{som}', curSym()), actions: [{ label: t('ai.gift.upTo50k'), act: { type: 'ask', text: raw.replace(BUDGET_RE, '').trim() + ' до 50000' } }] };
   }
   const picks = [...cands].sort(() => Math.random() - 0.5).slice(0, 5);
   return {
-    text: t('ai.gift.title').replace('{who}', who).replace('{budget}', fmtNum(budget)).replace('{som}', t('som')).replace(/\s+/g, ' ').trim(),
+    text: t('ai.gift.title').replace('{who}', who).replace('{budget}', curNum(budget)).replace('{som}', curSym()).replace(/\s+/g, ' ').trim(),
     items: picks.map(l => l.id),
     actions: [
       { label: t('ai.gift.more'), act: { type: 'ask', text: raw } },

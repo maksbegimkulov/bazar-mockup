@@ -666,6 +666,26 @@ function recoverLayout(raw) {
 
 function parseSearchQuery(raw) {
   raw = recoverLayout(raw); // починка неверной раскладки до всего остального
+  // ВАЛЮТА ЗАПРОСА (детектим из RAW — normText съедает «$»): доллар/бакс/usd/$ →
+  // USD; сом/kgs → сомы; иначе — валюта интерфейса (в $-режиме «до 500» = 500 $).
+  // Пересчёт цен в СОМЫ ниже — база всегда сом, поэтому поиск работает независимо
+  // от того, на какую валюту переключена платформа.
+  const _rawLc = ' ' + String(raw).toLowerCase() + ' ';
+  // валютные слова — с границами (иначе «сом» ловится в «сомелье/сомнение», «usd» в словах)
+  const _qHasUsd = /(?:^|[^а-яёa-z])(?:доллар[а-я]*|бакс[а-я]*|usd|у\.?\s?е)(?=[^а-яёa-z]|$)|\$/i.test(_rawLc);
+  const _qHasSom = /(?:^|[^а-яёa-z])(?:сом(?:а|у|ов|ы|ом)?|kgs|тенге|рубл[а-я]*)(?=[^а-яёa-z]|$)/i.test(_rawLc);
+  const _qCur = _qHasUsd ? 'usd' : (_qHasSom ? 'kgs' : (typeof CUR !== 'undefined' ? CUR : 'kgs'));
+  // «$500»/«500$» → «500 доллар» — чтобы валюта была СЛЕВА или СПРАВА единообразно
+  const _rawCur = _rawLc.replace(/\$\s*(\d[\d\s]*)/g, '$1 доллар ').replace(/(\d[\d\s]*)\$/g, '$1 доллар ');
+  // валюта РЯДОМ с конкретной суммой (для смешанных «от 300 долларов до 40000 сом»);
+  // если рядом слова валюты нет — валюта запроса по умолчанию (_qCur)
+  const _boundCur = (numStr) => {
+    if (!numStr) return _qCur;
+    const spaced = String(numStr).split('').join('\\s*'); // «40000» матчит и «40 000»
+    const m = _rawCur.match(new RegExp(spaced + '\\s*(доллар|бакс|usd|у\\s?е|сом|kgs|тенге|рубл)', 'i'));
+    if (m) return /сом|kgs|тенге|рубл/i.test(m[1]) ? 'kgs' : 'usd';
+    return _qCur;
+  };
   // ЧИСЛА СЛОВАМИ: «до ста тысяч» → «до 100 тысяч» (дальше юниты разберёт движок)
   const NUM_WORDS = {
     'сто': 100, 'ста': 100, 'двести': 200, 'двухсот': 200, 'триста': 300, 'трехсот': 300, 'трёхсот': 300,
@@ -943,13 +963,22 @@ function parseSearchQuery(raw) {
     s = s.replace(/ (?:сом[а-я]*|kgs|тенге|рубл[а-я]*|руб)(?= )/g, ' ');
   }
 
-  // цена в долларах/баксах/у.е. → пересчёт в сомы (жаргон «до 10000 долларов»)
-  if ((filters.priceMax || filters.priceMin) && / (доллар[а-я]*|бакс[а-я]*|usd|у е)(?= )/.test(s)) {
-    const USD_RATE = 88; // ориентировочный курс USD→KGS
-    if (filters.priceMax) filters.priceMax = String(+filters.priceMax * USD_RATE);
-    if (filters.priceMin) filters.priceMin = String(+filters.priceMin * USD_RATE);
-    s = s.replace(/ (доллар[а-я]*|бакс[а-я]*|usd|у е)(?= )/g, ' ');
+  // цена в валюте запроса USD → пересчёт в СОМЫ по ЖИВОМУ курсу (округляя к целым
+  // сомам). Работает и на явные слова («до 10000 долларов»), и на «$», и на
+  // валюту платформы (если интерфейс в $, «до 500» тоже USD). Курс — usdToSom().
+  // ПО-ГРАНИЧНАЯ валюта → пересчёт в СОМЫ: каждая граница конвертится по СВОЕЙ
+  // валюте (доллар/сом рядом с числом), поэтому «от 300 долларов до 40000 сом»
+  // не портит сом-границу. Курс живой (usdToSom, округление к целым сомам).
+  if (typeof usdToSom === 'function') {
+    if (filters.priceMax && _boundCur(filters.priceMax) === 'usd') { filters.priceMax = String(usdToSom(+filters.priceMax)); filters._srcCur = 'usd'; }
+    if (filters.priceMin && _boundCur(filters.priceMin) === 'usd') { filters.priceMin = String(usdToSom(+filters.priceMin)); filters._srcCur = 'usd'; }
+    // голый «$500» (без до/от) — потолок цены в долларах
+    if (!filters.priceMax && !filters.priceMin) {
+      const dm = _rawCur.match(/(\d[\d\s]*\d|\d)\s*доллар/);
+      if (dm) { filters.priceMax = String(usdToSom(+dm[1].replace(/\s/g, ''))); filters._srcCur = 'usd'; }
+    }
   }
+  s = s.replace(/ (доллар[а-я]*|бакс[а-я]*|usd|у е)(?= )/g, ' '); // валютные слова — не термины запроса
 
   // состояние
   if (/ (?:б у|бу|подержанн[а-я]*|с рук)(?= )/.test(s)) {

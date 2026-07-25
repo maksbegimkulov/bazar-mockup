@@ -80,6 +80,52 @@ function esc(s) {
 
 function fmtNum(n) { return Number(n).toLocaleString('ru-RU'); }
 
+/* ═══════════ ВАЛЮТА ═══════════
+   База ВСЕГДА сом (источник истины: l.price, f.priceMin/Max — в сомах-целых).
+   Доллар — только конвертация на ГРАНИЦАХ: вывод (fmtMoney/curNum) и разбор
+   ввода (NLU/фильтры/форма). Фильтрация и сравнение — всегда в сомах, поэтому
+   переключение валюты и курс НИКОГДА не меняют логику поиска, только отображение
+   и то, как трактуется введённое пользователем число. */
+const CUR_FALLBACK = 87.5;                        // сом за 1 USD, если сеть/кэш пусты
+let CUR = lsLoad('bazar_cur', 'kgs');             // 'kgs' | 'usd' — валюта интерфейса
+if (CUR !== 'usd' && CUR !== 'kgs') CUR = 'kgs';
+let USD_RATE = +lsLoad('bazar_rate', CUR_FALLBACK) || CUR_FALLBACK; // сом за 1 USD (кэш)
+function curRate() { return (USD_RATE > 0 && isFinite(USD_RATE)) ? USD_RATE : CUR_FALLBACK; } // защита от 0/NaN/Inf
+function somToUsd(som) { return (+som || 0) / curRate(); }
+function usdToSom(usd) { return Math.round((+usd || 0) * curRate()); } // в целых сомах — деньги без float-хвостов
+function curSym() { return CUR === 'usd' ? '$' : t('som'); }
+/* число суммы (хранится в СОМАХ) в текущей валюте — БЕЗ единицы (для диапазонов) */
+function curNum(som) { return CUR === 'usd' ? fmtNum(Math.round(somToUsd(som))) : fmtNum(Math.round(+som || 0)); }
+/* сумма с единицей: «43 750 сом», «500 $», с суффиксом «/мес»/«/м²» если есть */
+function fmtMoney(som, suffix) { return `${curNum(som)} ${curSym()}${suffix || ''}`; }
+/* число ввода пользователя (в текущей валюте) → в сомы для хранения/фильтра */
+function inputToSom(v) { const n = +v || 0; return CUR === 'usd' ? usdToSom(n) : Math.round(n); }
+/* сумма в сомах → число для поля ввода в текущей валюте */
+function somToInput(som) { if (som === '' || som == null) return ''; return CUR === 'usd' ? Math.round(somToUsd(som)) : Math.round(+som || 0); }
+
+/* живой курс USD→сом: кэш 6ч, два бесплатных CORS-источника, тихий фолбэк.
+   При успехе и активном USD-режиме — мягко перерисовываем текущий экран. */
+async function refreshRate() {
+  try {
+    const ts = +lsLoad('bazar_rate_ts', 0);
+    if (USD_RATE > 0 && Date.now() - ts < 6 * 3600 * 1000) return; // кэш ещё свежий
+    let r = 0;
+    try { const j = await (await fetch('https://open.er-api.com/v6/latest/USD')).json(); r = +(j && j.rates && j.rates.KGS); } catch (e) {}
+    if (!(r > 0)) { try { const j = await (await fetch('https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.min.json')).json(); r = +(j && j.usd && j.usd.kgs); } catch (e) {} }
+    if (r > 0 && isFinite(r) && Math.abs(r - USD_RATE) > 0.001) {
+      USD_RATE = r; lsSave('bazar_rate', r); lsSave('bazar_rate_ts', Date.now());
+      if (CUR === 'usd' && typeof router === 'function') router(); // показать по свежему курсу
+    } else if (r > 0) { lsSave('bazar_rate_ts', Date.now()); }
+  } catch (e) { /* офлайн — остаёмся на кэше/фолбэке */ }
+}
+/* переключить валюту интерфейса и перерисовать текущий экран */
+function setCurrency(c) {
+  if (c !== 'usd' && c !== 'kgs') return;
+  CUR = c; lsSave('bazar_cur', c);
+  const btn = document.getElementById('curBtn'); if (btn) btn.textContent = CUR === 'usd' ? '$' : t('som');
+  if (typeof router === 'function') router();
+}
+
 /* «5 объявлений» — счётчик с учётом языка (listingsWord в i18n.js) */
 function nLabel(n) { return `${fmtNum(n)} ${listingsWord(n)}`; }
 
@@ -107,7 +153,7 @@ function postedLabel(l) {
 
 function priceHTML(l) {
   if (l.negotiable || l.price === 0) return t('price.negotiable');
-  return `${fmtNum(l.price)} <span class="suffix">${t('som')}${esc(l.priceSuffix)}</span>`;
+  return `${curNum(l.price)} <span class="suffix">${curSym()}${esc(l.priceSuffix)}</span>`;
 }
 
 function getPhotos(l) {
@@ -1291,10 +1337,10 @@ function filterPanelHTML(f) {
     </div>
     <div id="fAttrs">${filterAttrsHTML(f)}</div>
     <div class="fblock">
-      <div class="fblock-label">${t('filters.price')}</div>
+      <div class="fblock-label">${t('filters.price')}, ${curSym()}</div>
       <div class="price-row">
-        <input type="number" inputmode="numeric" id="fPriceMin" placeholder="${t('filters.from')}" min="0" value="${esc(f.priceMin)}">
-        <input type="number" inputmode="numeric" id="fPriceMax" placeholder="${t('filters.to')}" min="0" value="${esc(f.priceMax)}">
+        <input type="number" inputmode="numeric" id="fPriceMin" placeholder="${t('filters.from')}" min="0" value="${esc(somToInput(f.priceMin))}">
+        <input type="number" inputmode="numeric" id="fPriceMax" placeholder="${t('filters.to')}" min="0" value="${esc(somToInput(f.priceMax))}">
       </div>
     </div>
     <div class="fblock">
@@ -1363,7 +1409,7 @@ function activeChipsHTML(f) {
   if (f.sub) add('sub', esc(subName(f.sub)));
   attrFilterChips(f).forEach(c => add(c.key, esc(c.label)));
   if (f.priceMin !== '' || f.priceMax !== '') {
-    add('price', `${t('chip.price')}: ${f.priceMin !== '' ? t('filters.from') + ' ' + fmtNum(f.priceMin) : ''}${f.priceMin !== '' && f.priceMax !== '' ? ' ' : ''}${f.priceMax !== '' ? t('filters.to') + ' ' + fmtNum(f.priceMax) : ''} ${t('som')}`);
+    add('price', `${t('chip.price')}: ${f.priceMin !== '' ? t('filters.from') + ' ' + curNum(f.priceMin) : ''}${f.priceMin !== '' && f.priceMax !== '' ? ' ' : ''}${f.priceMax !== '' ? t('filters.to') + ' ' + curNum(f.priceMax) : ''} ${curSym()}`);
   }
   if (f.city !== 'all') add('city', esc(f.city));
   if (f.condition !== 'any') add('condition', f.condition === 'new' ? t('cond.new') : t('cond.used'));
@@ -1519,9 +1565,12 @@ function bindFilterPanel() {
     clearTimeout(priceTimer);
     const mn = $('#fPriceMin'), mx = $('#fPriceMax');
     if (!mn || !mx) return;
-    if (f.priceMin === mn.value && f.priceMax === mx.value) return;
-    f.priceMin = mn.value;
-    f.priceMax = mx.value;
+    // ввод — в ТЕКУЩЕЙ валюте, храним в СОМАХ (база); пусто остаётся пустым
+    const nMin = mn.value === '' ? '' : String(inputToSom(mn.value));
+    const nMax = mx.value === '' ? '' : String(inputToSom(mx.value));
+    if (f.priceMin === nMin && f.priceMax === nMax) return;
+    f.priceMin = nMin;
+    f.priceMax = nMax;
     rerun();
   };
   state._commitPrice = commitPrice;
@@ -1832,10 +1881,10 @@ function priceVerdict(l) {
   const at = q => prices[Math.min(prices.length - 1, Math.max(0, Math.floor(q * prices.length)))];
   const lo = at(0.1), hi = at(0.9); // диапазон похожих (p10–p90, без крайних выбросов)
   const r = l.price / median;
-  const unit = `${t('som')}${esc(l.priceSuffix)}`; // «сом/мес» у аренды, не голый «сом»
-  const range = `${fmtNum(lo)}–${fmtNum(hi)} ${unit}`;
+  const unit = `${curSym()}${esc(l.priceSuffix)}`; // «сом/мес» у аренды, «$/мес» в USD-режиме
+  const range = `${curNum(lo)}–${curNum(hi)} ${unit}`;
   const basis = byModel ? t('verdict.byModel') : t('verdict.bySub');
-  const avg = `${t('verdict.avg')} ${fmtNum(median)} ${unit} · ${basis}`;
+  const avg = `${t('verdict.avg')} ${curNum(median)} ${unit} · ${basis}`;
   const out = { median, lo, hi, range, byModel };
   // ≤45% медианы — не «выгодно», а тревога: заниженная цена частая приманка мошенника
   if (r <= 0.45) return { ...out, cls: 'danger', label: t('verdict.low'), hint: t('verdict.lowHint'), danger: true };
@@ -2061,8 +2110,8 @@ function openOfferModal(id) {
   state._offerTries = 0;
   openModal(`
     <h3>${icon('handshake',{size:18})} ${t('offer.title')}</h3>
-    <p class="modal-text">${t('offer.sub').replace('{price}', '<b>' + fmtNum(l.price) + ' ' + t('som') + '</b>')}</p>
-    <input class="finput offer-input" id="offerInput" type="number" inputmode="numeric" min="0" placeholder="${t('offer.ph')}" autocomplete="off">
+    <p class="modal-text">${t('offer.sub').replace('{price}', '<b>' + fmtMoney(l.price) + '</b>')}</p>
+    <input class="finput offer-input" id="offerInput" type="number" inputmode="numeric" min="0" placeholder="${t('offer.ph')} (${curSym()})" autocomplete="off">
     <div id="offerResult"></div>
     <div class="modal-actions" id="offerActions">
       <button class="btn btn-outline btn-block" data-action="modal-close">${t('del.cancel')}</button>
@@ -2079,7 +2128,7 @@ function openOfferModal(id) {
 async function submitOfferCloud(id, l) {
   const inp = $('#offerInput'); const result = $('#offerResult');
   if (!inp || !result) return;
-  const offer = Math.round(+inp.value || 0);
+  const offer = inputToSom(inp.value); // ввод в текущей валюте → сомы
   if (offer <= 0) { result.innerHTML = `<div class="offer-msg offer-warn">${t('offer.enter')}</div>`; return; }
   if (typeof BZ === 'undefined' || !BZ.available()) {
     result.innerHTML = `<div class="offer-msg offer-no">${t('offer.rejected')}</div>`; return;
@@ -2097,7 +2146,7 @@ async function submitOfferCloud(id, l) {
     const deal = Math.min(offer, l.price);
     result.innerHTML = `<div class="offer-msg offer-ok">
         <div class="offer-ok-head">${icon('check',{size:16})} ${t('offer.accepted')}</div>
-        <div class="offer-deal">${fmtNum(deal)} ${t('som')}</div>
+        <div class="offer-deal">${fmtMoney(deal)}</div>
         <button class="btn btn-primary btn-block btn-lg" data-action="offer-deal" data-id="${id}" data-price="${deal}">${icon('message',{size:17})} ${t('offer.toChat')}</button>
       </div>`;
     inp.disabled = true;
@@ -2105,7 +2154,7 @@ async function submitOfferCloud(id, l) {
   } else if (r.status === 'countered' && r.counter_amount) {
     result.innerHTML = `<div class="offer-msg offer-warn">${t('offer.rejected')}</div>
       <div class="offer-counter">
-        <div class="offer-counter-text">${t('offer.counter').replace('{price}', '<b>' + fmtNum(r.counter_amount) + ' ' + t('som') + '</b>')}</div>
+        <div class="offer-counter-text">${t('offer.counter').replace('{price}', '<b>' + fmtMoney(r.counter_amount) + '</b>')}</div>
         <button class="btn btn-bargain btn-block" data-action="offer-deal" data-id="${id}" data-price="${r.counter_amount}">${icon('handshake',{size:17})} ${t('offer.acceptCounter')}</button>
       </div>`;
   } else {
@@ -2122,7 +2171,7 @@ function submitOffer(id) {
   const inp = $('#offerInput');
   const result = $('#offerResult');
   if (!inp || !result) return;
-  const offer = Math.round(+inp.value || 0);
+  const offer = inputToSom(inp.value); // ввод в текущей валюте → сомы
   if (offer <= 0) { result.innerHTML = `<div class="offer-msg offer-warn">${t('offer.enter')}</div>`; return; }
   state._offerTries = (state._offerTries || 0) + 1;
 
@@ -2130,7 +2179,7 @@ function submitOffer(id) {
     const deal = Math.min(offer, l.price); // не дороже витрины
     result.innerHTML = `<div class="offer-msg offer-ok">
         <div class="offer-ok-head">${icon('check',{size:16})} ${t('offer.accepted')}</div>
-        <div class="offer-deal">${fmtNum(deal)} ${t('som')}</div>
+        <div class="offer-deal">${fmtMoney(deal)}</div>
         <button class="btn btn-primary btn-block btn-lg" data-action="offer-deal" data-id="${id}" data-price="${deal}">${icon('message',{size:17})} ${t('offer.toChat')}</button>
       </div>`;
     inp.disabled = true;
@@ -2144,7 +2193,7 @@ function submitOffer(id) {
     let counter = '';
     if (state._offerTries >= 2) {
       counter = `<div class="offer-counter">
-          <div class="offer-counter-text">${t('offer.counter').replace('{price}', '<b>' + fmtNum(l.floor) + ' ' + t('som') + '</b>')}</div>
+          <div class="offer-counter-text">${t('offer.counter').replace('{price}', '<b>' + fmtMoney(l.floor) + '</b>')}</div>
           <button class="btn btn-bargain btn-block" data-action="offer-deal" data-id="${id}" data-price="${l.floor}">${icon('handshake',{size:17})} ${t('offer.acceptCounter')}</button>
         </div>`;
     }
@@ -2209,7 +2258,7 @@ async function openChatForListing(listingId, prefillText) {
 
 function offerToChat(id, price) {
   closeModal();
-  openChatForListing(id, t('offer.chatMsg').replace('{price}', fmtNum(price) + ' ' + t('som')));
+  openChatForListing(id, t('offer.chatMsg').replace('{price}', fmtMoney(price)));
 }
 
 /* ---------------- избранное ---------------- */
@@ -2331,7 +2380,7 @@ function renderFavorites() {
       <p class="fav-gone-sub">${t('favs.goneSub')}</p>
       <div class="fav-gone-list">
         ${gone.map(r => `<div class="fav-gone-row">
-          <span>${esc((r.m.title) || t('favs.goneItem'))}${r.m.price ? ' · ' + fmtNum(r.m.price) + ' ' + t('som') : ''}</span>
+          <span>${esc((r.m.title) || t('favs.goneItem'))}${r.m.price ? ' · ' + fmtMoney(r.m.price) : ''}</span>
           <button class="btn-ghost" data-action="fav-forget" data-id="${r.id}">${t('favs.forget')}</button>
         </div>`).join('')}
       </div>
@@ -2636,9 +2685,9 @@ function renderSellDraft() {
           <input class="finput" id="sTitle" maxlength="80" placeholder="${t('sell.titleHint')}" value="${esc(titleVal)}">
         </div>
         <div class="fgroup sell-price-group">
-          <label class="flabel">${isSmart || !isReal ? t('sell.priceSuggested') : t('sell.priceByCat')}</label>
-          <input class="finput sell-price-input" id="sPrice" type="number" inputmode="numeric" min="0" value="${suggested}" placeholder="0">
-          <div class="sell-market" id="sMarket">${market ? icon('chart',{size:15}) + ' ' + t('sell.market').replace('{min}', fmtNum(market[0])).replace('{max}', fmtNum(market[1])).replace('{som}', t('som')) : ''}</div>
+          <label class="flabel">${isSmart || !isReal ? t('sell.priceSuggested') : t('sell.priceByCat')}, ${curSym()}</label>
+          <input class="finput sell-price-input" id="sPrice" type="number" inputmode="numeric" min="0" value="${somToInput(suggested)}" placeholder="0">
+          <div class="sell-market" id="sMarket">${market ? icon('chart',{size:15}) + ' ' + t('sell.market').replace('{min}', curNum(market[0])).replace('{max}', curNum(market[1])).replace('{som}', curSym()) : ''}</div>
           ${isSmart ? `<div class="sell-price-why">${icon('bulb',{size:15})} ${t('sell.byAI')}</div>` : (!isReal ? `<div class="sell-price-why">${icon('bulb',{size:15})} ${t('sell.priceWhy')}</div>` : '')}
         </div>
         <div class="form-row">
@@ -2683,8 +2732,8 @@ function renderSellDraft() {
       const st = subPriceStats(subcategory);
       market = st ? [st.min, st.max] : null;
       const mEl = $('#sMarket');
-      if (mEl) mEl.innerHTML = market ? icon('chart',{size:15}) + ' ' + t('sell.market').replace('{min}', fmtNum(market[0])).replace('{max}', fmtNum(market[1])).replace('{som}', t('som')) : '';
-      if (st && !$('#sPrice').value) $('#sPrice').value = Math.round(st.median / 500) * 500;
+      if (mEl) mEl.innerHTML = market ? icon('chart',{size:15}) + ' ' + t('sell.market').replace('{min}', curNum(market[0])).replace('{max}', curNum(market[1])).replace('{som}', curSym()) : '';
+      if (st && !$('#sPrice').value) $('#sPrice').value = somToInput(Math.round(st.median / 500) * 500);
     };
     $('#sCat')?.addEventListener('change', e => {
       category = e.target.value;
@@ -2701,7 +2750,7 @@ function renderSellDraft() {
     category, subcategory,
     title: $('#sTitle').value.trim(),
     description: $('#sDesc').value.trim(),
-    price: +$('#sPrice').value || 0,
+    price: inputToSom($('#sPrice').value), // ввод в текущей валюте → сомы (база)
     negotiable: false,
     city: $('#sCity').value,
     condition: condition || null,
@@ -2892,7 +2941,10 @@ function collectPostDraft() {
   return {
     category: val('#pCat'), subcategory: val('#pSub'),
     title: val('#pTitle'), description: val('#pDesc'),
-    price: val('#pPrice'), floor: val('#pFloor'),
+    // храним в СОМАХ (симметрично restore через somToInput) — иначе черновик,
+    // созданный в USD-режиме, восстанавливался бы делённым на курс (≈87×)
+    price: val('#pPrice') === '' ? '' : String(inputToSom(val('#pPrice'))),
+    floor: val('#pFloor') === '' ? '' : String(inputToSom(val('#pFloor'))),
     city: val('#pCity'), phone: val('#pPhone'),
     negotiable: chk('#pNegotiable'), hasDelivery: chk('#pDelivery'),
     condition: (document.querySelector('#pCondition .fchip.active') || { dataset: {} }).dataset.cond || '',
@@ -3031,8 +3083,8 @@ function renderPost(params) {
 
           <section class="pstep" data-step="5" hidden>
             <div class="fgroup">
-              <label class="flabel">${t('form.price')}</label>
-              <input class="finput" id="pPrice" type="number" inputmode="numeric" min="0" placeholder="0" value="${f.price || ''}" ${f.negotiable ? 'disabled' : ''}>
+              <label class="flabel">${t('form.price')}, ${curSym()}</label>
+              <input class="finput" id="pPrice" type="number" inputmode="numeric" min="0" placeholder="0" value="${f.price ? somToInput(f.price) : ''}" ${f.negotiable ? 'disabled' : ''}>
               <div class="price-hint" id="pPriceHint" hidden></div>
               <label class="fcheck" style="margin-top:6px"><input type="checkbox" id="pNegotiable" ${f.negotiable ? 'checked' : ''}>
                 <span class="box"><svg width="12" height="10" viewBox="0 0 12 10" fill="none" stroke="#fff" stroke-width="2.4"><path d="M1 5l3.5 3.5L11 1"/></svg></span>
@@ -3042,8 +3094,8 @@ function renderPost(params) {
                 ${({ ru: 'Готов уступить в цене (покупатель сможет предложить свою)', en: 'Open to offers (buyers can propose a price)', ky: 'Баадан түшүүгө даяр (сатып алуучу баа сунуштай алат)' })[LANG] || 'Готов уступить в цене'}</label>
             </div>
             <div class="fgroup post-floor" id="pFloorWrap" ${(f.negotiable || !f.floor) ? 'hidden' : ''}>
-              <label class="flabel">${icon('handshake', { size: 15 })} ${t('form.floor')}</label>
-              <input class="finput" id="pFloor" type="number" inputmode="numeric" min="0" placeholder="${t('form.floorPh')}" value="${f.floor || ''}">
+              <label class="flabel">${icon('handshake', { size: 15 })} ${t('form.floor')}, ${curSym()}</label>
+              <input class="finput" id="pFloor" type="number" inputmode="numeric" min="0" placeholder="${t('form.floorPh')}" value="${f.floor ? somToInput(f.floor) : ''}">
               <div class="hint">${t('form.floorHint')}</div>
             </div>
           </section>
@@ -3195,7 +3247,7 @@ function renderPost(params) {
     const sub = $('#pSub') ? $('#pSub').value : '';
     const st = (sub && typeof subPriceStats === 'function') ? subPriceStats(sub) : null;
     if (!st || $('#pNegotiable').checked) { box.hidden = true; return; }
-    const val = +$('#pPrice').value || 0;
+    const val = inputToSom($('#pPrice').value); // ввод в валюте → сомы для сравнения с рынком
     let verdict = '';
     if (val > 0) {
       const r = val / st.median;
@@ -3203,7 +3255,7 @@ function renderPost(params) {
       else if (r <= 1.15) verdict = `<span class="ph-v ok">${t('form.priceOk')}</span>`;
       else verdict = `<span class="ph-v high">${t('form.priceHigh')}</span>`;
     }
-    box.innerHTML = `${icon('chart',{size:15})} ${t('form.priceMarket')} ${fmtNum(st.min)}–${fmtNum(st.max)} ${t('som')} · ${t('form.priceMedian')} ${fmtNum(st.median)} ${verdict}`;
+    box.innerHTML = `${icon('chart',{size:15})} ${t('form.priceMarket')} ${curNum(st.min)}–${curNum(st.max)} ${curSym()} · ${t('form.priceMedian')} ${fmtMoney(st.median)} ${verdict}`;
     box.hidden = false;
   }
   $('#pPrice').addEventListener('input', updatePriceHint);
@@ -3265,7 +3317,7 @@ function renderPost(params) {
     const neg = $('#pNegotiable').checked;
     const draftListing = {
       id: 'preview', title: $('#pTitle').value.trim() || t('form.titlePh'),
-      price: neg ? 0 : (+$('#pPrice').value || 0), priceSuffix: '', negotiable: neg,
+      price: neg ? 0 : inputToSom($('#pPrice').value), priceSuffix: '', negotiable: neg,
       floor: 0, category: $('#pCat').value, subcategory: $('#pSub').value,
       city: $('#pCity').value || CITIES[0], district: null,
       condition: (document.querySelector('#pCondition .fchip.active') || { dataset: {} }).dataset.cond || null,
@@ -3389,8 +3441,9 @@ function renderPost(params) {
     const title = $('#pTitle').value.trim();
     const desc = $('#pDesc').value.trim();
     const negotiable = $('#pNegotiable').checked;
-    const price = negotiable ? 0 : +$('#pPrice').value;
-    const floorRaw = negotiable ? 0 : Math.round(+$('#pFloor').value || 0);
+    // ввод цены и «торг до» — в ТЕКУЩЕЙ валюте, храним в СОМАХ (база, целые)
+    const price = negotiable ? 0 : inputToSom($('#pPrice').value);
+    const floorRaw = negotiable ? 0 : inputToSom($('#pFloor').value);
     const city = $('#pCity').value;
     const phone = $('#pPhone').value.trim();
 
@@ -3721,7 +3774,7 @@ function renderMap() {
     <button class="map-region ${s.city === sel ? 'on' : ''}" data-action="map-city" data-mapcity="${esc(s.city)}">
       <span class="map-region-city">${esc(s.city)}</span>
       <span class="map-region-count">${nLabel(s.count)}</span>
-      <span class="map-region-price">${s.avg ? '~' + fmtNum(s.avg) + ' ' + t('som') : '—'}</span>
+      <span class="map-region-price">${s.avg ? '~' + fmtMoney(s.avg) : '—'}</span>
     </button>`).join('');
 
   let selBlock = '';
@@ -3733,7 +3786,7 @@ function renderMap() {
         <div class="map-sel-head">
           <div>
             <h2>${icon('location',{size:18})} ${esc(sel)}</h2>
-            <div class="map-sel-sub">${nLabel(st.count)} · ${t('map.avg')}: ${st.avg ? '~' + fmtNum(st.avg) + ' ' + t('som') : '—'}${st.min ? ` · ${t('map.from')} ${fmtNum(st.min)} ${t('som')}` : ''}</div>
+            <div class="map-sel-sub">${nLabel(st.count)} · ${t('map.avg')}: ${st.avg ? '~' + fmtMoney(st.avg) : '—'}${st.min ? ` · ${t('map.from')} ${fmtMoney(st.min)}` : ''}</div>
           </div>
           <a class="btn btn-primary" href="${buildSearchHash({ ...f, city: sel })}" data-link>${t('map.inArea')}</a>
         </div>
@@ -3772,7 +3825,7 @@ function renderCompare() {
     rows.push({ key, label, vals, best: nums ? cmpBestIdx(key, nums) : -1, differ });
   };
   addRow('price', t('cmp.price'),
-    items.map(l => l.price ? fmtNum(l.price) + ' ' + t('som') : t('price.negotiable')),
+    items.map(l => l.price ? fmtMoney(l.price) : t('price.negotiable')),
     items.map(l => l.price || null));
   if (schema) schema.forEach(fld => {
     const vals = items.map(l => { const a = getAttrs(l); return (a[fld.key] != null && a[fld.key] !== '') ? attrDisplayValue(fld, a[fld.key]) : '—'; });
@@ -4001,7 +4054,7 @@ function shareListing(id) {
   const l = getListing(id);
   if (!l) return;
   const url = location.origin + location.pathname + '#/item/' + id;
-  const text = l.title + ' — ' + (l.price ? fmtNum(l.price) + ' ' + t('som') : t('price.negotiable'));
+  const text = l.title + ' — ' + (l.price ? fmtMoney(l.price) : t('price.negotiable'));
   // нативный шер только на тач-устройствах (там это удобно); на десктопе — модалка
   if (navigator.share && matchMedia('(pointer: coarse)').matches) {
     navigator.share({ title: l.title, text, url }).catch(() => {});
@@ -4335,7 +4388,7 @@ function renderChats(activeId) {
       <div style="min-width:0">
         <div class="t">${esc(chName(active))}</div>
         ${active.listing
-          ? `<a class="s" href="#/item/${active.listing.id}" data-link style="display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis">${esc(active.listing.title)} · ${active.listing.negotiable ? t('price.negotiable') : fmtNum(active.listing.price) + ' ' + t('som')}</a>`
+          ? `<a class="s" href="#/item/${active.listing.id}" data-link style="display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis">${esc(active.listing.title)} · ${active.listing.negotiable ? t('price.negotiable') : fmtMoney(active.listing.price)}</a>`
           : `<div class="s" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis">${esc(chTitle(active))}</div>`}
       </div>
     </div>
@@ -5634,7 +5687,10 @@ window.addEventListener('scroll', hideSuggest, { passive: true });
 applyStaticChrome();   // перевести шапку/навигацию/панель ИИ (i18n.js)
 applyTheme();          // синхронизировать иконку темы
 $('#cityBtnLabel').textContent = cityLabel(state.city);
+$('#curBtn').textContent = CUR === 'usd' ? '$' : t('som');   // метка валюты
+$('#curBtn').addEventListener('click', () => setCurrency(CUR === 'usd' ? 'kgs' : 'usd'));
 router();
+refreshRate();         // подтянуть свежий курс (кэш 6ч, тихий фолбэк)
 
 // авторизация резолвится асинхронно (Supabase) — когда сессия подтянулась
 // или сменилась (вход/выход/возврат из OAuth): перерисовываем + тянем облачные данные
