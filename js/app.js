@@ -395,7 +395,7 @@ function ratingWord(n) {
    продавец» когда отзывов ещё нет (вместо выдуманного ★4.8). */
 function sellerRatingHTML(ss) {
   if (ss.isNew) return `<span class="seller-new">${t('seller.new')}</span>`;
-  return `<span class="seller-rating"><span class="star">★</span> ${ss.rating}</span> · ${ratingWord(ss.reviews)}`;
+  return `<span class="seller-rating"><span class="star">${icon('starfill',{size:13})}</span> ${ss.rating}</span> · ${ratingWord(ss.reviews)}`;
 }
 
 /* Рейтинг/отзывы продавца.
@@ -778,7 +778,7 @@ function cardHTML(l) {
     <div class="card-photo">
       ${photos.length
         ? `<img src="${esc(photos[0])}" loading="lazy" alt="${esc(l.title)}">`
-        : `<div class="nophoto">📷&nbsp; ${t('nophoto')}</div>`}
+        : `<div class="nophoto">${icon('camera',{size:22})} ${t('nophoto')}</div>`}
       ${photos.length > 1 ? `<span class="photo-count">${photos.length} ${t('photo.word')}</span>` : ''}
       ${isSold(l) ? `<div class="sold-ribbon">${t('status.sold')}</div>` : ''}
       <div class="card-tags">${tags}</div>
@@ -1064,7 +1064,7 @@ function filterPanelHTML(f) {
     <div class="filters-head">
       <h3>${t('filters.title')}</h3>
       <button class="filters-reset" data-action="reset-filters">${t('filters.reset')}</button>
-      <button class="icon-btn filters-close" data-action="close-filters" aria-label="✕">✕</button>
+      <button class="icon-btn filters-close" data-action="close-filters" aria-label="${t('cmp.clear')}">${icon('close',{size:14,stroke:2.4})}</button>
     </div>
     <div class="fblock">
       <div class="fblock-label">${t('filters.category')}</div>
@@ -1387,14 +1387,14 @@ function updateResults() {
     const rx = state._searchRelax;
     let html = '';
     if (state._aiApplied && res.length) {
-      html = `<div class="search-note">✨ ${t('search.aiUnderstood')}</div>`;
+      html = `<div class="search-note">${icon('sparkle',{size:15})} ${t('search.aiUnderstood')}</div>`;
     } else if (rx && res.length) {
       if (rx === 'similar') {
-        html = `<div class="search-note">✨ ${t('search.relaxSimilar')}</div>`;
+        html = `<div class="search-note">${icon('sparkle',{size:15})} ${t('search.relaxSimilar')}</div>`;
       } else if (rx === 'category') {
-        html = `<div class="search-note">🔎 ${t('search.relaxCategory')}</div>`;
+        html = `<div class="search-note">${icon('search',{size:15})} ${t('search.relaxCategory')}</div>`;
       } else {
-        html = `<div class="search-note">🔎 ${t('search.relaxPartial').replace('{q}', esc(f.qRaw || f.q))}</div>`;
+        html = `<div class="search-note">${icon('search',{size:15})} ${t('search.relaxPartial').replace('{q}', esc(f.qRaw || f.q))}</div>`;
       }
     }
     noteBox.innerHTML = html;
@@ -1789,7 +1789,7 @@ function openOfferModal(id) {
   if (!l || !(l.floor || l.hasFloor)) return;
   state._offerTries = 0;
   openModal(`
-    <h3>🤝 ${t('offer.title')}</h3>
+    <h3>${icon('handshake',{size:18})} ${t('offer.title')}</h3>
     <p class="modal-text">${t('offer.sub').replace('{price}', '<b>' + fmtNum(l.price) + ' ' + t('som') + '</b>')}</p>
     <input class="finput offer-input" id="offerInput" type="number" inputmode="numeric" min="0" placeholder="${t('offer.ph')}" autocomplete="off">
     <div id="offerResult"></div>
@@ -1819,9 +1819,9 @@ async function submitOfferCloud(id, l) {
   if (r.status === 'accepted') {
     const deal = Math.min(offer, l.price);
     result.innerHTML = `<div class="offer-msg offer-ok">
-        <div class="offer-ok-head">✅ ${t('offer.accepted')}</div>
+        <div class="offer-ok-head">${icon('check',{size:16})} ${t('offer.accepted')}</div>
         <div class="offer-deal">${fmtNum(deal)} ${t('som')}</div>
-        <button class="btn btn-primary btn-block btn-lg" data-action="offer-deal" data-id="${id}" data-price="${deal}">💬 ${t('offer.toChat')}</button>
+        <button class="btn btn-primary btn-block btn-lg" data-action="offer-deal" data-id="${id}" data-price="${deal}">${icon('message',{size:17})} ${t('offer.toChat')}</button>
       </div>`;
     inp.disabled = true;
     const b = document.querySelector('#offerActions [data-action="offer-submit"]'); if (b) b.remove();
@@ -1829,7 +1829,7 @@ async function submitOfferCloud(id, l) {
     result.innerHTML = `<div class="offer-msg offer-warn">${t('offer.rejected')}</div>
       <div class="offer-counter">
         <div class="offer-counter-text">${t('offer.counter').replace('{price}', '<b>' + fmtNum(r.counter_amount) + ' ' + t('som') + '</b>')}</div>
-        <button class="btn btn-bargain btn-block" data-action="offer-deal" data-id="${id}" data-price="${r.counter_amount}">🤝 ${t('offer.acceptCounter')}</button>
+        <button class="btn btn-bargain btn-block" data-action="offer-deal" data-id="${id}" data-price="${r.counter_amount}">${icon('handshake',{size:17})} ${t('offer.acceptCounter')}</button>
       </div>`;
   } else {
     const head = r.gap_hint === 'almost' ? t('offer.close') : t('offer.rejected');
@@ -1852,9 +1852,9 @@ function submitOffer(id) {
   if (offer >= l.floor) {
     const deal = Math.min(offer, l.price); // не дороже витрины
     result.innerHTML = `<div class="offer-msg offer-ok">
-        <div class="offer-ok-head">✅ ${t('offer.accepted')}</div>
+        <div class="offer-ok-head">${icon('check',{size:16})} ${t('offer.accepted')}</div>
         <div class="offer-deal">${fmtNum(deal)} ${t('som')}</div>
-        <button class="btn btn-primary btn-block btn-lg" data-action="offer-deal" data-id="${id}" data-price="${deal}">💬 ${t('offer.toChat')}</button>
+        <button class="btn btn-primary btn-block btn-lg" data-action="offer-deal" data-id="${id}" data-price="${deal}">${icon('message',{size:17})} ${t('offer.toChat')}</button>
       </div>`;
     inp.disabled = true;
     const submitBtn = document.querySelector('#offerActions [data-action="offer-submit"]');
@@ -1868,7 +1868,7 @@ function submitOffer(id) {
     if (state._offerTries >= 2) {
       counter = `<div class="offer-counter">
           <div class="offer-counter-text">${t('offer.counter').replace('{price}', '<b>' + fmtNum(l.floor) + ' ' + t('som') + '</b>')}</div>
-          <button class="btn btn-bargain btn-block" data-action="offer-deal" data-id="${id}" data-price="${l.floor}">🤝 ${t('offer.acceptCounter')}</button>
+          <button class="btn btn-bargain btn-block" data-action="offer-deal" data-id="${id}" data-price="${l.floor}">${icon('handshake',{size:17})} ${t('offer.acceptCounter')}</button>
         </div>`;
     }
     result.innerHTML = `<div class="offer-msg ${cls}">${head}</div>${counter}`;
@@ -1994,7 +1994,7 @@ function renderFavorites() {
       badge = `<div class="fav-price ${down ? 'down' : 'up'}">${down ? '↓' : '↑'} ${Math.abs(Math.round(d))}% · ${down ? t('favs.cheaper') : t('favs.pricier')}</div>`;
     }
     const note = r.m.note
-      ? `<div class="fav-note">📝 ${esc(r.m.note)}</div>` : '';
+      ? `<div class="fav-note">${icon('edit',{size:14})} ${esc(r.m.note)}</div>` : '';
     return `<div class="fav-item">
       ${cardHTML(r.l)}
       ${badge}${note}
@@ -2081,16 +2081,16 @@ function renderSellPick() {
   app.innerHTML = `
     <div class="form-page">
       <div class="sell-head">
-        <div class="sell-head-icon">✨</div>
+        <div class="sell-head-icon">${icon('sparkle',{size:24})}</div>
         <h1>${t('sell.title')}</h1>
         <p>${t('sell.step1sub')}</p>
       </div>
       <button class="sell-snap" data-sell-camera>
-        <span class="sell-snap-cam">📷</span>
+        <span class="sell-snap-cam">${icon('camera',{size:22})}</span>
         <span>${t('sell.camera')}</span>
       </button>
       <label class="btn btn-outline btn-block btn-lg sell-upload-btn">
-        🖼️ ${t('sell.upload')}
+        ${icon('image',{size:18})} ${t('sell.upload')}
         <input type="file" accept="image/*" id="sellFile" hidden>
       </label>
       <div class="sell-or">${t('sell.examples')}</div>
@@ -2111,7 +2111,7 @@ function renderSellCamera() {
       <div class="sell-cam-bar">
         <button class="btn btn-outline" data-sell-cancelcam>${t('sell.cancel')}</button>
         <button class="sell-shutter" id="sellShutter" aria-label="${t('sell.shutter')}"><span></span></button>
-        <label class="btn btn-outline sell-upload-mini">🖼️<input type="file" accept="image/*" id="sellFile2" hidden></label>
+        <label class="btn btn-outline sell-upload-mini">${icon('image',{size:16})}<input type="file" accept="image/*" id="sellFile2" hidden></label>
       </div>
     </div>`;
   const video = $('#sellVideo');
@@ -2161,7 +2161,7 @@ function renderSellAnalyze() {
           <div class="sell-scan-line"></div>
         </div>
         <div class="sell-scan-status">
-          <span class="ai-avatar">✨</span>
+          <span class="ai-avatar">${icon('sparkle',{size:18})}</span>
           <span id="sellScanText">${firstStatus}</span>
         </div>
         <div class="ai-bubble sell-scan-dots"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
@@ -2263,7 +2263,7 @@ function renderSellDraft() {
         </div>
       </div>
       ${isReal && !isSmart ? `<div class="sell-real-note">ℹ️ ${t('sell.realNote')}</div>` : ''}
-      ${isSmart && det.modelCertain === false ? `<div class="sell-real-note sell-verify-note">💡 ${t('sell.verifyModel')}</div>` : ''}
+      ${isSmart && det.modelCertain === false ? `<div class="sell-real-note sell-verify-note">${icon('info',{size:15})} ${t('sell.verifyModel')}</div>` : ''}
       <form id="sellForm" class="form-card">
         ${catSelect}
         <div class="fgroup">
@@ -2273,8 +2273,8 @@ function renderSellDraft() {
         <div class="fgroup sell-price-group">
           <label class="flabel">${isSmart || !isReal ? t('sell.priceSuggested') : t('sell.priceByCat')}</label>
           <input class="finput sell-price-input" id="sPrice" type="number" inputmode="numeric" min="0" value="${suggested}" placeholder="0">
-          <div class="sell-market" id="sMarket">${market ? '📊 ' + t('sell.market').replace('{min}', fmtNum(market[0])).replace('{max}', fmtNum(market[1])).replace('{som}', t('som')) : ''}</div>
-          ${isSmart ? `<div class="sell-price-why">💡 ${t('sell.byAI')}</div>` : (!isReal ? `<div class="sell-price-why">💡 ${t('sell.priceWhy')}</div>` : '')}
+          <div class="sell-market" id="sMarket">${market ? icon('chart',{size:15}) + ' ' + t('sell.market').replace('{min}', fmtNum(market[0])).replace('{max}', fmtNum(market[1])).replace('{som}', t('som')) : ''}</div>
+          ${isSmart ? `<div class="sell-price-why">${icon('bulb',{size:15})} ${t('sell.byAI')}</div>` : (!isReal ? `<div class="sell-price-why">${icon('bulb',{size:15})} ${t('sell.priceWhy')}</div>` : '')}
         </div>
         <div class="form-row">
           <div class="fgroup">
@@ -2299,8 +2299,8 @@ function renderSellDraft() {
         <button type="submit" class="btn btn-primary btn-block btn-lg">${t('sell.publish')}</button>
       </form>
       <div class="sell-draft-actions">
-        <button class="btn btn-outline" data-action="sell-to-manual">✏️ ${t('sell.edit')}</button>
-        <button class="btn btn-outline" data-sell-restart>📷 ${t('sell.retake')}</button>
+        <button class="btn btn-outline" data-action="sell-to-manual">${icon('edit',{size:16})} ${t('sell.edit')}</button>
+        <button class="btn btn-outline" data-sell-restart>${icon('camera',{size:16})} ${t('sell.retake')}</button>
         <button class="btn btn-danger-soft" data-sell-exit>✕ ${t('sell.cancel')}</button>
       </div>
     </div>`;
@@ -2318,7 +2318,7 @@ function renderSellDraft() {
       const st = subPriceStats(subcategory);
       market = st ? [st.min, st.max] : null;
       const mEl = $('#sMarket');
-      if (mEl) mEl.innerHTML = market ? '📊 ' + t('sell.market').replace('{min}', fmtNum(market[0])).replace('{max}', fmtNum(market[1])).replace('{som}', t('som')) : '';
+      if (mEl) mEl.innerHTML = market ? icon('chart',{size:15}) + ' ' + t('sell.market').replace('{min}', fmtNum(market[0])).replace('{max}', fmtNum(market[1])).replace('{som}', t('som')) : '';
       if (st && !$('#sPrice').value) $('#sPrice').value = Math.round(st.median / 500) * 500;
     };
     $('#sCat')?.addEventListener('change', e => {
@@ -2592,7 +2592,7 @@ function renderPost(params) {
 
   const aiChoice = (editing || prefill) ? '' : `
     <a class="sell-promo" href="#/sell" data-link>
-      <span class="sell-promo-icon">✨</span>
+      <span class="sell-promo-icon">${icon('sparkle',{size:22})}</span>
       <span class="sell-promo-text">
         <span class="sell-promo-title">${t('post.choice.ai')}</span>
         <span class="sell-promo-sub">${t('post.choice.aiSub')}</span>
@@ -2607,7 +2607,7 @@ function renderPost(params) {
       <div class="form-card">
         <h1>${editing ? t('form.edit') : t('form.new')}</h1>
         ${draft ? `<div class="draft-note">
-          <span>📝 ${t('form.draftRestored')}</span>
+          <span>${icon('edit',{size:14})} ${t('form.draftRestored')}</span>
           <button type="button" class="btn-ghost" data-action="draft-discard">${t('form.draftDiscard')}</button>
         </div>` : ''}
         <div class="pstep-bar" id="pStepBar">
@@ -2639,7 +2639,7 @@ function renderPost(params) {
 
           <section class="pstep" data-step="3" hidden>
             <div class="attr-block" id="pAttrsWrap" hidden>
-              <div class="attr-block-head">⚙️ ${t('form.specs')}</div>
+              <div class="attr-block-head">${icon('gear',{size:15})} ${t('form.specs')}</div>
               <div class="attr-grid" id="pAttrs"></div>
             </div>
             <div class="fgroup">
@@ -2674,7 +2674,7 @@ function renderPost(params) {
                 ${t('price.negotiable')}</label>
             </div>
             <div class="fgroup post-floor" id="pFloorWrap" ${f.negotiable ? 'hidden' : ''}>
-              <label class="flabel">🤝 ${t('form.floor')}</label>
+              <label class="flabel">${icon('handshake',{size:15})} ${t('form.floor')}</label>
               <input class="finput" id="pFloor" type="number" inputmode="numeric" min="0" placeholder="${t('form.floorPh')}" value="${f.floor || ''}">
               <div class="hint">${t('form.floorHint')}</div>
             </div>
@@ -2839,7 +2839,7 @@ function renderPost(params) {
       else if (r <= 1.15) verdict = `<span class="ph-v ok">${t('form.priceOk')}</span>`;
       else verdict = `<span class="ph-v high">${t('form.priceHigh')}</span>`;
     }
-    box.innerHTML = `📊 ${t('form.priceMarket')} ${fmtNum(st.min)}–${fmtNum(st.max)} ${t('som')} · ${t('form.priceMedian')} ${fmtNum(st.median)} ${verdict}`;
+    box.innerHTML = `${icon('chart',{size:15})} ${t('form.priceMarket')} ${fmtNum(st.min)}–${fmtNum(st.max)} ${t('som')} · ${t('form.priceMedian')} ${fmtNum(st.median)} ${verdict}`;
     box.hidden = false;
   }
   $('#pPrice').addEventListener('input', updatePriceHint);
@@ -3346,7 +3346,7 @@ function renderMap() {
       <div class="map-selected" id="mapSelected">
         <div class="map-sel-head">
           <div>
-            <h2>📍 ${esc(sel)}</h2>
+            <h2>${icon('location',{size:18})} ${esc(sel)}</h2>
             <div class="map-sel-sub">${nLabel(st.count)} · ${t('map.avg')}: ${st.avg ? '~' + fmtNum(st.avg) + ' ' + t('som') : '—'}${st.min ? ` · ${t('map.from')} ${fmtNum(st.min)} ${t('som')}` : ''}</div>
           </div>
           <a class="btn btn-primary" href="${buildSearchHash({ ...f, city: sel })}" data-link>${t('map.inArea')}</a>
@@ -3395,7 +3395,7 @@ function renderCompare() {
     addRow(fld.key, aL(fld.label), vals, nums);
   });
   addRow('cond', t('item.cond'), items.map(l => l.condition === 'new' ? t('cond.new') : l.condition === 'used' ? t('cond.used') : '—'));
-  addRow('rating', t('cmp.seller'), items.map(l => { const s = sellerStats(l); return s.isNew ? t('seller.new') : '★ ' + s.rating; }),
+  addRow('rating', t('cmp.seller'), items.map(l => { const s = sellerStats(l); return s.isNew ? t('seller.new') : icon('starfill', { size: 13 }) + ' ' + s.rating; }),
     items.map(l => { const s = sellerStats(l); return s.isNew ? 0 : parseFloat(s.rating) || null; }));
   addRow('city', t('item.city'), items.map(l => l.city || '—'));
   // различия сверху, одинаковое — ниже
@@ -3404,9 +3404,9 @@ function renderCompare() {
   app.innerHTML = `
     <div class="section-title"><h2>${t('cmp.title')} <span class="muted">${items.length}</span></h2>
       <button class="btn btn-outline btn-sm" data-action="compare-clear">${t('cmp.clear')}</button></div>
-    ${items.length >= 2 ? `<div class="cmp-verdict">💡 ${compareVerdict(items)}</div>` : ''}
+    ${items.length >= 2 ? `<div class="cmp-verdict">${icon('bulb',{size:16})} ${compareVerdict(items)}</div>` : ''}
     <div class="cmp-scroll"><table class="cmp-table">
-      <thead><tr><th class="cmp-corner"></th>${items.map(l => `<th><button class="cmp-rm" data-action="compare-remove" data-id="${l.id}" aria-label="✕">✕</button><a href="#/item/${l.id}" data-link><span class="cmp-photo">${getPhotos(l).length ? `<img src="${esc(getPhotos(l)[0])}" alt="">` : '📷'}</span><span class="cmp-name">${esc(l.title)}</span></a></th>`).join('')}</tr></thead>
+      <thead><tr><th class="cmp-corner"></th>${items.map(l => `<th><button class="cmp-rm" data-action="compare-remove" data-id="${l.id}" aria-label="${t('cmp.clear')}">${icon('close',{size:14,stroke:2.4})}</button><a href="#/item/${l.id}" data-link><span class="cmp-photo">${getPhotos(l).length ? `<img src="${esc(getPhotos(l)[0])}" alt="">` : icon('image',{size:22,stroke:1.6})}</span><span class="cmp-name">${esc(l.title)}</span></a></th>`).join('')}</tr></thead>
       <tbody>${rows.map(r => `<tr class="${r.differ ? '' : 'cmp-same'}"><td class="cmp-lbl">${esc(r.label)}</td>${r.vals.map((v, i) => `<td class="${i === r.best ? 'cmp-best' : ''}">${esc(String(v))}${i === r.best ? ' <span class="cmp-star">✓</span>' : ''}</td>`).join('')}</tr>`).join('')}</tbody>
     </table></div>`;
 }
@@ -3435,14 +3435,14 @@ function shortTitle(s) { return String(s).length > 28 ? String(s).slice(0, 27) +
 function savedSearchesHTML() {
   if (!state.saved.length) return '';
   return `<div class="panel">
-    <h2>🔔 ${t('saved.title')}</h2>
+    <h2>${icon('bell',{size:18})} ${t('saved.title')}</h2>
     <div class="saved-list">${state.saved.map(s => {
       const n = savedNewCount(s);
       return `<div class="saved-row">
         <button class="saved-open" data-action="open-saved" data-id="${s.id}">
           <span class="saved-name">${esc(s.name)}</span>${n ? `<span class="saved-new">+${n} ${t('saved.new')}</span>` : `<span class="saved-none">${t('saved.noNew')}</span>`}
         </button>
-        <button class="saved-del" data-action="remove-saved" data-id="${s.id}" aria-label="✕">✕</button>
+        <button class="saved-del" data-action="remove-saved" data-id="${s.id}" aria-label="${t('cmp.clear')}">${icon('close',{size:14,stroke:2.4})}</button>
       </div>`;
     }).join('')}</div>
   </div>`;
@@ -3453,7 +3453,7 @@ function compareBarHTML() {
   const n = state.compare.size;
   if (!n) return '';
   return `<div class="compare-bar">
-    <span class="cmp-bar-label">⚖️ <span class="cmp-bar-text">${t('cmp.selected')}:</span> <b>${n}</b></span>
+    <span class="cmp-bar-label">${icon('scale',{size:15})} <span class="cmp-bar-text">${t('cmp.selected')}:</span> <b>${n}</b></span>
     <span class="cmp-bar-actions">
       <button class="btn btn-outline btn-sm" data-action="compare-clear">${t('cmp.clear')}</button>
       <a class="btn btn-primary btn-sm ${n < 2 ? 'is-disabled' : ''}" href="#/compare" data-link>${t('cmp.go')}</a>
@@ -3484,14 +3484,14 @@ function sellerAnalyticsHTML(my) {
   const old = active.filter(l => !l.ownerId && hoursAgo(l) > 14 * 24); // локальные можно поднять
 
   const recs = [];
-  if (noPhoto.length) recs.push({ ico: '📷', txt: t('analytics.recPhoto').replace('{n}', noPhoto.length) });
-  if (overPriced.length) recs.push({ ico: '💰', txt: t('analytics.recPrice').replace('{n}', overPriced.length) });
-  if (old.length) recs.push({ ico: '⬆️', txt: t('analytics.recOld').replace('{n}', old.length) });
-  if (noDesc.length) recs.push({ ico: '📝', txt: t('analytics.recDesc').replace('{n}', noDesc.length) });
+  if (noPhoto.length) recs.push({ ico: 'camera', txt: t('analytics.recPhoto').replace('{n}', noPhoto.length) });
+  if (overPriced.length) recs.push({ ico: 'pricedown', txt: t('analytics.recPrice').replace('{n}', overPriced.length) });
+  if (old.length) recs.push({ ico: 'bump', txt: t('analytics.recOld').replace('{n}', old.length) });
+  if (noDesc.length) recs.push({ ico: 'edit', txt: t('analytics.recDesc').replace('{n}', noDesc.length) });
 
   const recsHTML = recs.length
-    ? recs.slice(0, 4).map(r => `<li class="an-rec"><span class="an-rec-ico">${r.ico}</span>${esc(r.txt)}</li>`).join('')
-    : `<li class="an-rec an-rec-good"><span class="an-rec-ico">👍</span>${t('analytics.allGood')}</li>`;
+    ? recs.slice(0, 4).map(r => `<li class="an-rec"><span class="an-rec-ico">${icon(r.ico,{size:16})}</span>${esc(r.txt)}</li>`).join('')
+    : `<li class="an-rec an-rec-good"><span class="an-rec-ico">${icon('thumb',{size:16})}</span>${t('analytics.allGood')}</li>`;
 
   return `
     <div class="analytics-card">
@@ -3518,16 +3518,16 @@ function renderProfile() {
     const cloud = !!l.ownerId; // облачное (видно всем) vs локальное
     return `
     <div class="my-listing-row ${sold ? 'is-sold' : ''}">
-      ${photos.length ? `<img src="${esc(photos[0])}" alt="">` : '<div class="thumb-fallback" style="width:92px;height:70px;font-size:20px">📷</div>'}
+      ${photos.length ? `<img src="${esc(photos[0])}" alt="">` : `<div class="thumb-fallback" style="width:92px;height:70px">${icon('image', { size: 24, stroke: 1.6 })}</div>`}
       <div class="info">
         <a class="title" href="#/item/${l.id}" data-link>${esc(l.title)}</a>
-        <div class="sub">${sold ? `<span class="sold-tag">✅ ${t('status.sold')}</span> · ` : ''}${cloud ? `<span class="cloud-tag" title="${t('profile.cloudHint')}">☁️</span> ` : ''}${priceHTML(l).replace(/<[^>]*>/g, ' ')} · ${postedLabel(l)} · 👁️ ${fmtNum(l.views)}</div>
+        <div class="sub">${sold ? `<span class="sold-tag">${icon('check',{size:13})} ${t('status.sold')}</span> · ` : ''}${cloud ? `<span class="cloud-tag" title="${t('profile.cloudHint')}">${icon('cloud',{size:14})}</span> ` : ''}${priceHTML(l).replace(/<[^>]*>/g, ' ')} · ${postedLabel(l)} · ${icon('eye',{size:13})} ${fmtNum(l.views)}</div>
       </div>
       <div class="actions">
         <button class="btn ${sold ? 'btn-primary' : 'btn-secondary'} btn-sm" data-action="toggle-sold" data-id="${l.id}">${sold ? '↩️' : '✅'}</button>
         ${(sold || cloud) ? '' : `<button class="btn btn-secondary btn-sm" data-action="bump" data-id="${l.id}">⬆️ ${t('profile.bump')}</button>`}
         <a class="btn btn-outline btn-sm" href="#/post?edit=${l.id}" data-link aria-label="${t('item.edit')}">✏️</a>
-        <button class="btn btn-danger-soft btn-sm" data-action="delete-my" data-id="${l.id}" aria-label="${t('item.delete')}">🗑️</button>
+        <button class="btn btn-danger-soft btn-sm" data-action="delete-my" data-id="${l.id}" aria-label="${t('item.delete')}">${icon('trash',{size:16})}</button>
       </div>
     </div>`;
   }).join('');
@@ -3568,7 +3568,7 @@ function renderProfile() {
       <button class="btn btn-outline btn-sm profile-logout" data-action="logout">${t('auth.logout')}</button>
     </div>` : `
     <div class="auth-cta">
-      <div class="auth-cta-ico">👋</div>
+      <div class="auth-cta-ico">${icon('wave',{size:26})}</div>
       <div class="auth-cta-body">
         <h2>${t('auth.ctaTitle')}</h2>
         <p>${t('auth.ctaSub')}</p>
@@ -3618,10 +3618,10 @@ function shareListing(id) {
     return;
   }
   openModal(`
-    <h3>🔗 ${t('share.title')}</h3>
+    <h3>${icon('share',{size:18})} ${t('share.title')}</h3>
     <div class="share-row"><input id="shareUrl" class="finput" readonly value="${esc(url)}"></div>
     <div class="share-btns">
-      <button class="btn btn-secondary" data-action="share-copy">📋 ${t('share.copy')}</button>
+      <button class="btn btn-secondary" data-action="share-copy">${icon('copy',{size:16})} ${t('share.copy')}</button>
       <a class="btn btn-primary" href="https://wa.me/?text=${encodeURIComponent(text + ' ' + url)}" target="_blank" rel="noopener">WhatsApp</a>
       <a class="btn btn-outline" href="https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}" target="_blank" rel="noopener">Telegram</a>
     </div>`);
@@ -3631,7 +3631,7 @@ function shareListing(id) {
 function openReportModal(id) {
   const reasons = ['scam', 'sold', 'wrong', 'prohibited', 'duplicate', 'offensive'];
   openModal(`
-    <h3>⚑ ${t('report.title')}</h3>
+    <h3>${icon('flag',{size:18})} ${t('report.title')}</h3>
     <p class="modal-text">${t('report.sub')}</p>
     <div class="report-reasons">${reasons.map(r => `<button class="report-reason" data-action="report-submit" data-id="${id}" data-reason="${r}">${t('report.r.' + r)}</button>`).join('')}</div>
     <div class="modal-actions"><button class="btn btn-outline btn-block" data-action="modal-close">${t('del.cancel')}</button></div>`);
@@ -3768,12 +3768,12 @@ function maskUnsafe(raw) {
   // ссылки: http(s)://… , www.… , или domain.tld/… по списку частых зон
   html = html.replace(
     /\b((?:https?:\/\/|www\.)[^\s<]+|[a-z0-9][a-z0-9-]*\.(?:ru|com|net|org|kg|io|me|app|site|online|shop|store|info|biz|xyz|top|link|pay|click)\b[^\s<]*)/gi,
-    `<span class="masked" title="${esc(t('safety.maskLinkHint'))}">🔒 ${esc(t('safety.maskLink'))}</span>`);
+    `<span class="masked" title="${esc(t('safety.maskLinkHint'))}">${icon('lock',{size:13})} ${esc(t('safety.maskLink'))}</span>`);
   // номера карт: 13–19 цифр (группировка ИЛИ платёжный контекст рядом);
   // IMEI/серийники/трек-номера («IMEI: 3569…», слитные без контекста) не трогаем
   html = html.replace(/\d(?:[ \-]?\d){12,18}/g, (m, idx) =>
     _isCardLike(html, m, idx)
-      ? `<span class="masked" title="${esc(t('safety.maskCardHint'))}">🔒 ${esc(t('safety.maskCard'))}</span>` : m);
+      ? `<span class="masked" title="${esc(t('safety.maskCardHint'))}">${icon('lock',{size:13})} ${esc(t('safety.maskCard'))}</span>` : m);
   return html;
 }
 
@@ -3815,12 +3815,12 @@ function chatChipsHTML(active) {
   if (last && last.from === 'them' && typeof aiReplySuggestions === 'function') {
     const sug = aiReplySuggestions(active);
     // ИИ-подсказки ЗАПОЛНЯЮТ поле (не шлют сами) — ТЗ: без подтверждения не отправлять
-    if (sug.length) ai = `<div class="chat-ai-sug"><span class="chat-ai-lbl" title="${t('ai.name')}">✨</span>${sug.map(s => `<button class="fchip ai" data-fill="${esc(s)}">${esc(s)}</button>`).join('')}</div>`;
+    if (sug.length) ai = `<div class="chat-ai-sug"><span class="chat-ai-lbl" title="${t('ai.name')}">${icon('sparkle',{size:14})}</span>${sug.map(s => `<button class="fchip ai" data-fill="${esc(s)}">${esc(s)}</button>`).join('')}</div>`;
   }
   // быстрые вопросы покупателя + предложить цену (если уместен торг)
   const quick = [];
   const L = active.listing;
-  if (!iAmSeller && (L && (L.floor || L.hasFloor))) quick.push(`<button class="fchip chat-offer" data-action="offer-price" data-id="${L.id}">🤝 ${t('item.offerPrice')}</button>`);
+  if (!iAmSeller && (L && (L.floor || L.hasFloor))) quick.push(`<button class="fchip chat-offer" data-action="offer-price" data-id="${L.id}">${icon('handshake',{size:14})} ${t('item.offerPrice')}</button>`);
   if (!iAmSeller && active.messages.length === 0) {
     quick.push(`<button class="fchip" data-quick="${esc(t('chats.q1'))}">${t('chats.q1s')}</button>`);
     quick.push(`<button class="fchip" data-quick="${esc(t('chats.q2'))}">${t('chats.q2s')}</button>`);
@@ -3835,7 +3835,7 @@ function msgHTML(m, otherReadAt) {
   const r = assessTextRisk(m.text);
   let warn = '';
   if (r.level === 'critical') {       // фишинг кода из СМС — захват аккаунта
-    warn = `<div class="chat-scam-warn critical"><span class="csw-ico">⛔</span><span><b>${t('scam.otpWho')}</b> ${t('scam.otp')}</span></div>`;
+    warn = `<div class="chat-scam-warn critical"><span class="csw-ico">${icon('warning',{size:18})}</span><span><b>${t('scam.otpWho')}</b> ${t('scam.otp')}</span></div>`;
   } else if (r.level === 'high' || r.level === 'med') {  // реальная схема оплаты
     warn = `<div class="chat-scam-warn"><span class="csw-ico">${icon('shield',{size:18})}</span><span><b>${t('scam.who')}</b> ${t('scam.warn')}</span></div>`;
   } // low/none (просто «вотсап» и т.п.) — НЕ тревожим, верхний баннер уже напоминает
@@ -3916,7 +3916,7 @@ function renderChats(activeId) {
     const last = c.messages[c.messages.length - 1];
     return `
     <div class="chat-row ${active && c.key === active.key ? 'active' : ''}" data-chat="${esc(c.key)}">
-      ${photo ? `<img src="${esc(photo)}" alt="">` : '<div class="thumb-fallback" style="width:48px;height:48px">📷</div>'}
+      ${photo ? `<img src="${esc(photo)}" alt="">` : `<div class="thumb-fallback" style="width:48px;height:48px">${icon('image', { size: 20, stroke: 1.6 })}</div>`}
       <div class="info">
         <div class="name"><span class="nm">${esc(chName(c))}</span> ${last ? `<time>${msgTime(last.ts)}</time>` : ''}</div>
         <div class="last">${c.unread ? '<b style="color:var(--accent-dark)">● </b>' : ''}${last ? esc(last.text) : esc(chTitle(c))}</div>
@@ -3939,7 +3939,7 @@ function renderChats(activeId) {
     <div class="chat-msgs" id="chatMsgs">
       ${active.messages.length
         ? active.messages.map(m => msgHTML(m, active.otherReadAt)).join('')
-        : `<div class="empty empty-sm"><div class="empty-emoji">👋</div><h3>${t('chats.start.t')}</h3><p>${t('chats.start.p')}</p></div>`}
+        : `<div class="empty empty-sm"><div class="empty-icon">${icon('message',{size:40})}</div><h3>${t('chats.start.t')}</h3><p>${t('chats.start.p')}</p></div>`}
     </div>
     ${chatChipsHTML(active)}
     <div class="chat-input">
@@ -4143,7 +4143,7 @@ function openVoiceOverlay(onStop) {
   const el = document.createElement('div');
   el.id = 'voiceOverlay';
   el.innerHTML = `<div class="voice-card">
-    <div class="voice-pulse">🎤</div>
+    <div class="voice-pulse">${icon('mic',{size:34})}</div>
     <div class="voice-hint">${t('voice.listening')}</div>
     <div class="voice-transcript" id="voiceTranscript"></div>
     <button class="btn btn-outline btn-sm" id="voiceStop">${t('voice.stop')}</button>
@@ -4335,7 +4335,7 @@ function showSuggest() {
   if (brandRows.length) html += head(t('sug.brands')) + brandRows.join('');
   if (itemRows.length) html += head(t('sug.items')) + itemRows.join('');
   // «Искать всё по запросу» — поиск сам умный, отдельного ИИ-ассистента нет
-  html += `<button class="sug-aiRow" data-action="run-search"><span class="sug-ai">🔍</span>&nbsp;${t('sug.searchAll')} «${esc(raw)}»</button>`;
+  html += `<button class="sug-aiRow" data-action="run-search"><span class="sug-ai">${icon('search',{size:15})}</span>&nbsp;${t('sug.searchAll')} «${esc(raw)}»</button>`;
 
   box.innerHTML = html;
   box.hidden = false;
@@ -4435,11 +4435,11 @@ async function renderNotifications() {
   const app = $('#app');
   app.innerHTML = `<div class="notif-page">
     <div class="page-head">
-      <h1 class="page-title">🔔 ${t('notif.title')}</h1>
+      <h1 class="page-title">${icon('bell',{size:20})} ${t('notif.title')}</h1>
       <button class="btn btn-outline btn-sm" data-action="notif-read-all">${t('notif.readAll')}</button>
     </div>
     <div id="notifList"><div class="boot-skeleton"><div class="sk-card"><div class="sk-photo"></div><div class="sk-line"></div></div></div></div>
-    <details class="notif-settings"><summary>⚙️ ${t('notif.settings')}</summary>
+    <details class="notif-settings"><summary>${icon('gear',{size:15})} ${t('notif.settings')}</summary>
       <div class="notif-prefs">${Object.keys(NOTIF_ICON).map(k => {
         const on = notifPrefs()[k];
         return `<label class="notif-pref"><span class="notif-pref-lbl">${icon(NOTIF_ICON[k], { size: 18 })} ${t('notif.kind.' + k)}</span>
@@ -4587,7 +4587,7 @@ document.addEventListener('click', async e => {
       if (b.classList.contains('fav-btn')) {
         b.classList.toggle('active', state.favorites.has(id));
       } else {
-        b.innerHTML = state.favorites.has(id) ? '❤️ ' + t('item.faved') : '🤍 ' + t('item.fav');
+        b.innerHTML = icon('heart', { size: 17, fill: state.favorites.has(id) }) + ' ' + (state.favorites.has(id) ? t('item.faved') : t('item.fav'));
       }
     });
     if (parseHash().path.startsWith('/favorites')) renderFavorites();
@@ -4890,7 +4890,7 @@ document.addEventListener('click', async e => {
         if (toggleCompare(id)) {
           const on = inCompare(id);
           actBtn.classList.toggle('on', on);
-          actBtn.innerHTML = '⚖️ ' + (on ? t('cmp.inList') : t('cmp.add'));
+          actBtn.innerHTML = icon('scale', { size: 15 }) + ' ' + (on ? t('cmp.inList') : t('cmp.add'));
           updateCompareBar();
         }
         break;

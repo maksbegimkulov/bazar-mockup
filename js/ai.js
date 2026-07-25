@@ -38,7 +38,7 @@ function aiItemHTML(id) {
   </a>`;
 }
 
-const DEC_ICON = { best: '⭐', value: '🔥', purpose: '🎯', cheap: '💸' };
+const DEC_ICON = { best: 'starfill', value: 'fire', purpose: 'target', cheap: 'pricedown' };
 
 /* карточка одного выбора в «решении» Дианы */
 function aiPickHTML(pick) {
@@ -47,7 +47,7 @@ function aiPickHTML(pick) {
   const photos = getPhotos(l);
   return `
   <a class="ai-pick ai-pick-${pick.kind}" href="#/item/${l.id}" data-link>
-    <span class="ai-pick-badge">${DEC_ICON[pick.kind] || '•'} ${esc(pick.label)}</span>
+    <span class="ai-pick-badge">${DEC_ICON[pick.kind] ? icon(DEC_ICON[pick.kind], { size: 14 }) : ''} ${esc(pick.label)}</span>
     <span class="ai-pick-body">
       ${photos.length ? `<img src="${esc(photos[0])}" alt="">` : '<span class="thumb-fallback" style="width:52px;height:52px">📷</span>'}
       <span class="ai-pick-info">
@@ -77,7 +77,7 @@ function aiMsgHTML(m, idx) {
     `<button class="fchip ai-chip" data-ai-act="${idx}:${i}">${esc(a.label)}</button>`).join('');
   return `
   <div class="ai-msg ${m.role}">
-    ${m.role === 'ai' ? '<span class="ai-avatar">✨</span>' : ''}
+    ${m.role === 'ai' ? `<span class="ai-avatar">${icon('sparkle', { size: 16 })}</span>` : ''}
     <div class="ai-bubble">
       <div class="ai-text">${esc(m.text).replace(/\n/g, '<br>')}</div>
       ${body}
@@ -102,7 +102,7 @@ function aiTyping(on) {
   if (ex) ex.remove();
   if (on) {
     box.insertAdjacentHTML('beforeend',
-      '<div class="ai-msg ai ai-typing"><span class="ai-avatar">✨</span><div class="ai-bubble"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div></div>');
+      '<div class="ai-msg ai ai-typing"><span class="ai-avatar">' + icon('sparkle', { size: 16 }) + '</span><div class="ai-bubble"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div></div>');
     box.scrollTop = box.scrollHeight;
   }
 }
@@ -309,7 +309,7 @@ function aiResultsBlock(res, raw, f) {
   if (!picks || picks.length < 2) return '';
   return `<div class="ai-results">
     <div class="ai-results-head">
-      <span class="ai-results-ava">✨</span>
+      <span class="ai-results-ava">${icon('sparkle',{size:18})}</span>
       <span class="ai-results-title">${t('ai.resultsTitle')}</span>
     </div>
     <div class="ai-results-picks">${picks.map(aiPickHTML).join('')}</div>

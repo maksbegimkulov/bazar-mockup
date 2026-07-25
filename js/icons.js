@@ -90,6 +90,15 @@
     refresh: '<path d="M20 8a8 8 0 1 0 1.4 6"/><path d="M20 3.5V8h-4.5"/>',
     trash: '<path d="M4 6.5h16M9 6.5V4.5h6v2M6 6.5 7 20h10l1-13.5"/>',
     bump: '<path d="M12 20V6M12 6l-5 5M12 6l5 5"/>',
+    chart: '<path d="M4 4v16h16"/><path d="M7.5 15l3-4 3 2.5L18 8"/>',
+    bulb: '<path d="M9 17.5h6M10 20.5h4"/><path d="M12 3.5a5.5 5.5 0 0 0-3.3 9.9c.5.4.8 1 .8 1.6h5c0-.6.3-1.2.8-1.6A5.5 5.5 0 0 0 12 3.5z"/>',
+    wave: '<path d="M12 21a7 7 0 0 0 7-7V8.5a1.4 1.4 0 0 0-2.8 0M16.2 9V6.5a1.4 1.4 0 0 0-2.8 0M13.4 7.5V5a1.4 1.4 0 0 0-2.8 0v6M10.6 8.5 8.9 6.8a1.4 1.4 0 0 0-2 2l3 3.2"/>',
+    target: '<circle cx="12" cy="12" r="8.2"/><circle cx="12" cy="12" r="4.4"/><circle cx="12" cy="12" r="0.9" fill="currentColor" stroke="none"/>',
+    image: '<rect x="3" y="4.5" width="18" height="15" rx="2"/><circle cx="8.5" cy="9.5" r="1.8"/><path d="M4 17l4.5-4.5 3.5 3.5 3-3 5 5"/>',
+    copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M4 15.5V6a2 2 0 0 1 2-2h9.5"/>',
+    lock: '<rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/>',
+    mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0 0 12 0M12 17v4M8.5 21h7"/>',
+    cloud: '<path d="M7 18.5A4 4 0 0 1 7 10.6 5.5 5.5 0 0 1 17.6 11 3.8 3.8 0 0 1 17 18.5z"/>',
   };
 
   /* синонимы: подкатегории/категории на русском → имя иконки */
