@@ -2756,9 +2756,12 @@ function renderPost(params) {
               <label class="fcheck" style="margin-top:6px"><input type="checkbox" id="pNegotiable" ${f.negotiable ? 'checked' : ''}>
                 <span class="box"><svg width="12" height="10" viewBox="0 0 12 10" fill="none" stroke="#fff" stroke-width="2.4"><path d="M1 5l3.5 3.5L11 1"/></svg></span>
                 ${t('price.negotiable')}</label>
+              <label class="fcheck" style="margin-top:6px" id="pBargainWrap" ${f.negotiable ? 'hidden' : ''}><input type="checkbox" id="pBargainOn" ${f.floor ? 'checked' : ''}>
+                <span class="box"><svg width="12" height="10" viewBox="0 0 12 10" fill="none" stroke="#fff" stroke-width="2.4"><path d="M1 5l3.5 3.5L11 1"/></svg></span>
+                ${({ ru: 'Готов уступить в цене (покупатель сможет предложить свою)', en: 'Open to offers (buyers can propose a price)', ky: 'Баадан түшүүгө даяр (сатып алуучу баа сунуштай алат)' })[LANG] || 'Готов уступить в цене'}</label>
             </div>
-            <div class="fgroup post-floor" id="pFloorWrap" ${f.negotiable ? 'hidden' : ''}>
-              <label class="flabel">${icon('handshake',{size:15})} ${t('form.floor')}</label>
+            <div class="fgroup post-floor" id="pFloorWrap" ${(f.negotiable || !f.floor) ? 'hidden' : ''}>
+              <label class="flabel">${icon('handshake', { size: 15 })} ${t('form.floor')}</label>
               <input class="finput" id="pFloor" type="number" inputmode="numeric" min="0" placeholder="${t('form.floorPh')}" value="${f.floor || ''}">
               <div class="hint">${t('form.floorHint')}</div>
             </div>
@@ -3040,9 +3043,22 @@ function renderPost(params) {
   $('#pNegotiable').addEventListener('change', e => {
     $('#pPrice').disabled = e.target.checked;
     if (e.target.checked) $('#pPrice').value = '';
+    // «Договорная» скрывает и тумблер торга, и поле мин.цены
+    const bw = $('#pBargainWrap');
+    if (bw) bw.hidden = e.target.checked;
     const fw = $('#pFloorWrap');
-    if (fw) { fw.hidden = e.target.checked; if (e.target.checked) $('#pFloor').value = ''; }
+    if (fw) {
+      const showFloor = !e.target.checked && $('#pBargainOn') && $('#pBargainOn').checked;
+      fw.hidden = !showFloor;
+      if (!showFloor) $('#pFloor').value = '';
+    }
     updatePriceHint();
+  });
+  // «Готов уступить» → показать/скрыть поле минимальной цены (floor только опытным)
+  const bargainOn = $('#pBargainOn');
+  if (bargainOn) bargainOn.addEventListener('change', e => {
+    const fw = $('#pFloorWrap');
+    if (fw) { fw.hidden = !e.target.checked; if (!e.target.checked) $('#pFloor').value = ''; if (e.target.checked) { const fi = $('#pFloor'); if (fi) fi.focus(); } }
   });
 
   let condition = f.condition || '';
