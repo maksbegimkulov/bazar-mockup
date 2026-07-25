@@ -865,26 +865,45 @@ function renderHome() {
   const viewed = state.viewed.map(getListing).filter(Boolean)
     .filter(l => !state.reported.has(l.id) && !isSold(l)).slice(0, 4);
 
-  // ПЕРСОНАЛИЗАЦИЯ (честно, на РЕАЛЬНЫХ данных): рекомендуем из подкатегории,
-  // которую юзер смотрел чаще всего, и ОБЪЯСНЯЕМ причину («почему вижу»).
+  // ПЕРСОНАЛИЗАЦИЯ (честно, на РЕАЛЬНЫХ данных): сигналы интереса из ПРОСМОТРОВ
+  // (вес 1) + ИЗБРАННОГО (вес 2 — сильнее). Считаем любимую подкатегорию, бренд-
+  // аффинность и средний бюджет, затем скорим кандидатов и ОБЪЯСНЯЕМ причину.
   let recoSection = '';
   const viewedAll = state.viewed.map(getListing).filter(Boolean);
-  if (viewedAll.length >= 2) {
-    const subCount = {};
-    viewedAll.forEach(l => { subCount[l.subcategory] = (subCount[l.subcategory] || 0) + 1; });
-    const topSub = Object.keys(subCount).sort((a, b) => subCount[b] - subCount[a])[0];
-    const viewedIds = new Set(state.viewed);
-    const reco = all.filter(l => l.subcategory === topSub && !viewedIds.has(l.id) && !state.hidden.has(l.id))
-      .sort((a, b) => hoursAgo(a) - hoursAgo(b)).slice(0, 4);
+  const signals = viewedAll.map(l => ({ l, w: 1 }))
+    .concat([...state.favorites].map(getListing).filter(Boolean).map(l => ({ l, w: 2 })));
+  const favContributes = [...state.favorites].some(id => !!getListing(id));
+  if (signals.length >= 2) {
+    const subW = {}, brandW = {}; let priceSum = 0, priceN = 0;
+    signals.forEach(({ l, w }) => {
+      subW[l.subcategory] = (subW[l.subcategory] || 0) + w;
+      const b = getAttrs(l).brand; if (b) brandW[b] = (brandW[b] || 0) + w;
+      if (l.price > 0) { priceSum += l.price * w; priceN += w; }
+    });
+    const topSub = Object.keys(subW).sort((a, b) => subW[b] - subW[a])[0];
+    const avgPrice = priceN ? priceSum / priceN : 0;
+    const seen = new Set([...state.viewed, ...state.favorites]);
+    const scored = all
+      .filter(l => l.subcategory === topSub && !seen.has(l.id) && !state.hidden.has(l.id))
+      .map(l => {
+        let s = 0;
+        const b = getAttrs(l).brand; if (b && brandW[b]) s += brandW[b] * 3;          // тот же бренд
+        if (avgPrice && l.price > 0) s += Math.max(0, 3 - Math.abs(l.price - avgPrice) / avgPrice * 3); // близость бюджета
+        s += Math.max(0, 2 - hoursAgo(l) / 168);                                        // свежесть (неделя)
+        return { l, s };
+      })
+      .sort((a, b) => b.s - a.s);
+    const reco = scored.slice(0, 4).map(x => x.l);
     if (reco.length >= 2) {
       const RC = ({
-        ru: { title: 'Рекомендуем вам', why: s => `Потому что вы смотрели: ${s}`, hide: 'Не интересно' },
-        en: { title: 'Recommended for you', why: s => `Because you viewed: ${s}`, hide: 'Not interested' },
-        ky: { title: 'Сизге сунуштайбыз', why: s => `Себеби сиз карадыңыз: ${s}`, hide: 'Кызык эмес' },
-      })[LANG] || { title: 'Рекомендуем вам', why: s => `Потому что вы смотрели: ${s}`, hide: 'Не интересно' };
+        ru: { title: 'Рекомендуем вам', whyV: s => `Потому что вы смотрели: ${s}`, whyF: s => `На основе избранного и просмотров: ${s}`, hide: 'Не интересно' },
+        en: { title: 'Recommended for you', whyV: s => `Because you viewed: ${s}`, whyF: s => `Based on your favorites and views: ${s}`, hide: 'Not interested' },
+        ky: { title: 'Сизге сунуштайбыз', whyV: s => `Себеби сиз карадыңыз: ${s}`, whyF: s => `Тандалмалар жана көрүүлөр боюнча: ${s}`, hide: 'Кызык эмес' },
+      })[LANG] || { title: 'Рекомендуем вам', whyV: s => `Потому что вы смотрели: ${s}`, whyF: s => `На основе избранного и просмотров: ${s}`, hide: 'Не интересно' };
+      const why = favContributes ? RC.whyF(subName(topSub)) : RC.whyV(subName(topSub));
       recoSection = `<section>
         <div class="section-title"><h2>${RC.title}</h2></div>
-        <div class="reco-why">${icon('sparkle', { size: 14 })} ${esc(RC.why(subName(topSub)))}</div>
+        <div class="reco-why">${icon('sparkle', { size: 14 })} ${esc(why)}</div>
         <div class="grid">${reco.map(l => `<div class="reco-card">${cardHTML(l)}<button class="reco-dismiss" data-action="not-interested" data-id="${l.id}" title="${RC.hide}" aria-label="${RC.hide}">${icon('close', { size: 14, stroke: 2.4 })}</button></div>`).join('')}</div>
       </section>`;
     }
