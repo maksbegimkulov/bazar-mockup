@@ -851,15 +851,17 @@ function renderHome() {
   // «свежие» — строго по дате, без VIP-буста
   const fresh = [...all].sort((a, b) => hoursAgo(a) - hoursAgo(b)).slice(0, 12);
 
-  const tiles = CATEGORIES.map(c => {
-    const count = all.filter(l => l.category === c.id).length;
-    return `
+  // категории — по популярности (больше объявлений → выше): пользователь чаще
+  // ищет в ходовых, они не должны прятаться внизу сетки
+  const tiles = CATEGORIES
+    .map(c => ({ c, count: all.filter(l => l.category === c.id).length }))
+    .sort((a, b) => b.count - a.count)
+    .map(({ c, count }) => `
     <a class="cat-tile" href="#/search?cat=${c.id}" data-link>
       <span class="cat-tile-icon" data-cat="${c.id}">${icon(c.id, { size: 25 })}</span>
       <span class="cat-tile-name">${catName(c)}</span>
       <span class="cat-tile-count">${nLabel(count)}</span>
-    </a>`;
-  }).join('');
+    </a>`).join('');
 
   // блок «вы смотрели» шёл мимо applyFilters, и объявление, на которое
   // юзер только что пожаловался (или которое продано), возвращалось на главную
@@ -1239,6 +1241,19 @@ function activeChipsHTML(f) {
   return chips.join('');
 }
 
+/* быстрый вход в подкатегории: чипы подкатегорий выбранной категории —
+   уточнение в 1 тап вместо фильтр-панели. Показываются, когда выбрана категория. */
+function subChipsHTML(f) {
+  const cat = catById(f.cat);
+  if (!cat || !cat.subs || !cat.subs.length) return '';
+  const chip = (val, label, active) =>
+    `<button class="sub-chip ${active ? 'on' : ''}" data-subchip="${esc(val)}">${label}</button>`;
+  return `<div class="sub-chips" id="subChips">
+    ${chip('', t('filters.allSubs'), !f.sub)}
+    ${cat.subs.map(s => chip(s, esc(subName(s)), f.sub === s)).join('')}
+  </div>`;
+}
+
 /* готовые пресеты фильтров (быстрые чипы: с доставкой / ниже рынка / проверенные…) */
 function presetChipsHTML(f) {
   const P = ({
@@ -1265,6 +1280,7 @@ function renderSearch() {
           <h1 id="resultsTitle"></h1>
           <span class="results-count" id="resultsCount"></span>
         </div>
+        ${subChipsHTML(state.filters)}
         <div class="preset-row" id="presetRow">${presetChipsHTML(state.filters)}</div>
         <div class="results-bar">
           <button class="filters-open-btn" data-action="open-filters">
@@ -4965,6 +4981,17 @@ document.addEventListener('click', async e => {
   // фото в чате: клик → полный размер (лайтбокс)
   const msgPhoto = e.target.closest('[data-msg-photo]');
   if (msgPhoto) { openModal(`<img class="lightbox-img" src="${esc(msgPhoto.dataset.msgPhoto)}" alt="">`); return; }
+  // быстрый вход в подкатегорию (чип под заголовком)
+  const subChip = e.target.closest('[data-subchip]');
+  if (subChip) {
+    const f = state.filters;
+    const val = subChip.dataset.subchip;
+    f.sub = f.sub === val ? '' : val;   // повторный тап по активной — снять
+    f.attrs = {};                        // подкатегория сменилась — сбрасываем спец-атрибуты
+    state.page = 1;
+    renderSearch();
+    return;
+  }
   // готовые пресеты фильтров (быстрые чипы)
   const preset = e.target.closest('[data-preset]');
   if (preset) {

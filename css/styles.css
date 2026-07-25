@@ -3118,3 +3118,23 @@ a.seller-card { display: flex; gap: 12px; align-items: center; text-decoration: 
 .an-day-lbl { color: var(--text-3); font-size: var(--fs-2xs); } .an-day-n { font-size: var(--fs-xs); font-weight: var(--w-semibold); }
 .profile-link { display: flex; align-items: center; gap: 10px; width: 100%; padding: 12px 0; color: var(--text); font-weight: var(--w-semibold); }
 .profile-link span { flex: 1; } .profile-link svg { flex-shrink: 0; color: var(--text-3); }
+
+/* быстрый вход в подкатегории (чипы под заголовком результатов) */
+.sub-chips {
+  display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none;
+  margin: 0 0 12px; padding-bottom: 2px; -webkit-overflow-scrolling: touch;
+}
+.sub-chips::-webkit-scrollbar { display: none; }
+.sub-chip {
+  flex-shrink: 0; font-size: var(--fs-sm); font-weight: var(--w-semibold);
+  color: var(--text-2); background: var(--card);
+  border: 1px solid var(--line); padding: 8px 15px; border-radius: var(--radius-pill);
+  transition: color var(--dur-1) var(--ease), background var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease), transform var(--dur-1) var(--ease);
+}
+.sub-chip:active { transform: scale(0.95); }
+.sub-chip.on { color: #fff; background: var(--accent-grad); border-color: transparent; box-shadow: var(--accent-glow); }
+@media (hover: hover) and (pointer: fine) { .sub-chip:hover:not(.on) { border-color: var(--accent); color: var(--accent-dark); } }
+
+/* сетка категорий главной — чуть компактнее и живее (популярные уже отсортированы кодом) */
+@media (max-width: 720px) { .cat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; } }
+@media (max-width: 400px) { .cat-grid { gap: 8px; } .cat-tile { padding: 11px; } }
