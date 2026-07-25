@@ -386,7 +386,16 @@ function startMyChatsLive() {
   });
 }
 
-function getListing(id) { return allListings().find(l => l.id === id); }
+// поиск по трём массивам напрямую — без реаллокации [...a,...b,...c] на каждый
+// вызов (getListing зовётся на каждый рендер карточки/пер-элементно)
+function getListing(id) {
+  return state.myListings.find(l => l.id === id)
+      || state.dbListings.find(l => l.id === id)
+      || LISTINGS.find(l => l.id === id);
+}
+// «моё локальное объявление» = членство в myListings, а НЕ префикс id 'm'
+// (эвристика startsWith('m') ошибочно матчила мок 'macbookair')
+function isMyLocal(id) { return state.myListings.some(l => l.id === id); }
 
 /* ============================================================
    НОВЫЕ ФИЧИ (как у Avito/Auto.ru): продавцы+рейтинги, сравнение,
@@ -1773,7 +1782,8 @@ function priceVerdict(l) {
   // Самые точные пиры: та же марка+модель И близкий год (±3). Раньше сравнивали
   // со всей подкатегорией — дешёвая Corolla на фоне ВСЕХ авто казалась «ниже
   // рынка», а старый Camry 2012 — на фоне новых Camry.
-  const modelPeers = (withYear) => allListings().filter(x => {
+  const all = allListings(); // один раз — не реаллоцировать массив на каждый вызов пиров
+  const modelPeers = (withYear) => all.filter(x => {
     if (x.id === l.id || !(x.price > 0) || x.priceSuffix !== l.priceSuffix || x.subcategory !== l.subcategory) return false;
     const xa = getAttrs(x);
     if (xa.brand !== la.brand || xa.model !== la.model) return false;
@@ -1786,7 +1796,7 @@ function priceVerdict(l) {
     if (peers.length < 6) peers = modelPeers(false);   // мало — модель без года
   }
   if (peers.length < 6) { // мало по модели — расширяем до подкатегории
-    peers = allListings().filter(x => x.subcategory === l.subcategory && x.id !== l.id && x.price > 0 && x.priceSuffix === l.priceSuffix);
+    peers = all.filter(x => x.subcategory === l.subcategory && x.id !== l.id && x.price > 0 && x.priceSuffix === l.priceSuffix);
     byModel = false;
   }
   if (peers.length < 6) return null;
@@ -1820,7 +1830,7 @@ function renderItem(id) {
   const cat = catById(l.category);
   const isFav = state.favorites.has(l.id);
   // моё = локальное ('m…') ИЛИ облачное с моим ownerId (у облачных id — UUID)
-  const isMine = l.id.startsWith('m') || (!!l.ownerId && isAuthed() && l.ownerId === currentUser().id);
+  const isMine = isMyLocal(l.id) || (!!l.ownerId && isAuthed() && l.ownerId === currentUser().id);
   const verdict = isMine ? null : priceVerdict(l);
   // риск увода оплаты в тексте объявления — соразмерно (high/critical → заметный
   // баннер, med → тихая заметка, low/none → ничего, чтобы не напрягать)
@@ -1866,7 +1876,7 @@ function renderItem(id) {
       </div>
       ${photos.length > 1 ? `
       <div class="gallery-thumbs" id="galleryThumbs">
-        ${photos.map((p, i) => `<img src="${esc(p)}" data-thumb="${i}" class="${i === 0 ? 'active' : ''}" alt="">`).join('')}
+        ${photos.map((p, i) => `<img src="${esc(p)}" data-thumb="${i}" class="${i === 0 ? 'active' : ''}" alt="" tabindex="0" role="button" aria-label="${({ ru: 'Фото', en: 'Photo', ky: 'Сүрөт' })[LANG] || 'Фото'} ${i + 1}">`).join('')}
       </div>` : ''}
     </div>`;
 
@@ -1889,7 +1899,7 @@ function renderItem(id) {
         ${isMine ? `
           <button class="btn ${isSold(l) ? 'btn-primary' : 'btn-secondary'}" data-action="toggle-sold" data-id="${l.id}">${icon(isSold(l) ? 'refresh' : 'check', { size: 17 })} ${isSold(l) ? t('status.reactivate') : t('status.markSold')}</button>
           <a class="btn btn-secondary" href="#/post?edit=${l.id}" data-link>${icon('edit', { size: 17 })} ${t('item.edit')}</a>
-          ${l.id.startsWith('m') ? `<button class="btn btn-outline" data-action="bump" data-id="${l.id}">${icon('bump', { size: 17 })} ${t('item.bump')}</button>` : ''}
+          ${isMyLocal(l.id) ? `<button class="btn btn-outline" data-action="bump" data-id="${l.id}">${icon('bump', { size: 17 })} ${t('item.bump')}</button>` : ''}
           <button class="btn btn-danger-soft" data-action="delete-my" data-id="${l.id}">${icon('trash', { size: 17 })} ${t('item.delete')}</button>
         ` : `
           ${(l.floor || l.hasFloor) ? `<button class="btn btn-bargain btn-lg" data-action="offer-price" data-id="${l.id}">${icon('handshake', { size: 18 })} ${t('item.offerPrice')}</button>` : ''}
@@ -2885,7 +2895,7 @@ function renderPost(params) {
   const editId = params.get('edit');
   // редактируем и локальные, и облачные — но только СВОИ
   const editTarget = editId ? getListing(editId) : null;
-  const editing = editTarget && (editTarget.id.startsWith('m')
+  const editing = editTarget && (isMyLocal(editTarget.id)
     || (editTarget.ownerId && isAuthed() && editTarget.ownerId === currentUser().id))
     ? editTarget : null;
 
@@ -3418,7 +3428,7 @@ function renderPost(params) {
 
     if (editing) {
       LISTING_IDX.delete(listing.id); // заголовок мог измениться — индекс пересоберётся
-      const isCloud = !editing.id.startsWith('m');
+      const isCloud = !isMyLocal(editing.id);
       if (isCloud) {
         // облачное объявление правим в БД: правка видна всем, а не только автору
         const saveBtn = $('#postForm button[type="submit"]');
@@ -5512,6 +5522,10 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Enter' && e.target.id === 'chatText') {
     const activeChat = document.querySelector('[data-active-chat]')?.dataset.activeChat;
     if (activeChat) sendChatMessage(activeChat, e.target.value);
+  }
+  // миниатюра галереи с клавиатуры: Enter/Space открывает соответствующее фото
+  if ((e.key === 'Enter' || e.key === ' ') && e.target.matches && e.target.matches('[data-thumb]')) {
+    e.preventDefault(); galleryGo(0, +e.target.dataset.thumb);
   }
   // стрелки листают галерею, только если пользователь не печатает в поле
   const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);

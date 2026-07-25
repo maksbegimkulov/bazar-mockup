@@ -217,9 +217,13 @@ async function dbCreateListing(l) {
   // 2) фото → Storage (public-URL), обновляем строку
   const photos = await uploadListingPhotos(data.id, l.photos || []);
   if (photos.length) {
-    const { data: upd } = await sb.from('listings').update({ photos }).eq('id', data.id).eq('owner_id', AUTH.user.id).select().single();
+    // раньше error проглатывался: при сбое строка оставалась photos:[] и на
+    // перезагрузке фото «пропадали» (хотя лежат в Storage). Проверяем ошибку +
+    // одна повторная попытка на временный сбой сети.
+    let { data: upd, error: uerr } = await sb.from('listings').update({ photos }).eq('id', data.id).eq('owner_id', AUTH.user.id).select().single();
+    if (uerr) ({ data: upd } = await sb.from('listings').update({ photos }).eq('id', data.id).eq('owner_id', AUTH.user.id).select().single());
     if (upd) return upd;
-    data.photos = photos;
+    data.photos = photos; // фото в Storage есть, вернём оптимистично для текущего сеанса
   }
   return data;
 }
