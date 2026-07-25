@@ -68,7 +68,7 @@ const KG_CITY_COORDS = KG_CITY_PX;
 /* базовые слои: суша (области) + озёра + контекстные точки городов */
 function kgBaseLayers() {
   const land = KG_PROVINCES.map(p =>
-    `<path class="region" data-reg="${p.id}" d="${p.d}"><title>${esc(p.name)} область</title></path>`).join('');
+    `<path class="region" data-reg="${p.id}" d="${p.d}"><title>${esc(p.name)} ${({ ru: 'область', en: 'region', ky: 'облусу' })[typeof LANG !== 'undefined' ? LANG : 'ru'] || 'область'}</title></path>`).join('');
   const lakes = Object.values(KG_LAKES).map(dd => `<path class="lake" d="${dd}"/>`).join('');
   const dots = Object.entries(KG_CITY_DOT).map(([c, [x, y]]) =>
     `<circle class="citydot" cx="${x}" cy="${y}" r="2.4"><title>${esc(c)}</title></circle>`).join('');
@@ -89,7 +89,7 @@ function kgMapSVG(activeCity) {
     </g>`;
   }
   return `
-  <svg viewBox="${KG_VB}" xmlns="http://www.w3.org/2000/svg" class="kg-map" role="img" aria-label="Карта Кыргызстана: ${esc(activeCity || '')}">
+  <svg viewBox="${KG_VB}" xmlns="http://www.w3.org/2000/svg" class="kg-map" role="img" aria-label="${({ ru: 'Карта Кыргызстана', en: 'Kyrgyzstan map', ky: 'Кыргызстан картасы' })[typeof LANG !== 'undefined' ? LANG : 'ru'] || 'Карта'}${activeCity ? ': ' + esc(activeCity) : ''}">
     <g class="kg-land">${land}</g>
     <g class="kg-lakes">${lakes}</g>
     <g class="kg-dots">${dots}</g>
@@ -121,7 +121,9 @@ function cityStats(listings) {
 function kgCompact(n) {
   if (n < 1000) return String(n);
   const k = n / 1000;
-  return (k >= 10 ? Math.round(k) : k.toFixed(1).replace('.', ',')) + 'К';
+  const en = typeof LANG !== 'undefined' && LANG === 'en';
+  const suf = en ? 'K' : 'К', dec = en ? '.' : ',';
+  return (k >= 10 ? Math.round(k) : k.toFixed(1).replace('.', dec)) + suf;
 }
 
 /* карта-выдача: пузырь на город, размер = число объявлений. Кружки снизу,
@@ -147,7 +149,7 @@ function kgClusterMapSVG(stats, activeCity) {
   }).join('');
 
   return `
-  <svg viewBox="${KG_VB}" xmlns="http://www.w3.org/2000/svg" class="kg-map kg-map-cluster" role="img" aria-label="Карта объявлений Кыргызстана">
+  <svg viewBox="${KG_VB}" xmlns="http://www.w3.org/2000/svg" class="kg-map kg-map-cluster" role="img" aria-label="${typeof t === 'function' ? t('map.title') : 'Карта объявлений'}">
     <g class="kg-land">${land}</g>
     <g class="kg-lakes">${lakes}</g>
     <g class="kg-dots">${dots}</g>

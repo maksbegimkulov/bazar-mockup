@@ -327,6 +327,8 @@ main#app > .chats-layout { animation: none; }
   color: var(--text-2);
 }
 .ctrl-btn:active { background: var(--bg); }
+/* на тач-устройствах кнопки языка/темы — полноценная область нажатия ≥44px */
+@media (pointer: coarse) { .ctrl-btn { height: 44px; min-width: 44px; } }
 
 .badge {
   position: absolute;

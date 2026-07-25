@@ -553,6 +553,26 @@ function toggleCompare(id) {
   return true;
 }
 function clearCompare() { state.compare.clear(); lsSave(LS.compare, []); }
+/* «на BAZAR с 2021 г.» (RU) / «BAZAR’да 2021-жылдан» (KY): суффикс-падеж на «-»
+   лепится к году без пробела, слово-суффикс («г.») — через пробел */
+function sellerSince(year) {
+  const end = t('seller.sinceEnd');
+  return `${t('seller.since')} ${year}${end && !end.startsWith('-') ? ' ' : ''}${end}`;
+}
+/* синхронизировать ВСЕ compare-кнопки на странице с state.compare: раньше
+   кнопка того же объявления на другой карточке (и на странице товара) не
+   обновлялась после toggle/clear/remove — «в сравнении» рассинхронизировалось */
+function syncCompareButtons() {
+  document.querySelectorAll('[data-action="compare-card"]').forEach(b => {
+    const on = inCompare(b.dataset.id);
+    b.classList.toggle('on', on); b.setAttribute('aria-pressed', on);
+  });
+  document.querySelectorAll('[data-action="compare-toggle"]').forEach(b => {
+    const on = inCompare(b.dataset.id);
+    b.classList.toggle('on', on); b.setAttribute('aria-pressed', on);
+    b.innerHTML = icon('scale', { size: 15 }) + ' ' + (on ? t('cmp.inList') : t('cmp.add'));
+  });
+}
 
 /* ---- сохранённые поиски (Авито «Уведомлять о новых») ---- */
 function saveCurrentSearch() {
@@ -780,8 +800,7 @@ function applyFilters(f) {
   if (f.sort === 'expensive') { res.sort(sorts.expensive); return res; }
   if (f.sort === 'popular') { res.sort(sorts.popular); return res; }
   if (f.sort === 'date') {
-    if (qTokens) res.sort((a, b) => (scores.get(b.id) - scores.get(a.id)) || sorts.date(a, b));
-    else res.sort(sorts.date);
+    res.sort(sorts.date); // явный выбор «сначала новые» — строго по дате, даже при активном запросе
     return res;
   }
 
@@ -827,6 +846,8 @@ function activeFilterCount(f) {
   if (f.sellerType !== 'any') n++;
   if (f.withPhoto) n++;
   if (f.delivery) n++;
+  if (f.belowMarket) n++;
+  if (f.verifiedSeller) n++;
   if (f.period !== 'all') n++;
   n += attrFilterCount(f.attrs);
   return n;
@@ -855,8 +876,8 @@ function cardHTML(l) {
       ${photos.length > 1 ? `<span class="photo-count">${photos.length} ${t('photo.word')}</span>` : ''}
       ${isSold(l) ? `<div class="sold-ribbon">${t('status.sold')}</div>` : ''}
       <div class="card-tags">${tags}</div>
-      <button class="cmp-btn ${inCompare(l.id) ? 'on' : ''}" data-action="compare-card" data-id="${l.id}" title="${t('cmp.add')}" aria-label="${t('cmp.add')}">${COMPARE_SVG}</button>
-      <button class="fav-btn ${isFav ? 'active' : ''}" data-fav="${l.id}" title="${t('item.fav')}" aria-label="${t('item.fav')}">${HEART_SVG}</button>
+      <button class="cmp-btn ${inCompare(l.id) ? 'on' : ''}" data-action="compare-card" data-id="${l.id}" title="${t('cmp.add')}" aria-label="${t('cmp.add')}" aria-pressed="${inCompare(l.id)}">${COMPARE_SVG}</button>
+      <button class="fav-btn ${isFav ? 'active' : ''}" data-fav="${l.id}" title="${t('item.fav')}" aria-label="${t('item.fav')}" aria-pressed="${isFav}">${HEART_SVG}</button>
     </div>
     <div class="card-body">
       <div class="card-price">${priceHTML(l)}${(l.floor || l.hasFloor) ? `<span class="card-bargain">${icon('handshake',{size:13})} ${t('tag.bargain')}</span>` : ''}</div>
@@ -1314,6 +1335,9 @@ function activeChipsHTML(f) {
   if (f.sellerType !== 'any') add('sellerType', f.sellerType === 'private' ? t('seller.private') : t('seller.business'));
   if (f.withPhoto) add('withPhoto', t('chip.withPhoto'));
   if (f.delivery) add('delivery', t('filters.delivery'));
+  const _P = ({ ru: { below: 'Ниже рынка', verified: 'Проверенные' }, en: { below: 'Below market', verified: 'Verified' }, ky: { below: 'Рыноктон арзан', verified: 'Ырасталган' } })[LANG] || { below: 'Ниже рынка', verified: 'Проверенные' };
+  if (f.belowMarket) add('belowMarket', _P.below);
+  if (f.verifiedSeller) add('verifiedSeller', _P.verified);
   if (f.period !== 'all') add('period', { 1: t('chip.day'), 7: t('chip.week'), 30: t('chip.month') }[f.period]);
   return chips.join('');
 }
@@ -1621,6 +1645,14 @@ function updateResults() {
 
   $('#activeChips').innerHTML = activeChipsHTML(f);
 
+  // строки подкатегорий и пресетов тоже отражают текущие фильтры (не только activeChips):
+  // раньше после мутаций через updateResults они висели с устаревшим активным состоянием
+  const scHTML = subChipsHTML(f);
+  const subChipsEl = $('#subChips');
+  if (subChipsEl && scHTML) subChipsEl.outerHTML = scHTML;
+  const presetRowEl = $('#presetRow');
+  if (presetRowEl) presetRowEl.innerHTML = presetChipsHTML(f);
+
   const n = activeFilterCount(f);
   const badge = $('#filtersCountBadge');
   badge.hidden = n === 0;
@@ -1721,6 +1753,8 @@ function clearFilter(key) {
   if (key === 'sellerType') f.sellerType = 'any';
   if (key === 'withPhoto') f.withPhoto = false;
   if (key === 'delivery') f.delivery = false;
+  if (key === 'belowMarket') f.belowMarket = false;
+  if (key === 'verifiedSeller') f.verifiedSeller = false;
   if (key === 'period') f.period = 'all';
   $('#filtersPanel').innerHTML = filterPanelHTML(f);
   bindFilterPanel();
@@ -1866,7 +1900,7 @@ function renderItem(id) {
       </div>
       <div class="buy-mini-actions">
         <button data-action="share" data-id="${l.id}">${icon('share', { size: 15 })} ${t('item.share')}</button>
-        <button data-action="compare-toggle" data-id="${l.id}" class="${inCompare(l.id) ? 'on' : ''}">${icon('scale', { size: 15 })} ${inCompare(l.id) ? t('cmp.inList') : t('cmp.add')}</button>
+        <button data-action="compare-toggle" data-id="${l.id}" class="${inCompare(l.id) ? 'on' : ''}" aria-pressed="${inCompare(l.id)}">${icon('scale', { size: 15 })} ${inCompare(l.id) ? t('cmp.inList') : t('cmp.add')}</button>
         ${isMine ? '' : `<button data-action="report" data-id="${l.id}">${icon('flag', { size: 15 })} ${t('item.report')}</button>`}
         <span class="buy-idnum">${idNum}</span>
       </div>
@@ -1879,7 +1913,7 @@ function renderItem(id) {
       <div class="avatar" style="${avatarStyle(l.sellerName)}">${esc(l.sellerName[0] || 'U')}</div>
       <div class="seller-info">
         <div class="seller-name"><span>${esc(l.sellerName)}</span> ${ss.business ? `<span class="seller-badge">${t('seller.business')}</span>` : ''} ${ss.verified ? `<span class="verif-badge" title="${t('seller.verifiedHint')}">${icon('check',{size:12,stroke:3})} ${t('seller.verified')}</span>` : ''}</div>
-        <div class="seller-sub">${sellerRatingHTML(ss)} · ${t('seller.since')} ${l.sellerSinceYear} ${t('seller.sinceEnd')}</div>
+        <div class="seller-sub">${sellerRatingHTML(ss)} · ${sellerSince(l.sellerSinceYear)}</div>
         <div class="seller-sub">${nLabel(sellerActiveListings(sellerKey(l)).length || l.sellerAds)} · ${t('seller.viewAll')} ›</div>
       </div>
     </a>
@@ -1920,7 +1954,7 @@ function renderItem(id) {
     </div>
     ${isMine ? '' : `
     <div class="item-contactbar" id="itemContactBar">
-      <button class="icon-btn cb-fav fav-btn ${isFav ? 'active' : ''}" data-fav="${l.id}" aria-label="${t('item.fav')}">${HEART_SVG}</button>
+      <button class="icon-btn cb-fav fav-btn ${isFav ? 'active' : ''}" data-fav="${l.id}" aria-label="${t('item.fav')}" aria-pressed="${isFav}">${HEART_SVG}</button>
       ${l.phone ? `<button class="btn btn-secondary cb-call" data-action="show-phone" data-id="${l.id}">${icon('call',{size:17})} ${t('item.callShort')}</button>` : ''}
       <button class="btn btn-primary cb-write" data-action="write-seller" data-id="${l.id}">${icon('message',{size:17})} ${t('item.writeShort')}</button>
     </div>`}
@@ -3599,7 +3633,7 @@ function renderSeller(rawKey) {
       <div class="avatar avatar-xl" style="${avatarStyle(name)}">${esc(name[0] || 'U')}</div>
       <div class="seller-hero-info">
         <h1>${esc(name)} ${ss.business ? `<span class="seller-badge">${t('seller.business')}</span>` : ''}</h1>
-        <div class="seller-hero-sub">${sellerRatingHTML(ss)} · ${t('seller.since')} ${sample.sellerSinceYear} ${t('seller.sinceEnd')}</div>
+        <div class="seller-hero-sub">${sellerRatingHTML(ss)} · ${sellerSince(sample.sellerSinceYear)}</div>
         <div class="seller-hero-stats"><span><b>${active.length}</b> ${t('seller.activeAds')}</span></div>
         ${verificationsHTML(ss)}
       </div>
@@ -3834,9 +3868,9 @@ function renderProfile() {
         <div class="sub">${sold ? `<span class="sold-tag">${icon('check',{size:13})} ${t('status.sold')}</span> · ` : ''}${cloud ? `<span class="cloud-tag" title="${t('profile.cloudHint')}">${icon('cloud',{size:14})}</span> ` : ''}${priceHTML(l).replace(/<[^>]*>/g, ' ')} · ${postedLabel(l)} · ${icon('eye',{size:13})} ${fmtNum(l.views)}</div>
       </div>
       <div class="actions">
-        <button class="btn ${sold ? 'btn-primary' : 'btn-secondary'} btn-sm" data-action="toggle-sold" data-id="${l.id}">${sold ? '↩️' : '✅'}</button>
-        ${(sold || cloud) ? '' : `<button class="btn btn-secondary btn-sm" data-action="bump" data-id="${l.id}">⬆️ ${t('profile.bump')}</button>`}
-        <a class="btn btn-outline btn-sm" href="#/post?edit=${l.id}" data-link aria-label="${t('item.edit')}">✏️</a>
+        <button class="btn ${sold ? 'btn-primary' : 'btn-secondary'} btn-sm" data-action="toggle-sold" data-id="${l.id}" aria-label="${sold ? t('status.reactivate') : t('status.markSold')}" title="${sold ? t('status.reactivate') : t('status.markSold')}">${icon(sold ? 'refresh' : 'check', { size: 16 })}</button>
+        ${(sold || cloud) ? '' : `<button class="btn btn-secondary btn-sm" data-action="bump" data-id="${l.id}">${icon('bump', { size: 15 })} ${t('profile.bump')}</button>`}
+        <a class="btn btn-outline btn-sm" href="#/post?edit=${l.id}" data-link aria-label="${t('item.edit')}" title="${t('item.edit')}">${icon('edit', { size: 16 })}</a>
         <button class="btn btn-danger-soft btn-sm" data-action="delete-my" data-id="${l.id}" aria-label="${t('item.delete')}">${icon('trash',{size:16})}</button>
       </div>
     </div>`;
@@ -4934,11 +4968,13 @@ document.addEventListener('click', async e => {
     e.preventDefault();
     const id = favBtn.dataset.fav;
     toggleFav(id);
+    const fav = state.favorites.has(id);
     document.querySelectorAll(`[data-fav="${CSS.escape(id)}"]`).forEach(b => {
+      b.setAttribute('aria-pressed', fav); // состояние вкл/выкл для скринридера
       if (b.classList.contains('fav-btn')) {
-        b.classList.toggle('active', state.favorites.has(id));
+        b.classList.toggle('active', fav);
       } else {
-        b.innerHTML = icon('heart', { size: 17, fill: state.favorites.has(id) }) + ' ' + (state.favorites.has(id) ? t('item.faved') : t('item.fav'));
+        b.innerHTML = icon('heart', { size: 17, fill: fav }) + ' ' + (fav ? t('item.faved') : t('item.fav'));
       }
     });
     if (parseHash().path.startsWith('/favorites')) renderFavorites();
@@ -5273,6 +5309,7 @@ document.addEventListener('click', async e => {
       }
       case 'draft-discard': {
         clearPostDraft();
+        state._postPhotos = null; // иначе фото удалённого черновика остаются в свежей форме
         showToast(t('form.draftCleared'));
         renderPost(new URLSearchParams());
         break;
@@ -5299,20 +5336,15 @@ document.addEventListener('click', async e => {
       case 'offer-deal': offerToChat(id, +actBtn.dataset.price); break;
       case 'logout': { authSignOut(); showToast(t('auth.bye')); location.hash = '#/'; break; }
       case 'compare-toggle': {
-        if (toggleCompare(id)) {
-          const on = inCompare(id);
-          actBtn.classList.toggle('on', on);
-          actBtn.innerHTML = icon('scale', { size: 15 }) + ' ' + (on ? t('cmp.inList') : t('cmp.add'));
-          updateCompareBar();
-        }
+        if (toggleCompare(id)) { syncCompareButtons(); updateCompareBar(); }
         break;
       }
       case 'compare-card': { // компактная кнопка на карточке
-        if (toggleCompare(id)) { actBtn.classList.toggle('on', inCompare(id)); updateCompareBar(); }
+        if (toggleCompare(id)) { syncCompareButtons(); updateCompareBar(); }
         break;
       }
-      case 'compare-clear': { clearCompare(); updateCompareBar(); if (parseHash().path.startsWith('/compare')) renderCompare(); break; }
-      case 'compare-remove': { state.compare.delete(id); lsSave(LS.compare, [...state.compare]); updateCompareBar(); renderCompare(); break; }
+      case 'compare-clear': { clearCompare(); syncCompareButtons(); updateCompareBar(); if (parseHash().path.startsWith('/compare')) renderCompare(); break; }
+      case 'compare-remove': { state.compare.delete(id); lsSave(LS.compare, [...state.compare]); syncCompareButtons(); updateCompareBar(); renderCompare(); break; }
       case 'share': shareListing(id); break;
       case 'share-copy': {
         const i = $('#shareUrl');
@@ -5377,8 +5409,16 @@ document.addEventListener('click', async e => {
       case 'delete-my': deleteMyListing(id); break;
       case 'delete-my-confirm': {
         if (state.dbListings.some(x => x.id === id)) {
-          // облачное объявление → удаляем из БД (у всех пропадёт через realtime)
-          if (typeof dbDeleteListing === 'function') dbDeleteListing(id).catch(() => {});
+          // облачное объявление → удаляем в БД и ТОЛЬКО при успехе локально; иначе
+          // ложный «удалено», а на перезагрузке оно вернётся (сервер не тронут)
+          if (typeof dbDeleteListing === 'function') {
+            const ok = await dbDeleteListing(id).then(() => true).catch(() => false);
+            if (!ok) {
+              closeModal();
+              showToast(({ ru: 'Не удалось удалить — попробуйте ещё раз', en: 'Delete failed — try again', ky: 'Өчүрүлгөн жок — кайра аракет кылыңыз' })[LANG] || 'Не удалось удалить', 'error');
+              break;
+            }
+          }
           state.dbListings = state.dbListings.filter(x => x.id !== id);
         } else {
           state.myListings = state.myListings.filter(x => x.id !== id);
