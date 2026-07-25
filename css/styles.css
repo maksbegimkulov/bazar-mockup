@@ -3002,3 +3002,20 @@ a.seller-card { display: flex; gap: 12px; align-items: center; text-decoration: 
 .fcoll-opt-box { display: inline-flex; color: var(--accent); flex-shrink: 0; }
 .fcoll-new { display: flex; gap: 8px; margin-top: 8px; }
 .fcoll-new .finput { flex: 1; min-width: 0; }
+
+/* фото в чате */
+.chat-attach {
+  display: inline-grid; place-items: center;
+  width: 40px; height: 40px; flex-shrink: 0;
+  color: var(--text-2); background: none; border-radius: var(--radius-pill);
+  transition: color var(--dur-1) var(--ease), background var(--dur-1) var(--ease);
+}
+.chat-attach:active { transform: scale(0.92); }
+@media (hover: hover) and (pointer: fine) { .chat-attach:hover { color: var(--accent); background: var(--accent-soft); } }
+.msg.has-photo { padding: 4px 4px 2px; }
+.msg-photo {
+  display: block; width: 100%; max-width: min(230px, 62vw);
+  border-radius: 12px; cursor: pointer; background: var(--bg);
+}
+.msg.has-photo time { padding: 2px 6px 0; }
+.lightbox-img { display: block; max-width: 100%; max-height: 78vh; border-radius: 10px; margin: 0 auto; }

@@ -3922,7 +3922,9 @@ function msgHTML(m, otherReadAt) {
   // ✓ отправлено · ✓✓ прочитано собеседником (только под МОИМИ сообщениями)
   const status = m.from === 'me'
     ? `<span class="msg-status ${otherReadAt && m.ts <= otherReadAt ? 'read' : ''}">${otherReadAt && m.ts <= otherReadAt ? '✓✓' : '✓'}</span>` : '';
-  return `<div class="msg ${m.from}">${maskUnsafe(m.text)}<time>${msgTime(m.ts)}${status}</time></div>${warn}`;
+  const photoHTML = m.photo ? `<img class="msg-photo" src="${esc(m.photo)}" alt="" data-msg-photo="${esc(m.photo)}">` : '';
+  const textHTML = m.text ? maskUnsafe(m.text) : '';
+  return `<div class="msg ${m.from}${m.photo ? ' has-photo' : ''}">${photoHTML}${textHTML}<time>${msgTime(m.ts)}${status}</time></div>${warn}`;
 }
 
 /* дописать сообщение в открытый диалог без полного ререндера (фокус и клавиатура живут) */
@@ -4023,8 +4025,10 @@ function renderChats(activeId) {
     </div>
     ${chatChipsHTML(active)}
     <div class="chat-input">
+      <button class="chat-attach" data-action="chat-attach" aria-label="${t('form.photoAdd')}" title="${t('form.photoAdd')}">${icon('image', { size: 21 })}</button>
+      <input type="file" id="chatPhotoFile" accept="image/*" hidden>
       <input type="text" id="chatText" placeholder="${t('chats.msgPh')}" autocomplete="off" enterkeyhint="send">
-      <button data-action="chat-send" aria-label="${t('a11y.send')}">
+      <button class="chat-send-btn" data-action="chat-send" aria-label="${t('a11y.send')}">
         <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
       </button>
     </div>
@@ -4048,6 +4052,8 @@ function renderChats(activeId) {
   if (msgs) msgs.scrollTop = msgs.scrollHeight;
   const input = $('#chatText');
   if (input && window.innerWidth > 920) input.focus();
+  const photoInp = $('#chatPhotoFile');
+  if (photoInp) photoInp.addEventListener('change', onChatPhoto);
 
   // открытый диалог на мобиле — полноэкранный оверлей: блокируем прокрутку фона
   // и привязываем высоту к visual viewport (клавиатура не утаскивает шапку)
@@ -4075,19 +4081,36 @@ if (window.visualViewport) {
   window.visualViewport.addEventListener('scroll', syncChatViewport);
 }
 
-function sendChatMessage(chatKey, text) {
-  text = text.trim();
-  if (!text) return;
+/* фото в чате: даунскейл → отправка как сообщение с полем photo */
+async function onChatPhoto(e) {
+  const file = (e.target.files || [])[0];
+  e.target.value = '';
+  if (!file) return;
+  const win = document.querySelector('[data-active-chat]');
+  const chatKey = win && win.dataset.activeChat;
+  if (!chatKey) return;
+  if (typeof visionFileToDataURL !== 'function') { showToast(t('search.photoFail')); return; }
+  try {
+    const dataURL = await visionFileToDataURL(file, 900, 0.72); // компактно для чата
+    sendChatMessage(chatKey, '', dataURL);
+  } catch (err) { showToast(t('search.photoFail')); }
+}
+
+function sendChatMessage(chatKey, text, photo) {
+  text = (text || '').trim();
+  if (!text && !photo) return;
   const existing = state.chats[chatKey];
 
   // === реальный DB-чат: шлём в облако, отвечает живой собеседник через realtime (без бота) ===
   if (existing && existing.isDb) {
-    const msg = { from: 'me', text, ts: Date.now() };
+    const msg = { from: 'me', text, ts: Date.now(), photo };
     existing.messages.push(msg);
     existing.updatedAt = Date.now();
     const inp = $('#chatText'); if (inp) { inp.value = ''; inp.focus(); }
     if (!appendChatMsg(chatKey, msg)) renderChats(chatKey);
-    dbSendMessage(existing.chatId, text)
+    // фото у DB-чата пока локальны для отправителя (реальный синк требует Storage);
+    // собеседнику уходит текст-пометка, чтобы не притворяться доставкой картинки
+    dbSendMessage(existing.chatId, text || (photo ? ({ ru: 'Фото', en: 'Photo', ky: 'Сүрөт' }[LANG] || 'Фото') : ''))
       .then(saved => { msg.id = saved.id; })
       .catch(() => {
         // откат оптимистичного сообщения: не притворяемся, что доставлено
@@ -4101,7 +4124,7 @@ function sendChatMessage(chatKey, text) {
 
   // === локальный демо-чат (мок-объявление): бот-автоответ + демо анти-скама ===
   const chat = ensureChat(chatKey);
-  const msg = { from: 'me', text, ts: Date.now() };
+  const msg = { from: 'me', text, ts: Date.now(), photo };
   chat.messages.push(msg);
   chat.updatedAt = Date.now();
   lsSave(LS.chats, state.chats);
@@ -4816,6 +4839,9 @@ document.addEventListener('click', async e => {
   // коллекции: добавить/убрать товар из коллекции (в модалке)
   const collTog = e.target.closest('[data-coll-toggle]');
   if (collTog) { favCollToggle(collTog.dataset.collToggle, collTog.dataset.id); renderFavorites(); openFavCollectModal(collTog.dataset.id); return; }
+  // фото в чате: клик → полный размер (лайтбокс)
+  const msgPhoto = e.target.closest('[data-msg-photo]');
+  if (msgPhoto) { openModal(`<img class="lightbox-img" src="${esc(msgPhoto.dataset.msgPhoto)}" alt="">`); return; }
 
   /* действия */
   const actBtn = e.target.closest('[data-action]');
@@ -5084,6 +5110,7 @@ document.addEventListener('click', async e => {
         if (activeChat && input) { sendChatMessage(activeChat, input.value); }
         break;
       }
+      case 'chat-attach': { const pf = $('#chatPhotoFile'); if (pf) pf.click(); break; }
       case 'chat-back': location.hash = '#/chats'; break;
       case 'sell-to-manual': {
         if (state.sell._collect) {
