@@ -859,7 +859,7 @@ function renderHome() {
     .sort((a, b) => b.count - a.count)
     .map(({ c }) => `
     <a class="cat-chip" href="#/search?cat=${c.id}" data-link>
-      <span class="cat-chip-ico">${icon(c.id, { size: 18 })}</span>
+      <span class="cat-chip-ico">${icon(c.id, { size: 20 })}</span>
       <span class="cat-chip-name">${catName(c)}</span>
     </a>`).join('');
 
@@ -4842,6 +4842,11 @@ function router() {
   updateCompareBar();
   // липкая панель связи живёт только на странице товара
   document.body.classList.toggle('has-contactbar', !!document.getElementById('itemContactBar'));
+  // на главной шапочный поиск скрыт (единственный поиск — геройский);
+  // уходя с главной, снимаем режим раскрытого поиска
+  const isHome = path === '/' || path === '';
+  document.body.classList.toggle('route-home', isHome);
+  if (!isHome) document.body.classList.remove('search-open');
 
   // возврат «назад» к спискам — на сохранённую позицию, остальное — наверх
   const key = location.hash || '#/';
@@ -5092,7 +5097,10 @@ document.addEventListener('click', async e => {
         break;
       }
       case 'focus-search': {
-        // «Спросить Диану» с главной = использовать умный поиск (единый вход)
+        // геройский поиск — единственный на главной. По тапу РАСКРЫВАЕМ шапочную
+        // строку (в том же жесте, чтобы на мобиле открылась клавиатура) и прячем
+        // геройскую пилюлю — два поиска одновременно не показываем
+        document.body.classList.add('search-open');
         window.scrollTo({ top: 0, behavior: 'smooth' });
         const si = $('#searchInput');
         if (si) { si.focus(); showSuggest(); }
@@ -5368,7 +5376,16 @@ document.addEventListener('click', async e => {
   if (thumb) { galleryGo(0, +thumb.dataset.thumb); return; }
 
   /* клик мимо подсказок */
-  if (!e.target.closest('#searchbar')) hideSuggest();
+  if (!e.target.closest('#searchbar')) {
+    hideSuggest();
+    // на главной клик вне пустого раскрытого поиска сворачивает его к геройскому
+    // (надёжный дисмисс: клик-события срабатывают всегда, в отличие от blur в фоне).
+    // Тап самого героя обрабатывается выше в data-action и сюда не доходит (return).
+    const si = $('#searchInput');
+    if (document.body.classList.contains('route-home') && si && !si.value.trim()) {
+      document.body.classList.remove('search-open');
+    }
+  }
 
   /* повторный клик по той же ссылке (например, категория) — форсируем роутер;
      сбрасываем _appliedQS, чтобы базовый фильтр ссылки применился заново */
@@ -5390,6 +5407,8 @@ document.addEventListener('keydown', e => {
     closeModal();
     hideSuggest();
     closeFilterSheet();
+    // на главной — свернуть раскрытый шапочный поиск обратно к геройскому
+    if (document.body.classList.contains('route-home')) { document.body.classList.remove('search-open'); const si = $('#searchInput'); if (si) si.blur(); }
   }
   if (e.key === 'Enter' && e.target.id === 'searchInput') doHeaderSearch();
   if (e.key === 'Enter' && e.target.id === 'chatText') {
@@ -5414,6 +5433,16 @@ $('#searchInput').addEventListener('input', () => {
   suggestTimer = setTimeout(showSuggest, 100); // дебаунс скоринга ~570 объявлений
 });
 $('#searchInput').addEventListener('focus', showSuggest); // пустое поле → история + популярное
+// ушли из пустого раскрытого поиска на главной → вернуть геройскую пилюлю
+// (таймаут — чтобы успел отработать клик по подсказке/кнопке внутри строки)
+$('#searchInput').addEventListener('blur', () => {
+  setTimeout(() => {
+    const si = $('#searchInput');
+    if (si && document.body.classList.contains('route-home') && !si.value.trim() && document.activeElement !== si) {
+      document.body.classList.remove('search-open');
+    }
+  }, 170);
+});
 $('#searchClear').addEventListener('click', () => {
   const inp = $('#searchInput');
   inp.value = '';

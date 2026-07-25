@@ -3139,25 +3139,39 @@ a.seller-card { display: flex; gap: 12px; align-items: center; text-decoration: 
    с горизонтальным скроллом (вместо крупной сетки карточек) — экономит экран,
    ходовые видны сразу, полное дерево в «Каталоге» */
 .cat-strip {
-  display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none;
-  padding-bottom: 2px; -webkit-overflow-scrolling: touch;
+  display: flex; gap: 9px; overflow-x: auto; scrollbar-width: none;
+  padding-bottom: 3px; -webkit-overflow-scrolling: touch;
 }
 .cat-strip::-webkit-scrollbar { display: none; }
 .cat-chip {
-  flex-shrink: 0; display: inline-flex; align-items: center; gap: 8px;
-  padding: 9px 15px 9px 12px; border-radius: var(--radius-pill);
+  flex-shrink: 0; display: inline-flex; align-items: center; gap: 10px;
+  padding: 7px 18px 7px 7px; border-radius: var(--radius-pill);
   background: var(--card); border: 1px solid var(--line);
-  font-size: var(--fs-sm); font-weight: var(--w-semibold); color: var(--text);
+  font-size: var(--fs-md); font-weight: var(--w-semibold); color: var(--text);
   box-shadow: var(--shadow);
-  transition: border-color var(--dur-1) var(--ease), background var(--dur-1) var(--ease), transform var(--dur-1) var(--ease);
+  transition: border-color var(--dur-1) var(--ease), transform var(--dur-2) var(--ease-spring), box-shadow var(--dur-2) var(--ease);
 }
 .cat-chip:active { transform: scale(0.96); }
-.cat-chip-ico { display: inline-flex; color: var(--accent-dark); flex-shrink: 0; }
+.cat-chip-ico {
+  width: 36px; height: 36px; flex-shrink: 0;
+  display: grid; place-items: center;
+  background: var(--accent-soft); color: var(--accent-dark);
+  border-radius: var(--radius-pill);
+  transition: transform var(--dur-3) var(--ease-spring);
+}
 .cat-chip-name { white-space: nowrap; }
 @media (hover: hover) and (pointer: fine) {
-  .cat-chip:hover { border-color: var(--accent); background: var(--accent-soft); }
-  .cat-chip:hover .cat-chip-name { color: var(--accent-dark); }
+  .cat-chip:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: var(--shadow-hover); }
+  .cat-chip:hover .cat-chip-ico { transform: scale(1.06); }
 }
+
+/* На главной единственный поиск — геройский; шапочную строку прячем, чтобы не
+   было двух поисков. По тапу героя (.search-open) строка раскрывается, а
+   геройская пилюля прячется — одновременно виден только один поиск. */
+body.route-home .searchbar { display: none; }
+body.route-home .header-actions { margin-left: auto; }
+body.route-home.search-open .searchbar { display: flex; }
+body.route-home.search-open .hero-search { display: none; }
 
 /* чип-категория в строке разделов на поиске (когда категория не выбрана):
    пилюля с SVG-иконкой раздела → вход в категорию в один тап */
