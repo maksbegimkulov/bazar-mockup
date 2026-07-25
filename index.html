@@ -32,7 +32,7 @@
 <!-- Шрифт зашит в проект (self-host) → одинаковый рендер на iOS/Android + офлайн -->
 <link rel="preload" as="font" type="font/woff2" href="fonts/manrope-latin.woff2" crossorigin>
 <link rel="preload" as="font" type="font/woff2" href="fonts/manrope-cyrillic.woff2" crossorigin>
-<link rel="stylesheet" href="css/fonts.css?v=137">
+<link rel="stylesheet" href="css/fonts.css?v=138">
 <script>
 /* перехват события установки PWA ДО загрузки app.js (иначе можем пропустить).
    Android/Chrome стреляет beforeinstallprompt один раз — сохраняем событие,
@@ -60,7 +60,7 @@ try {
    Pages), чтобы юзер не застревал на старом JS и его публикации долетали в
    облако. BUILD бампается вместе с version.txt при каждом деплое. */
 (function () {
-  var BUILD = 137;
+  var BUILD = 138;
   try {
     fetch('version.txt?cb=' + Date.now(), { cache: 'no-store' })
       .then(function (r) { return r.ok ? r.text() : null; })
@@ -86,7 +86,7 @@ try {
   }
 })();
 </script>
-<link rel="stylesheet" href="css/styles.css?v=137">
+<link rel="stylesheet" href="css/styles.css?v=138">
 </head>
 <body>
 
@@ -189,26 +189,26 @@ try {
      рекомендации в выдаче). Отдельная панель-ассистент убрана намеренно. -->
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="js/icons.js?v=137"></script>
-<script src="js/catalog/auto-world.js?v=137"></script>
-<script src="js/catalog/auto-china.js?v=137"></script>
-<script src="js/catalog/tech-mobile.js?v=137"></script>
-<script src="js/catalog/tech-compute.js?v=137"></script>
-<script src="js/catalog/index.js?v=137"></script>
-<script src="js/data.js?v=137"></script>
-<script src="js/generate.js?v=137"></script>
-<script src="js/nlu.js?v=137"></script>
-<script src="js/i18n.js?v=137"></script>
-<script src="js/attributes.js?v=137"></script>
-<script src="js/search.js?v=137"></script>
-<script src="js/map.js?v=137"></script>
-<script src="js/vision.js?v=137"></script>
-<script src="js/auth.js?v=137"></script>
-<script src="js/api.js?v=137"></script>
-<script src="js/app.js?v=137"></script>
-<script src="js/select.js?v=137"></script>
-<script src="js/analytics.js?v=137"></script>
-<script src="js/install.js?v=137"></script>
-<script src="js/ai.js?v=137"></script>
+<script src="js/icons.js?v=138"></script>
+<script src="js/catalog/auto-world.js?v=138"></script>
+<script src="js/catalog/auto-china.js?v=138"></script>
+<script src="js/catalog/tech-mobile.js?v=138"></script>
+<script src="js/catalog/tech-compute.js?v=138"></script>
+<script src="js/catalog/index.js?v=138"></script>
+<script src="js/data.js?v=138"></script>
+<script src="js/generate.js?v=138"></script>
+<script src="js/nlu.js?v=138"></script>
+<script src="js/i18n.js?v=138"></script>
+<script src="js/attributes.js?v=138"></script>
+<script src="js/search.js?v=138"></script>
+<script src="js/map.js?v=138"></script>
+<script src="js/vision.js?v=138"></script>
+<script src="js/auth.js?v=138"></script>
+<script src="js/api.js?v=138"></script>
+<script src="js/app.js?v=138"></script>
+<script src="js/select.js?v=138"></script>
+<script src="js/analytics.js?v=138"></script>
+<script src="js/install.js?v=138"></script>
+<script src="js/ai.js?v=138"></script>
 </body>
 </html>

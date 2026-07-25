@@ -3139,7 +3139,13 @@ a.seller-card { display: flex; gap: 12px; align-items: center; text-decoration: 
    с горизонтальным скроллом (вместо крупной сетки карточек) — экономит экран,
    ходовые видны сразу, полное дерево в «Каталоге» */
 .cat-strip {
-  display: flex; gap: 9px; overflow-x: auto; scrollbar-width: none;
+  display: grid;
+  grid-auto-flow: column;                 /* заполняем по колонкам: 2 чипа в столбик, затем следующий */
+  grid-template-rows: repeat(2, auto);    /* ДВА РЯДА — видно вдвое больше, скролл вдвое короче */
+  grid-auto-columns: max-content;
+  justify-items: start;                   /* чипы натуральной ширины (не растягиваем на колонку) */
+  gap: 9px 9px;
+  overflow-x: auto; scrollbar-width: none;
   padding-bottom: 3px; -webkit-overflow-scrolling: touch;
 }
 .cat-strip::-webkit-scrollbar { display: none; }
