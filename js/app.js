@@ -859,6 +859,31 @@ function renderHome() {
   const viewed = state.viewed.map(getListing).filter(Boolean)
     .filter(l => !state.reported.has(l.id) && !isSold(l)).slice(0, 4);
 
+  // ПЕРСОНАЛИЗАЦИЯ (честно, на РЕАЛЬНЫХ данных): рекомендуем из подкатегории,
+  // которую юзер смотрел чаще всего, и ОБЪЯСНЯЕМ причину («почему вижу»).
+  let recoSection = '';
+  const viewedAll = state.viewed.map(getListing).filter(Boolean);
+  if (viewedAll.length >= 2) {
+    const subCount = {};
+    viewedAll.forEach(l => { subCount[l.subcategory] = (subCount[l.subcategory] || 0) + 1; });
+    const topSub = Object.keys(subCount).sort((a, b) => subCount[b] - subCount[a])[0];
+    const viewedIds = new Set(state.viewed);
+    const reco = all.filter(l => l.subcategory === topSub && !viewedIds.has(l.id))
+      .sort((a, b) => hoursAgo(a) - hoursAgo(b)).slice(0, 4);
+    if (reco.length >= 2) {
+      const RC = ({
+        ru: { title: 'Рекомендуем вам', why: s => `Потому что вы смотрели: ${s}` },
+        en: { title: 'Recommended for you', why: s => `Because you viewed: ${s}` },
+        ky: { title: 'Сизге сунуштайбыз', why: s => `Себеби сиз карадыңыз: ${s}` },
+      })[LANG] || { title: 'Рекомендуем вам', why: s => `Потому что вы смотрели: ${s}` };
+      recoSection = `<section>
+        <div class="section-title"><h2>${RC.title}</h2></div>
+        <div class="reco-why">${icon('sparkle', { size: 14 })} ${esc(RC.why(subName(topSub)))}</div>
+        <div class="grid">${reco.map(cardHTML).join('')}</div>
+      </section>`;
+    }
+  }
+
   const h = HERO_COPY[LANG] || HERO_COPY.ru;
   const exChips = h.examples.map(q =>
     `<a class="hero-ex" href="#/search?q=${encodeURIComponent(q)}" data-link>${esc(q)}</a>`).join('');
@@ -891,6 +916,7 @@ function renderHome() {
       <div class="section-title"><h2>${t('home.viewed')}</h2></div>
       <div class="grid">${viewed.map(cardHTML).join('')}</div>
     </section>` : ''}
+    ${recoSection}
     ${vip.length ? `
     <section>
       <div class="section-title"><h2>${t('home.vip')}</h2><a href="#/search?reset=1" data-link>${t('home.seeAll')}</a></div>

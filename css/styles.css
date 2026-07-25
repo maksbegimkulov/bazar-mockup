@@ -3031,3 +3031,13 @@ a.seller-card { display: flex; gap: 12px; align-items: center; text-decoration: 
   padding: 4px 10px; border-radius: var(--radius-pill);
 }
 .verif-chip-ic { display: inline-flex; color: var(--ok); }
+
+/* персонализация: объяснение «почему вижу» (на реальных просмотрах) */
+.reco-why {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: var(--fs-sm); font-weight: var(--w-semibold);
+  color: var(--ai); background: var(--ai-grad-a);
+  padding: 6px 12px; border-radius: var(--radius-pill);
+  margin: -6px 0 13px;
+}
+.reco-why svg { flex-shrink: 0; }
