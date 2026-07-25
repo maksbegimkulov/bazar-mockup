@@ -2002,11 +2002,16 @@ function renderFavorites() {
     </div>`;
   };
 
+  // сводка важных изменений сверху (Сценарий 3): снижения цены + продано/снято
+  const droppedCount = live.filter(r => { const d = priceDelta(r); return isFinite(d) && d >= 1; }).length;
+  const summary = (droppedCount || gone.length) ? favSummaryHTML(droppedCount, gone.length) : '';
+
   app.innerHTML = `
     <div class="page-head">
       <h1>${t('favs.title')}</h1>
       ${live.length ? `<span class="results-count">${nLabel(live.length)}</span>` : ''}
     </div>
+    ${summary}
     ${rows.length ? `
     <div class="fav-tools">
       <select class="fselect fav-sort" id="favSort">
@@ -2035,6 +2040,19 @@ function renderFavorites() {
 
   const sortSel = $('#favSort');
   if (sortSel) sortSel.addEventListener('change', e => { state.favSort = e.target.value; renderFavorites(); });
+}
+
+/* сводка важных изменений в избранном (локализовано без правки словаря) */
+function favSummaryHTML(dropped, sold) {
+  const C = ({
+    ru: { drop: 'подешевело', sold: 'снято с продажи' },
+    en: { drop: 'dropped in price', sold: 'no longer available' },
+    ky: { drop: 'арзандады', sold: 'сатуудан алынды' },
+  })[LANG] || { drop: 'подешевело', sold: 'снято с продажи' };
+  const chips = [];
+  if (dropped) chips.push(`<span class="fav-sum-chip down">${icon('pricedown', { size: 15 })} ${dropped} · ${C.drop}</span>`);
+  if (sold) chips.push(`<span class="fav-sum-chip">${icon('info', { size: 15 })} ${sold} · ${C.sold}</span>`);
+  return `<div class="fav-summary">${chips.join('')}</div>`;
 }
 
 /* ---------------- продажа за 30 секунд (реальная камера + ИИ) ---------------- */

@@ -2964,3 +2964,15 @@ a.seller-card { display: flex; gap: 12px; align-items: center; text-decoration: 
 .rb-icon:active { transform: scale(0.94); }
 .rb-icon.save-search-btn.on { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
 @media (hover: hover) and (pointer: fine) { .rb-icon:hover { color: var(--accent); border-color: var(--accent); } }
+
+/* избранное: сводка важных изменений сверху (Сценарий 3) */
+.fav-summary { display: flex; flex-wrap: wrap; gap: 8px; margin: 2px 0 14px; }
+.fav-sum-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: var(--fs-sm); font-weight: var(--w-semibold);
+  color: var(--text-2);
+  background: var(--card); border: 1px solid var(--line);
+  padding: 7px 12px; border-radius: var(--radius-pill);
+}
+.fav-sum-chip svg { flex-shrink: 0; }
+.fav-sum-chip.down { color: var(--ok-text); border-color: var(--ok-soft); background: var(--ok-soft); }
