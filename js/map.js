@@ -105,7 +105,9 @@ function cityStats(listings) {
     if (!KG_CITY_COORDS[c]) continue;
     const a = acc[c] || (acc[c] = { city: c, count: 0, sum: 0, priced: 0, min: Infinity });
     a.count++;
-    if (l.price > 0) { a.sum += l.price; a.priced++; if (l.price < a.min) a.min = l.price; }
+    // средняя/мин — ТОЛЬКО по прямым продажам (без priceSuffix): нельзя мешать
+    // абсолютную цену с арендой /мес, услугой /час и ценой за /м²
+    if (l.price > 0 && !l.priceSuffix) { a.sum += l.price; a.priced++; if (l.price < a.min) a.min = l.price; }
   }
   return Object.values(acc).map(a => ({
     city: a.city, count: a.count,

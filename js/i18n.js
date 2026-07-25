@@ -798,6 +798,8 @@ function setLang(lang) {
 function applyStaticChrome() {
   document.querySelectorAll('[data-i18n]').forEach(el => { el.textContent = t(el.dataset.i18n); });
   document.querySelectorAll('[data-i18n-ph]').forEach(el => { el.placeholder = t(el.dataset.i18nPh); });
+  // title + aria-label (иконочные кнопки шапки локализуются вместе с языком)
+  document.querySelectorAll('[data-i18n-title]').forEach(el => { const s = t(el.dataset.i18nTitle); el.title = s; el.setAttribute('aria-label', s); });
   const langBtn = document.getElementById('langBtn');
   if (langBtn) langBtn.textContent = LANG.toUpperCase();
 }

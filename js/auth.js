@@ -41,6 +41,7 @@ function authOnChange(fn) { AUTH._subs.push(fn); if (AUTH.ready) fn(AUTH.user); 
 function authEmit() { AUTH._subs.forEach(fn => { try { fn(AUTH.user); } catch (e) {} }); }
 function currentUser() { return AUTH.user; }
 function isAuthed() { return !!AUTH.user; }
+function authReady() { return AUTH.ready; } // сессия из Supabase уже восстановлена?
 
 async function authInit() {
   if (!sb) { AUTH.ready = true; authEmit(); return; }

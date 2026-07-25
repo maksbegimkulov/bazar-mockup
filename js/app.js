@@ -179,6 +179,10 @@ function dbToListing(r, profs) {
 /* подтянуть из облака: реальные объявления + чаты пользователя (с именами участников) */
 async function loadCloudData() {
   if (typeof sb === 'undefined' || !sb) { state.dbListings = []; return; }
+  // защита от гонки: параллельные прогоны (boot + auth-change + realtime + poll)
+  // не должны затирать более свежий результат — применяет данные только последний
+  const seq = (state._cloudSeq = (state._cloudSeq || 0) + 1);
+  const firstLoad = !state._cloudLoaded; // первый успешный прогон → можно ре-рендерить и тяжёлые страницы
   const me = isAuthed() ? currentUser().id : null; // гость → me=null
   try {
     const rows = await dbAllListings();             // реальные объявления — ВИДНЫ ВСЕМ, включая гостей
@@ -194,6 +198,7 @@ async function loadCloudData() {
         .select('id,name,rating,reviews_count,kind,created_at').in('id', [...ids]);
       (data || []).forEach(p => profs[p.id] = p);
     }
+    if (seq !== state._cloudSeq) return; // более новый прогон уже стартовал — его данные свежее
     state.dbListings = rows.map(r => dbToListing(r, profs));
     state._cloudLoaded = true;
     // чистим «фантомы»: облачное объявление удалили — из избранного/сравнения тоже
@@ -253,7 +258,11 @@ async function loadCloudData() {
     // точечный рефреш: открытый чат НЕ ререндерим (сотрёт набранный текст) — только
     // дорисовываем новые сообщения; /item не трогаем (собьёт скролл и галерею)
     const p = parseHash().path;
-    if (p === '/' || p === '' || p.startsWith('/search') || p.startsWith('/profile') || p === '/chats') router();
+    // тяжёлые страницы (/item, /seller, /favorites, /compare, /map) ре-рендерим ТОЛЬКО
+    // на первом прогоне — иначе облачное объявление по прямой ссылке/после перезагрузки
+    // навсегда остаётся «не найдено». На поллинге их не трогаем (не сбить скролл/галерею).
+    const heavy = firstLoad && (p.startsWith('/item/') || p.startsWith('/seller/') || p.startsWith('/favorites') || p.startsWith('/compare') || p.startsWith('/map'));
+    if (p === '/' || p === '' || p.startsWith('/search') || p.startsWith('/profile') || p === '/chats' || heavy) router();
     else if (p.startsWith('/chats/')) syncOpenChat(decodeURIComponent(p.slice(7)));
   } catch (e) { /* офлайн/ошибка — оставляем что есть */ }
 }
@@ -627,21 +636,50 @@ function unlockScroll(owner) {
 
 /* ---------------- модалка ---------------- */
 
+let _modalReturnFocus = null;
+function _bgInertRegions() { return ['#header', '#app', '#bottomnav', '#toastWrap'].map(s => $(s)).filter(Boolean); }
 function openModal(html) {
-  $('#modalBox').innerHTML = html;
-  if ($('#modalBackdrop').hidden) lockScroll('modal');
+  const box = $('#modalBox');
+  const wasOpen = !$('#modalBackdrop').hidden;
+  box.innerHTML = html;
+  if (!wasOpen) {
+    _modalReturnFocus = document.activeElement;   // куда вернуть фокус при закрытии
+    lockScroll('modal');
+    _bgInertRegions().forEach(el => el.setAttribute('inert', '')); // ловушка фокуса на фоне
+  }
   $('#modalBackdrop').hidden = false;
+  // доступное имя диалога = его заголовок (если есть)
+  const h = box.querySelector('h3, h2');
+  if (h) { if (!h.id) h.id = 'modalTitle'; box.setAttribute('aria-labelledby', h.id); }
+  else box.removeAttribute('aria-labelledby');
+  // фокус ВНУТРЬ диалога: первый интерактивный элемент или сам диалог
+  const first = box.querySelector('button:not([disabled]), [href], input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])');
+  try { (first || box).focus(); } catch (e) {}
 }
 function closeModal() {
   if ($('#modalBackdrop').hidden) return;
   $('#modalBackdrop').hidden = true;
   unlockScroll('modal');
+  _bgInertRegions().forEach(el => el.removeAttribute('inert'));
+  if (_modalReturnFocus && _modalReturnFocus.focus) { try { _modalReturnFocus.focus(); } catch (e) {} } // вернуть фокус на триггер
+  _modalReturnFocus = null;
+}
+/* мобильный фильтр-шит закрыт → он уезжает за экран, но остаётся в tab-порядке.
+   Помечаем inert, чтобы фокус/скринридер туда не проваливались. На десктопе
+   панель — всегда видимый сайдбар, её inert НЕ трогаем. */
+function syncFilterPanelInert() {
+  const panel = $('#filtersPanel'); if (!panel) return;
+  const hiddenSheet = window.matchMedia('(max-width: 920px)').matches && !panel.classList.contains('open');
+  if (hiddenSheet) panel.setAttribute('inert', ''); else panel.removeAttribute('inert');
 }
 function closeFilterSheet() {
   const panel = $('#filtersPanel');
   if (panel && panel.classList.contains('open')) {
     panel.classList.remove('open');
     unlockScroll('sheet');
+    syncFilterPanelInert();
+    const btn = document.querySelector('[data-action="open-filters"]'); // вернуть фокус на кнопку
+    if (btn) { try { btn.focus(); } catch (e) {} }
   }
 }
 $('#modalBackdrop').addEventListener('click', e => {
@@ -1365,6 +1403,7 @@ function renderSearch() {
     updateResults();
   });
   updateResults();
+  syncFilterPanelInert(); // свежесозданный шит на мобиле — сразу inert, если закрыт
 }
 
 function bindFilterPanel() {
@@ -1853,7 +1892,7 @@ function renderItem(id) {
     <div class="panel">
       <h2>${t('item.specs')}</h2>
       <div class="params-table">
-        ${params.map(([k, v]) => `<div class="prow"><span>${k}</span><span>${esc(v)}</span></div>`).join('')}
+        ${params.map(([k, v]) => `<div class="prow"><span>${esc(k)}</span><span>${esc(v)}</span></div>`).join('')}
       </div>
     </div>
     <div class="panel">
@@ -1935,7 +1974,7 @@ function showPhoneModal(id) {
       <div class="avatar" style="${avatarStyle(l.sellerName)}; margin: 0 auto;">${esc(l.sellerName[0])}</div>
       <div class="num">${esc(l.phone)}</div>
       <div class="who">${esc(l.sellerName)} · ${esc(l.title)}</div>
-      <a class="btn btn-primary btn-block btn-lg" href="tel:${l.phone.replace(/\s/g, '')}">${t('phone.call')}</a>
+      <a class="btn btn-primary btn-block btn-lg" href="tel:${esc(String(l.phone).replace(/[^\d+]/g, ''))}">${t('phone.call')}</a>
       <div style="height:8px"></div>
       <button class="btn btn-outline btn-block btn-lg" data-action="write-seller" data-id="${l.id}">${t('phone.chat')}</button>
     </div>`);
@@ -1975,8 +2014,14 @@ async function submitOfferCloud(id, l) {
   if (typeof BZ === 'undefined' || !BZ.available()) {
     result.innerHTML = `<div class="offer-msg offer-no">${t('offer.rejected')}</div>`; return;
   }
+  if (inp.dataset.busy) return;                     // защита от двойного клика → дубли makeOffer
+  inp.dataset.busy = '1';
+  const _offerBtn = document.querySelector('#offerActions [data-action="offer-submit"]');
+  if (_offerBtn) _offerBtn.disabled = true;
   result.innerHTML = `<div class="offer-msg">…</div>`;
-  const r = await BZ.makeOffer(id, offer);
+  let r;
+  try { r = await BZ.makeOffer(id, offer); }
+  finally { delete inp.dataset.busy; if (_offerBtn) _offerBtn.disabled = false; }
   if (!r) { result.innerHTML = `<div class="offer-msg offer-warn">${t('offer.enter')}</div>`; return; }
   if (r.status === 'accepted') {
     const deal = Math.min(offer, l.price);
@@ -3525,6 +3570,14 @@ function afterAuth() {
 /* требуется вход — иначе уводим на экран входа и запоминаем, куда вернуть */
 function requireAuth(returnHash) {
   if (isAuthed()) return true;
+  // сессия ещё восстанавливается (Supabase async): НЕ выбрасываем на логин раньше
+  // времени — иначе перезагрузка любого gated-маршрута кидает залогиненного на вход.
+  // Показываем загрузку; authOnChange перерисует маршрут, когда авторизация резолвится.
+  if (typeof authReady === 'function' && !authReady()) {
+    const loadingTxt = ({ ru: 'Загрузка…', en: 'Loading…', ky: 'Жүктөлүүдө…' })[LANG] || 'Загрузка…';
+    app.innerHTML = `<div class="route-loading" role="status" aria-live="polite"><div class="route-spinner" aria-hidden="true"></div><span class="sr-only">${loadingTxt}</span></div>`;
+    return false;
+  }
   state.auth._return = returnHash || location.hash || '#/';
   state.auth.mode = 'register';
   location.hash = '#/auth';
@@ -3673,16 +3726,16 @@ function compareVerdict(items) {
   const parts = [];
   const byPrice = items.filter(l => l.price > 0).sort((a, b) => a.price - b.price);
   if (byPrice.length >= 2 && byPrice[0].price !== byPrice[byPrice.length - 1].price) {
-    parts.push(`${t('cmp.vCheaper')} — «${shortTitle(byPrice[0].title)}»`);
+    parts.push(`${t('cmp.vCheaper')} — «${esc(shortTitle(byPrice[0].title))}»`);
   }
   const withYear = items.map(l => ({ l, y: +getAttrs(l).year || 0 })).filter(x => x.y).sort((a, b) => b.y - a.y);
   if (withYear.length >= 2 && withYear[0].y !== withYear[withYear.length - 1].y) {
-    parts.push(`${t('cmp.vNewer')} — «${shortTitle(withYear[0].l.title)}»`);
+    parts.push(`${t('cmp.vNewer')} — «${esc(shortTitle(withYear[0].l.title))}»`);
   }
   const bySeller = items.map(l => ({ l, s: sellerStats(l) })).filter(x => !x.s.isNew)
     .sort((a, b) => parseFloat(b.s.rating) - parseFloat(a.s.rating));
   if (bySeller.length >= 2 && bySeller[0].s.rating !== bySeller[bySeller.length - 1].s.rating) {
-    parts.push(`${t('cmp.vSeller')} — «${shortTitle(bySeller[0].l.title)}»`);
+    parts.push(`${t('cmp.vSeller')} — «${esc(shortTitle(bySeller[0].l.title))}»`);
   }
   return parts.length ? parts.join('. ') + '.' : t('cmp.vSimilar');
 }
@@ -4302,6 +4355,8 @@ function sendChatMessage(chatKey, text, photo) {
         if (i >= 0) existing.messages.splice(i, 1);
         showToast(t('toast.sendFail'), 'error');
         if (location.hash === '#/chats/' + chatKey) renderChats(chatKey);
+        // НЕ теряем набранный текст — возвращаем в поле, чтобы отправить повторно
+        const inp2 = $('#chatText'); if (inp2 && text) { inp2.value = text; inp2.focus(); }
       });
     return;
   }
@@ -5128,6 +5183,9 @@ document.addEventListener('click', async e => {
         if (panel && !panel.classList.contains('open')) {
           panel.classList.add('open');
           lockScroll('sheet');
+          syncFilterPanelInert(); // снять inert
+          const first = panel.querySelector('button:not([disabled]), input, select, [tabindex]:not([tabindex="-1"])');
+          if (first) { try { first.focus(); } catch (e) {} } // фокус внутрь шита
         }
         break;
       }
@@ -5471,6 +5529,7 @@ window.addEventListener('hashchange', e => {
 // при выходе из мобильного диапазона шит фильтров и его скролл-лок не должны зависнуть
 onMediaChange('(min-width: 921px)', e => {
   if (e.matches) { closeFilterSheet(); unlockScroll('chat'); } // на десктоп диалог в потоке — снять блок
+  syncFilterPanelInert(); // пересчёт inert фильтр-панели при пересечении брейкпоинта
 });
 
 // подсказки поиска прячем при скролле страницы (нативный паттерн)

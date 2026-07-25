@@ -276,7 +276,7 @@ function generateCatalogListings() {
       region: pick(['Официальный', 'Официальный', 'США', 'Европа', 'Дубай', 'Китай', 'Гонконг']),
     };
 
-    out.push(base('electronics', 'Телефоны', `${m.name} ${storage}${storage >= 1024 ? 'ТБ' : 'ГБ'}, ${color}`, price, {
+    out.push(base('electronics', 'Телефоны', `${m.name} ${storage >= 1024 ? storage / 1024 + 'ТБ' : storage + 'ГБ'}, ${color}`, price, {
       condition: isNew ? 'new' : 'used',
       delivery: chance(0.45),
       attrs,
