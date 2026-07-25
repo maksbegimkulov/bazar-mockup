@@ -3071,3 +3071,7 @@ a.seller-card { display: flex; gap: 12px; align-items: center; text-decoration: 
 .reco-dismiss:active { transform: scale(0.85); }
 /* на тач-устройствах (без hover) — всегда видно, но деликатно */
 @media (hover: none) { .reco-dismiss { opacity: 0.9; } }
+
+/* выравнивание иконок в sell/safety кнопках */
+.sell-can-cancel, [data-sell-restart], [data-sell-exit], .sell-ready-check, .cpb-x { display: inline-flex; align-items: center; gap: 5px; }
+.sell-ready-check svg, .cpb-x svg { flex-shrink: 0; }

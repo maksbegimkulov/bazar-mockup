@@ -1702,8 +1702,8 @@ function renderItem(id) {
         ${photos.length
           ? `<img id="galleryImg" src="${esc(photos[0])}" alt="${esc(l.title)}">
              ${photos.length > 1 ? `
-             <button class="gallery-nav prev" data-action="gallery-prev" aria-label="‹">‹</button>
-             <button class="gallery-nav next" data-action="gallery-next" aria-label="›">›</button>
+             <button class="gallery-nav prev" data-action="gallery-prev" aria-label="${t('gallery.prev') !== 'gallery.prev' ? t('gallery.prev') : 'Назад'}"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button>
+             <button class="gallery-nav next" data-action="gallery-next" aria-label="${t('gallery.next') !== 'gallery.next' ? t('gallery.next') : 'Вперёд'}"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg></button>
              <span class="gallery-counter" id="galleryCounter">1 / ${photos.length}</span>` : ''}`
           : `<div class="nophoto">${icon('camera',{size:34,stroke:1.6})}<span>${t('item.noPhotoSeller')}</span></div>`}
       </div>
@@ -2324,7 +2324,7 @@ function renderSellAnalyze() {
           <span id="sellScanText">${firstStatus}</span>
         </div>
         <div class="ai-bubble sell-scan-dots"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
-        <button class="btn btn-outline sell-scan-cancel" data-sell-restart>✕ ${t('sell.cancel')}</button>
+        <button class="btn btn-outline sell-scan-cancel" data-sell-restart>${icon('close',{size:14,stroke:2.4})} ${t('sell.cancel')}</button>
       </div>
     </div>`;
 
@@ -2417,7 +2417,7 @@ function renderSellDraft() {
       <div class="sell-draft-top ${isReal && (det.failed || !det.category) ? 'sell-draft-warn' : ''}">
         <img class="sell-draft-photo" src="${photo}" alt="">
         <div class="sell-draft-meta">
-          <div class="sell-ready"><span class="sell-ready-check">✓</span> ${isReal ? t('sell.yourPhoto') : t('sell.title')}</div>
+          <div class="sell-ready"><span class="sell-ready-check">${icon('check',{size:15,stroke:3})}</span> ${isReal ? t('sell.yourPhoto') : t('sell.title')}</div>
           <div class="sell-confidence">${detLine}</div>
         </div>
       </div>
@@ -2460,7 +2460,7 @@ function renderSellDraft() {
       <div class="sell-draft-actions">
         <button class="btn btn-outline" data-action="sell-to-manual">${icon('edit',{size:16})} ${t('sell.edit')}</button>
         <button class="btn btn-outline" data-sell-restart>${icon('camera',{size:16})} ${t('sell.retake')}</button>
-        <button class="btn btn-danger-soft" data-sell-exit>✕ ${t('sell.cancel')}</button>
+        <button class="btn btn-danger-soft" data-sell-exit>${icon('close',{size:14,stroke:2.4})} ${t('sell.cancel')}</button>
       </div>
     </div>`;
 
@@ -4012,8 +4012,11 @@ function msgHTML(m, otherReadAt) {
     warn = `<div class="chat-scam-warn"><span class="csw-ico">${icon('shield',{size:18})}</span><span><b>${t('scam.who')}</b> ${t('scam.warn')}</span></div>`;
   } // low/none (просто «вотсап» и т.п.) — НЕ тревожим, верхний баннер уже напоминает
   // ✓ отправлено · ✓✓ прочитано собеседником (только под МОИМИ сообщениями)
-  const status = m.from === 'me'
-    ? `<span class="msg-status ${otherReadAt && m.ts <= otherReadAt ? 'read' : ''}">${otherReadAt && m.ts <= otherReadAt ? '✓✓' : '✓'}</span>` : '';
+  const read = otherReadAt && m.ts <= otherReadAt;
+  const checkSvg = read
+    ? '<svg viewBox="0 0 20 12" width="16" height="10" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M1 6.5l3.3 3.3L10.5 2M7.5 9.8L8.5 10.8 16 2.2"/></svg>'
+    : '<svg viewBox="0 0 14 12" width="12" height="10" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M1 6.5l3.5 3.5L11 2"/></svg>';
+  const status = m.from === 'me' ? `<span class="msg-status ${read ? 'read' : ''}">${checkSvg}</span>` : '';
   const photoHTML = m.photo ? `<img class="msg-photo" src="${esc(m.photo)}" alt="" data-msg-photo="${esc(m.photo)}">` : '';
   const textHTML = m.text ? maskUnsafe(m.text) : '';
   return `<div class="msg ${m.from}${m.photo ? ' has-photo' : ''}">${photoHTML}${textHTML}<time>${msgTime(m.ts)}${status}</time></div>${warn}`;
@@ -4109,7 +4112,7 @@ function renderChats(activeId) {
           : `<div class="s" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis">${esc(chTitle(active))}</div>`}
       </div>
     </div>
-    ${phishBannerDismissed() ? '' : `<div class="chat-phish-banner"><span>${icon('shield',{size:15})} ${t('safety.chatBanner')}</span><button class="cpb-x" data-action="dismiss-phish" aria-label="${t('safety.dismiss')}">✕</button></div>`}
+    ${phishBannerDismissed() ? '' : `<div class="chat-phish-banner"><span>${icon('shield',{size:15})} ${t('safety.chatBanner')}</span><button class="cpb-x" data-action="dismiss-phish" aria-label="${t('safety.dismiss')}">${icon('close',{size:14,stroke:2.4})}</button></div>`}
     <div class="chat-msgs" id="chatMsgs">
       ${active.messages.length
         ? active.messages.map(m => msgHTML(m, active.otherReadAt)).join('')
