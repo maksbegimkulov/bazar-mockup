@@ -22,6 +22,7 @@ const LS = {
   chatRead: 'bazar_chat_read', // chatId → ts последнего прочитанного (для unread DB-чатов)
   postDraft: 'bazar_post_draft', // незаконченное объявление (не терять при уходе)
   favMeta: 'bazar_fav_meta',     // по избранному: цена на момент добавления, заметка, статус
+  favColls: 'bazar_fav_colls',   // коллекции избранного: { название: [id,…] }
   aiq: 'bazar_aiq',              // кэш ИИ-разбора сложных запросов (не жечь API повторно)
 };
 
@@ -42,6 +43,8 @@ state.soldIds = new Set(lsLoad(LS.sold, []));    // отмеченные про�
 state.reported = new Set(lsLoad(LS.reported, [])); // id с жалобой юзера — прячем у него
 state.chatRead = lsLoad(LS.chatRead, {});          // chatId → ts прочитанного
 state.favMeta = lsLoad(LS.favMeta, {});            // id → {price, ts, note, gone}
+state.favColls = lsLoad(LS.favColls, {});          // коллекции: { название: [id,…] }
+state.favActiveCol = null;                          // текущий фильтр по коллекции (сессия)
 state.page = 1;
 state.galleryIndex = 0;
 state.auth = { mode: 'login', method: 'email' };  // экран входа/регистрации
@@ -1986,6 +1989,16 @@ function renderFavorites() {
   const live = rows.filter(r => r.l);
   const gone = cloudReady ? rows.filter(r => !r.l) : [];
 
+  // коллекции: фильтр по выбранной папке
+  const CL = favCollLabels();
+  const colNames = Object.keys(state.favColls || {}).filter(n => (state.favColls[n] || []).some(id => state.favorites.has(id)));
+  const activeCol = (state.favActiveCol && state.favColls[state.favActiveCol]) ? state.favActiveCol : null;
+  const liveShown = activeCol ? live.filter(r => (state.favColls[activeCol] || []).includes(r.id)) : live;
+  const collChips = colNames.length ? `<div class="fav-colls chip-row">
+      <button class="fchip ${!activeCol ? 'active' : ''}" data-fav-col="">${CL.all} (${live.length})</button>
+      ${colNames.map(n => `<button class="fchip ${activeCol === n ? 'active' : ''}" data-fav-col="${esc(n)}">${esc(n)} (${(state.favColls[n] || []).filter(id => state.favorites.has(id)).length})</button>`).join('')}
+    </div>` : '';
+
   const cardWithMeta = r => {
     const d = priceDelta(r);
     let badge = '';
@@ -1998,7 +2011,10 @@ function renderFavorites() {
     return `<div class="fav-item">
       ${cardHTML(r.l)}
       ${badge}${note}
-      <button class="fav-note-btn" data-action="fav-note" data-id="${r.id}">${r.m.note ? t('favs.noteEdit') : t('favs.noteAdd')}</button>
+      <div class="fav-item-tools">
+        <button class="fav-note-btn" data-action="fav-note" data-id="${r.id}">${r.m.note ? t('favs.noteEdit') : t('favs.noteAdd')}</button>
+        <button class="fav-coll-btn" data-action="fav-collect" data-id="${r.id}" aria-label="${CL.add}" title="${CL.add}">${icon('box', { size: 15 })}</button>
+      </div>
     </div>`;
   };
 
@@ -2012,6 +2028,7 @@ function renderFavorites() {
       ${live.length ? `<span class="results-count">${nLabel(live.length)}</span>` : ''}
     </div>
     ${summary}
+    ${collChips}
     ${rows.length ? `
     <div class="fav-tools">
       <select class="fselect fav-sort" id="favSort">
@@ -2021,10 +2038,11 @@ function renderFavorites() {
       </select>
     </div>` : ''}
     <div class="grid">
-      ${live.length
-        ? live.map(cardWithMeta).join('')
-        : (gone.length ? '' : emptyHTML('heart', t('favs.empty.t'), t('favs.empty.p'),
-            `<a class="btn btn-primary" href="#/search?reset=1" data-link>${t('favs.empty.btn')}</a>`))}
+      ${liveShown.length
+        ? liveShown.map(cardWithMeta).join('')
+        : (activeCol ? emptyHTML('box', CL.emptyColT, CL.emptyColP)
+          : (gone.length ? '' : emptyHTML('heart', t('favs.empty.t'), t('favs.empty.p'),
+            `<a class="btn btn-primary" href="#/search?reset=1" data-link>${t('favs.empty.btn')}</a>`)))}
     </div>
     ${gone.length ? `
     <section class="fav-gone">
@@ -2053,6 +2071,54 @@ function favSummaryHTML(dropped, sold) {
   if (dropped) chips.push(`<span class="fav-sum-chip down">${icon('pricedown', { size: 15 })} ${dropped} · ${C.drop}</span>`);
   if (sold) chips.push(`<span class="fav-sum-chip">${icon('info', { size: 15 })} ${sold} · ${C.sold}</span>`);
   return `<div class="fav-summary">${chips.join('')}</div>`;
+}
+
+/* --- коллекции избранного (папки: «Машины для сравнения», «Подарки»…) --- */
+function favCollLabels() {
+  return ({
+    ru: { all: 'Все', add: 'В коллекцию', new: 'Создать коллекцию', title: 'Добавить в коллекцию', ph: 'Название коллекции', none: 'Коллекций пока нет — создайте первую.', emptyColT: 'В этой коллекции пусто', emptyColP: 'Добавляйте товары кнопкой «В коллекцию» на карточке.' },
+    en: { all: 'All', add: 'To collection', new: 'Create collection', title: 'Add to collection', ph: 'Collection name', none: 'No collections yet — create your first.', emptyColT: 'This collection is empty', emptyColP: 'Add items with the “To collection” button on a card.' },
+    ky: { all: 'Баары', add: 'Коллекцияга', new: 'Коллекция түзүү', title: 'Коллекцияга кошуу', ph: 'Коллекциянын аты', none: 'Коллекциялар жок — биринчисин түзүңүз.', emptyColT: 'Бул коллекция бош', emptyColP: 'Карточкадагы «Коллекцияга» баскычы менен кошуңуз.' },
+  })[LANG] || { all: 'Все', add: 'В коллекцию', new: 'Создать', title: 'Коллекции', ph: 'Название', none: 'Пусто', emptyColT: 'Пусто', emptyColP: '' };
+}
+function favCollSave() { lsSave(LS.favColls, state.favColls); }
+function favCollToggle(name, id) {
+  if (!name) return;
+  if (!state.favColls[name]) state.favColls[name] = [];
+  const arr = state.favColls[name];
+  const i = arr.indexOf(id);
+  if (i >= 0) arr.splice(i, 1); else arr.push(id);
+  if (!arr.length) delete state.favColls[name];
+  favCollSave();
+}
+function openFavCollectModal(id) {
+  const CL = favCollLabels();
+  const names = Object.keys(state.favColls);
+  const rows = names.map(n => {
+    const on = (state.favColls[n] || []).includes(id);
+    return `<button class="fcoll-opt ${on ? 'on' : ''}" data-coll-toggle="${esc(n)}" data-id="${id}">
+      <span class="fcoll-opt-name">${esc(n)}</span>
+      <span class="fcoll-opt-box">${on ? icon('check', { size: 15, stroke: 3 }) : ''}</span></button>`;
+  }).join('');
+  openModal(`
+    <h3>${icon('box', { size: 18 })} ${CL.title}</h3>
+    <div class="fcoll-list">${rows || `<p class="modal-text">${CL.none}</p>`}</div>
+    <div class="fcoll-new">
+      <input class="finput" type="text" id="fcollNew" placeholder="${esc(CL.ph)}" maxlength="32" enterkeyhint="done">
+      <button class="btn btn-primary" data-action="fav-coll-create" data-id="${id}">${CL.new}</button>
+    </div>`);
+  const inp = $('#fcollNew');
+  if (inp) inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); const b = $('[data-action="fav-coll-create"]'); if (b) b.click(); } });
+}
+function favCollCreate(id) {
+  const inp = $('#fcollNew');
+  const name = (inp && inp.value || '').trim();
+  if (!name) { if (inp) inp.focus(); return; }
+  if (!state.favColls[name]) state.favColls[name] = [];
+  if (!state.favColls[name].includes(id)) state.favColls[name].push(id);
+  favCollSave();
+  renderFavorites();        // обновить страницу под модалкой (чипы коллекций)
+  openFavCollectModal(id);  // перерисовать список с новой коллекцией
 }
 
 /* ---------------- продажа за 30 секунд (реальная камера + ИИ) ---------------- */
@@ -4744,6 +4810,12 @@ document.addEventListener('click', async e => {
     if (inp) { inp.value = fill.dataset.fill; inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
     return;
   }
+  // коллекции избранного: фильтр по папке
+  const favCol = e.target.closest('[data-fav-col]');
+  if (favCol) { state.favActiveCol = favCol.dataset.favCol || null; renderFavorites(); return; }
+  // коллекции: добавить/убрать товар из коллекции (в модалке)
+  const collTog = e.target.closest('[data-coll-toggle]');
+  if (collTog) { favCollToggle(collTog.dataset.collToggle, collTog.dataset.id); renderFavorites(); openFavCollectModal(collTog.dataset.id); return; }
 
   /* действия */
   const actBtn = e.target.closest('[data-action]');
@@ -4864,6 +4936,8 @@ document.addEventListener('click', async e => {
         renderFavorites();
         break;
       }
+      case 'fav-collect': { openFavCollectModal(id); break; }
+      case 'fav-coll-create': { favCollCreate(id); break; }
       case 'fav-forget': {
         state.favorites.delete(id);
         delete state.favMeta[id];

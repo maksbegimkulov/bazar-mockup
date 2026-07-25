@@ -2976,3 +2976,29 @@ a.seller-card { display: flex; gap: 12px; align-items: center; text-decoration: 
 }
 .fav-sum-chip svg { flex-shrink: 0; }
 .fav-sum-chip.down { color: var(--ok-text); border-color: var(--ok-soft); background: var(--ok-soft); }
+
+/* коллекции избранного (папки) */
+.fav-item-tools { display: flex; gap: 6px; margin-top: 6px; align-items: stretch; }
+.fav-item-tools .fav-note-btn { flex: 1; margin: 0; }
+.fav-coll-btn {
+  display: inline-grid; place-items: center;
+  width: 40px; flex-shrink: 0;
+  border: 1px solid var(--line); border-radius: var(--radius-s);
+  background: var(--card); color: var(--text-2);
+  transition: color var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease);
+}
+.fav-coll-btn:active { transform: scale(0.94); }
+@media (hover: hover) and (pointer: fine) { .fav-coll-btn:hover { color: var(--accent); border-color: var(--accent); } }
+.fav-colls { margin: 0 0 14px; }
+.fcoll-list { display: flex; flex-direction: column; gap: 7px; margin: 14px 0; max-height: 46vh; overflow: auto; overscroll-behavior: contain; }
+.fcoll-opt {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  width: 100%; text-align: left;
+  padding: 12px 14px; border: 1.5px solid var(--line); border-radius: var(--radius-s);
+  background: var(--card); font-weight: var(--w-semibold); font-size: var(--fs-base); color: var(--text);
+  transition: border-color var(--dur-1) var(--ease), background var(--dur-1) var(--ease);
+}
+.fcoll-opt.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-dark); }
+.fcoll-opt-box { display: inline-flex; color: var(--accent); flex-shrink: 0; }
+.fcoll-new { display: flex; gap: 8px; margin-top: 8px; }
+.fcoll-new .finput { flex: 1; min-width: 0; }
