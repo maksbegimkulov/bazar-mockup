@@ -2945,3 +2945,22 @@ a.seller-card { display: flex; gap: 12px; align-items: center; text-decoration: 
 .verif-badge svg, .bargain-badge svg, .scam-note svg, .sold-banner svg, .map-caption svg { flex-shrink: 0; }
 .scam-banner .sb-ico { display: inline-flex; }
 .nophoto { flex-direction: column; gap: 8px; }
+
+/* пикер фото в форме: иконки вместо ＋/✕ (стоковые заглушки убраны) */
+.photo-add-ico { display: inline-flex; align-items: center; justify-content: center; }
+.ps-x { display: inline-flex; align-items: center; justify-content: center; }
+.ps-x svg, .photo-add-ico svg { display: block; }
+
+/* бар результатов: компактные вторичные иконки-кнопки (сохранить/карта) */
+.rb-icon {
+  display: inline-grid; place-items: center;
+  width: 40px; height: 40px; flex-shrink: 0;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-s);
+  color: var(--text-2);
+  transition: color var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease), background var(--dur-1) var(--ease);
+}
+.rb-icon:active { transform: scale(0.94); }
+.rb-icon.save-search-btn.on { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+@media (hover: hover) and (pointer: fine) { .rb-icon:hover { color: var(--accent); border-color: var(--accent); } }

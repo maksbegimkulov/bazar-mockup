@@ -1180,8 +1180,8 @@ function renderSearch() {
             <option value="expensive">${t('sort.exp')}</option>
             <option value="popular">${t('sort.popular')}</option>
           </select>
-          <button class="save-search-btn ${state.saved.some(s => JSON.stringify(s.f) === JSON.stringify(state.filters)) ? 'on' : ''}" id="saveSearchBtn" data-action="save-search">${icon('bell',{size:15})} ${state.saved.some(s => JSON.stringify(s.f) === JSON.stringify(state.filters)) ? t('saved.savedShort') : t('saved.save')}</button>
-          <a class="map-open-btn" href="${buildMapHash(state.filters)}" data-link title="${t('map.open')}">${icon('location',{size:15})} ${t('map.open')}</a>
+          <button class="rb-icon save-search-btn ${state.saved.some(s => JSON.stringify(s.f) === JSON.stringify(state.filters)) ? 'on' : ''}" id="saveSearchBtn" data-action="save-search" title="${t('saved.save')}" aria-label="${t('saved.save')}">${icon('bell', { size: 18 })}</button>
+          <a class="rb-icon map-open-btn" href="${buildMapHash(state.filters)}" data-link title="${t('map.open')}" aria-label="${t('map.open')}">${icon('location', { size: 18 })}</a>
           <div class="view-toggle">
             <button data-view="grid" title="${t('view.grid')}" aria-label="${t('view.grid')}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></button>
             <button data-view="list" title="${t('view.list')}" aria-label="${t('view.list')}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
@@ -2723,19 +2723,15 @@ function renderPost(params) {
     const sub = $('#pSub') ? $('#pSub').value : '';
     // плитка реальной загрузки — первая, всегда доступна
     const add = `<button type="button" class="photo-slot photo-add" id="photoAddSlot" title="${esc(t('form.photoAdd'))}">
-        <span class="photo-add-ico">＋</span><span class="photo-add-t">${esc(t('form.photoAdd'))}</span></button>
+        <span class="photo-add-ico">${icon('camera', { size: 26 })}</span><span class="photo-add-t">${esc(t('form.photoAdd'))}</span></button>
       <input type="file" id="postPhotoFile" accept="image/*" multiple hidden>`;
     // свои фото идут первыми и помечены как уже прикреплённые
     const mine = realPhotos.map((src, i) =>
       `<button type="button" class="photo-slot selected is-real" data-real="${i}" title="${esc(t('form.photoRemove'))}">
-         <img src="${esc(src)}" alt=""><span class="ps-x">✕</span></button>`).join('');
-    // стоковые заглушки оставляем как быстрый вариант для демо, но помечаем
-    const stock = Array.from({ length: 8 }, (_, i) => {
-      const seed = 11 + i * 7;
-      return `<button type="button" class="photo-slot stock ${picked.has(seed) ? 'selected' : ''}" data-seed="${seed}">
-        <img src="${photoURL(c, seed, sub)}" alt=""></button>`;
-    }).join('');
-    $('#photoPicker').innerHTML = add + mine + `<div class="photo-stock-label">${t('form.photoStock')}</div>` + stock;
+         <img src="${esc(src)}" alt=""><span class="ps-x">${icon('close', { size: 13, stroke: 2.6 })}</span></button>`).join('');
+    // Стоковые заглушки УБРАНЫ: настоящий маркетплейс не должен поощрять фейковые
+    // фото — только реальная загрузка (публикация без своих фото запрещена ниже).
+    $('#photoPicker').innerHTML = add + mine;
     const fileInp = $('#postPhotoFile');
     if (fileInp) fileInp.addEventListener('change', onPostPhotoFiles);
   }
@@ -4945,7 +4941,7 @@ document.addEventListener('click', async e => {
       case 'toggle-sold': toggleSold(id); break;
       case 'save-search': {
         if (saveCurrentSearch()) showToast(t('saved.saved'), 'success');
-        const b = $('#saveSearchBtn'); if (b) { b.classList.add('on'); b.innerHTML = icon('bell',{size:15}) + ' ' + t('saved.savedShort'); }
+        const b = $('#saveSearchBtn'); if (b) { b.classList.add('on'); b.setAttribute('title', t('saved.savedShort')); }
         break;
       }
       case 'open-saved': openSavedSearch(id); break;
