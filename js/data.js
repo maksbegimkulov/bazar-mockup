@@ -528,9 +528,12 @@ let LISTINGS = generateListings();
     if (/студи/.test(t) || /комнат[аеу]\b/.test(t)) a.rooms = 'Студия';
     else if (rm) a.rooms = (+rm[1] >= 5) ? '5+' : String(rm[1]);
     else if (isApt) a.rooms = pick(['Студия', '1', '2', '2', '3', '3', '4']);
-    // площадь (м²)
+    // пустой участок (без строения) — не выдумываем площадь дома и отопление
+    const isPlot = sub === 'Дома и участки' && /участок|\bсот/.test(t) && !/(дом|коттедж|времянк|особняк)/.test(t);
+    // площадь (м²) — только для строений
     const am = t.match(/(\d{2,4})\s?м²/);
     if (am) a.area = am[1];
+    else if (isPlot) { /* дом отсутствует — площадь строения не заполняем */ }
     else if (sub === 'Дома и участки') a.area = String(range(80, 260));
     else if (isApt) a.area = String(range(30, 110));
     // этаж «5/9»
@@ -541,8 +544,8 @@ let LISTINGS = generateListings();
     const distr = BISHKEK_DISTRICTS.find(d => t.includes(d.toLowerCase()));
     if (distr) { a.district = distr; l.district = distr; l.city = 'Бишкек'; }
     else if (l.city === 'Бишкек') a.district = l.district || pick(BISHKEK_DISTRICTS);
-    // отопление
-    a.heating = sub === 'Дома и участки'
+    // отопление — у строений (не у пустого участка)
+    if (!isPlot) a.heating = sub === 'Дома и участки'
       ? pick(['Автономное', 'Газовое', 'Электрическое', 'Печное'])
       : pick(['Центральное', 'Центральное', 'Автономное', 'Газовое', 'Электрическое']);
     // мебель

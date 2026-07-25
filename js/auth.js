@@ -258,10 +258,14 @@ async function dbAllListings() {
 }
 
 async function dbDeleteListing(id) {
-  if (!sb || !AUTH.user) return;
+  if (!sb || !AUTH.user) throw new Error('no-auth'); // не «тихий успех» — вызывающий откатит
   // owner_id обязателен: на RLS одной надежды мало, а промах здесь стоит
   // чужого объявления (см. dbUpdateListing — там условие уже стоит)
-  await sb.from('listings').delete().eq('id', id).eq('owner_id', AUTH.user.id);
+  const { data, error } = await sb.from('listings').delete().eq('id', id).eq('owner_id', AUTH.user.id).select();
+  // supabase резолвит (не reject) на серверных/RLS ошибках — проверяем ЯВНО,
+  // иначе ложное «удалено», а строка остаётся и возвращается на перезагрузке
+  if (error) throw error;
+  if (!data || !data.length) throw new Error('not-deleted'); // ничего не удалено (не владелец/нет строки)
 }
 
 /* найти существующий или создать чат покупатель→продавец по объявлению */
@@ -274,7 +278,16 @@ async function dbStartChat({ listingRef, listingTitle, sellerId }) {
   const { data, error } = await sb.from('chats').insert({
     listing_ref: String(listingRef), listing_title: listingTitle || '', buyer_id: buyer, seller_id: sellerId,
   }).select().single();
-  if (error) throw error;
+  if (error) {
+    // гонка двойного тапа: параллельная вставка уже создала чат (unique_violation)
+    // → это не ошибка, возвращаем существующий вместо тоста «не удалось»
+    if (error.code === '23505') {
+      const { data: again } = await sb.from('chats').select('*')
+        .eq('listing_ref', String(listingRef)).eq('buyer_id', buyer).eq('seller_id', sellerId).limit(1);
+      if (again && again.length) return again[0];
+    }
+    throw error;
+  }
   return data;
 }
 

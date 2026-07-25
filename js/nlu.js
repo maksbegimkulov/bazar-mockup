@@ -178,7 +178,10 @@ function extractSpecs(sNorm) {
   if (m) attrs.cpu = m[1].toUpperCase();
   if (!attrs.cpu) { m = eat(/ ryzen\s*([3579])(?= )/); if (m) attrs.cpu = 'Ryzen ' + m[1]; }
   if (!attrs.cpu) {
-    m = eat(/ (m[1-4])\s*(pro|max|ultra)?(?= )/);
+    // «Apple M1..M4» только в Mac-контексте ИЛИ с Apple-суффиксом pro/max/ultra —
+    // иначе «Poco M4», «BMW M3», «Mercedes M» ловились как процессор
+    const macCtx = /(?:^| )(?:mac|macbook|макбук|эпл|apple)(?= |$)/i.test(s);
+    m = eat(macCtx ? / (m[1-4])\s*(pro|max|ultra)?(?= )/ : / (m[1-4])\s*(pro|max|ultra)(?= )/);
     if (m) attrs.cpu = ('Apple ' + m[1].toUpperCase() + (m[2] ? ' ' + m[2] : '')).trim();
   }
 

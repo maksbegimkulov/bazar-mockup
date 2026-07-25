@@ -230,11 +230,24 @@ async function loadCloudData() {
         const messages = msgs.map(m => ({ from: m.sender_id === me ? 'me' : 'them', text: m.text, ts: new Date(m.created_at).getTime(), id: m.id }));
         const old = state.chats[c.id];
         if (old && Array.isArray(old.messages)) {
-          old.messages.forEach(m => { if (m.from === 'me' && !m.id) messages.push(m); });
+          old.messages.forEach(m => {
+            if (m.from === 'me' && !m.id) {
+              // не дублируем: сервер мог уже вернуть это же моё сообщение (тот же
+              // текст, близкое время) — иначе оно бы задвоилось после подтверждения
+              const dup = messages.some(x => x.from === 'me' && x.text === m.text && Math.abs(x.ts - m.ts) < 60000);
+              if (!dup) messages.push(m);
+            }
+          });
+          messages.sort((a, b) => a.ts - b.ts); // стабильный порядок по времени
         }
         const last = messages[messages.length - 1];
         // когда СОБЕСЕДНИК последний раз читал — для «прочитано» под моими сообщениями
         const otherReadRaw = c.buyer_id === me ? c.seller_last_read_at : c.buyer_last_read_at;
+        // МОЯ серверная отметка прочтения: переживает смену устройства (локальный
+        // chatRead пуст на новом устройстве → иначе прочитанные чаты «оживали»)
+        const myReadRaw = c.buyer_id === me ? c.buyer_last_read_at : c.seller_last_read_at;
+        const myReadTs = Math.max(state.chatRead[c.id] || 0, myReadRaw ? new Date(myReadRaw).getTime() : 0);
+        state.chatRead[c.id] = myReadTs; // подсеиваем локально, чтобы сохранилось
         fresh[c.id] = {
           itemId: c.listing_ref, chatId: c.id, isDb: true,
           sellerId: c.seller_id, buyerId: c.buyer_id, otherName: (profs[otherId] && profs[otherId].name) || t('seller.anon'),
@@ -242,10 +255,13 @@ async function loadCloudData() {
           messages,
           otherReadAt: otherReadRaw ? new Date(otherReadRaw).getTime() : 0,
           // непрочитано = последнее сообщение от собеседника новее моей отметки прочтения
-          unread: !!(last && last.from === 'them' && last.ts > (state.chatRead[c.id] || 0)),
+          unread: !!(last && last.from === 'them' && last.ts > myReadTs),
           updatedAt: new Date(c.updated_at).getTime(),
         };
       }
+      // цикл выше делал await dbMessages по чатам — за это время мог стартовать
+      // более новый прогон и уже применить свежие чаты; не затираем их устаревшими
+      if (seq !== state._cloudSeq) return;
       for (const k of Object.keys(state.chats)) if (state.chats[k].isDb && !fresh[k]) delete state.chats[k];
       Object.assign(state.chats, fresh);
 
@@ -261,7 +277,15 @@ async function loadCloudData() {
     // тяжёлые страницы (/item, /seller, /favorites, /compare, /map) ре-рендерим ТОЛЬКО
     // на первом прогоне — иначе облачное объявление по прямой ссылке/после перезагрузки
     // навсегда остаётся «не найдено». На поллинге их не трогаем (не сбить скролл/галерею).
-    const heavy = firstLoad && (p.startsWith('/item/') || p.startsWith('/seller/') || p.startsWith('/favorites') || p.startsWith('/compare') || p.startsWith('/map'));
+    // /item и /seller ре-рендерим ТОЛЬКО для облачных (uuid с дефисами): демо-
+    // объявления есть синхронно и уже отрисованы — их ре-рендер сбросил бы скролл
+    // и галерею. Облачные же на boot показали «не найдено» и их надо оживить.
+    let heavy = false;
+    if (firstLoad) {
+      if (p.startsWith('/favorites') || p.startsWith('/compare') || p.startsWith('/map')) heavy = true;
+      else if (p.startsWith('/item/')) heavy = decodeURIComponent(p.slice(6)).includes('-');
+      else if (p.startsWith('/seller/')) heavy = decodeURIComponent(p.slice(8)).includes('-');
+    }
     if (p === '/' || p === '' || p.startsWith('/search') || p.startsWith('/profile') || p === '/chats' || heavy) router();
     else if (p.startsWith('/chats/')) syncOpenChat(decodeURIComponent(p.slice(7)));
   } catch (e) { /* офлайн/ошибка — оставляем что есть */ }
@@ -666,7 +690,9 @@ function unlockScroll(owner) {
 /* ---------------- модалка ---------------- */
 
 let _modalReturnFocus = null;
-function _bgInertRegions() { return ['#header', '#app', '#bottomnav', '#toastWrap'].map(s => $(s)).filter(Boolean); }
+// #toastWrap НЕ в списке: в нём нет фокусируемых элементов (ловушка фокуса не
+// страдает), а inert глушил бы aria-live объявления тостов при открытой модалке
+function _bgInertRegions() { return ['#header', '#app', '#bottomnav'].map(s => $(s)).filter(Boolean); }
 function openModal(html) {
   const box = $('#modalBox');
   const wasOpen = !$('#modalBackdrop').hidden;
@@ -2197,7 +2223,6 @@ function toggleFav(id) {
     && typeof isAuthed === 'function' && isAuthed();
   if (state.favorites.has(id)) {
     state.favorites.delete(id);
-    if (toCloud) BZ.favorites.remove(id);
     showToast(t('toast.favDel'));
   } else {
     state.favorites.add(id);
@@ -2206,8 +2231,15 @@ function toggleFav(id) {
     state.favMeta[id] = { ...(state.favMeta[id] || {}), price: l ? l.price : 0,
       title: l ? l.title : '', ts: Date.now() };
     lsSave(LS.favMeta, state.favMeta);
-    if (toCloud) BZ.favorites.add(id, l.price, null, null);
     showToast(t('toast.favAdd'), 'success');
+  }
+  // облачная запись СЕРИАЛИЗОВАНА per-listing и отражает ТЕКУЩЕЕ членство —
+  // быстрый тап-тап не может закоммитить add/remove в обратном порядке
+  if (toCloud) {
+    const present = state.favorites.has(id);
+    state._favChain = state._favChain || {};
+    state._favChain[id] = (state._favChain[id] || Promise.resolve()).catch(() => {}).then(() =>
+      present ? BZ.favorites.add(id, (getListing(id) || {}).price || 0, null, null) : BZ.favorites.remove(id));
   }
   lsSave(LS.favs, [...state.favorites]);
   updateBadges();
@@ -4004,9 +4036,18 @@ function toggleSold(id) {
     nowSold = my.status === 'sold';
     lsSave(LS.my, state.myListings);
   } else {
-    if (state.soldIds.has(id)) state.soldIds.delete(id); else state.soldIds.add(id);
-    nowSold = state.soldIds.has(id);
-    lsSave(LS.sold, [...state.soldIds]);
+    const cloud = state.dbListings.find(x => x.id === id);
+    if (cloud && typeof BZ !== 'undefined' && BZ.available()) {
+      // облачное объявление → статус НА СЕРВЕРЕ (у всех через realtime), а не
+      // локальный soldIds (иначе продавец видит «Продано», покупатели — «Активно»)
+      cloud.status = (cloud.status === 'sold') ? 'active' : 'sold';
+      nowSold = cloud.status === 'sold';
+      BZ.markSold(id, nowSold);
+    } else {
+      if (state.soldIds.has(id)) state.soldIds.delete(id); else state.soldIds.add(id);
+      nowSold = state.soldIds.has(id);
+      lsSave(LS.sold, [...state.soldIds]);
+    }
   }
   showToast(nowSold ? t('status.markedSold') : t('status.reactivated'), 'success');
   const y = window.scrollY; router(); requestAnimationFrame(() => window.scrollTo(0, y));
@@ -4674,7 +4715,7 @@ function showSuggest() {
     }
     if (!rows) { hideSuggest(); return; }
     box.innerHTML = rows;
-    box.hidden = false;
+    box.hidden = false; _suggestShown();
     return;
   }
 
@@ -4724,10 +4765,11 @@ function showSuggest() {
   html += `<button class="sug-aiRow" data-action="run-search"><span class="sug-ai">${icon('search',{size:15})}</span>&nbsp;${t('sug.searchAll')} «${esc(raw)}»</button>`;
 
   box.innerHTML = html;
-  box.hidden = false;
+  box.hidden = false; _suggestShown();
 }
 
-function hideSuggest() { $('#searchSuggest').hidden = true; }
+function hideSuggest() { $('#searchSuggest').hidden = true; const si = $('#searchInput'); if (si) si.setAttribute('aria-expanded', 'false'); }
+function _suggestShown() { const si = $('#searchInput'); if (si) si.setAttribute('aria-expanded', 'true'); } // combobox открыт
 
 /* ---------------- роутер ---------------- */
 
