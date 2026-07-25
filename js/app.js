@@ -58,6 +58,7 @@ function defaultFilters() {
     city: state.city,
     condition: 'any', sellerType: 'any',
     withPhoto: false, delivery: false,
+    belowMarket: false, verifiedSeller: false,
     period: 'all', sort: 'smart', // умная выдача по умолчанию (релевантность+качество)
     attrs: {}, // фильтры по характеристикам (бренд/модель/год/спеки)
   };
@@ -663,6 +664,9 @@ function applyFilters(f) {
     if (f.sellerType !== 'any' && l.sellerType !== f.sellerType) return false;
     if (f.withPhoto && getPhotos(l).length === 0) return false;
     if (f.delivery && !l.hasDelivery) return false;
+    // пресеты: «ниже рынка» (priceVerdict = выгодно) / «проверенные продавцы»
+    if (f.verifiedSeller && !(sellerStats(l) || {}).verified) return false;
+    if (f.belowMarket) { const v = priceVerdict(l); if (!v || v.cls !== 'good') return false; }
     if (f.period !== 'all' && hoursAgo(l) > +f.period * 24) return false;
     if (activeAttrs && !passesAttrs(l, activeAttrs)) return false;
     // отрицательные условия из запроса: «телефон не самсунг и не айфон»
@@ -1195,7 +1199,7 @@ function searchTitle(f) {
 
 function activeChipsHTML(f) {
   const chips = [];
-  const add = (key, label) => chips.push(`<span class="achip"><span class="achip-label">${label}</span><button data-clear="${key}" aria-label="${t('a11y.remove')}">✕</button></span>`);
+  const add = (key, label) => chips.push(`<span class="achip"><span class="achip-label">${label}</span><button data-clear="${key}" aria-label="${t('a11y.remove')}">${icon('close',{size:12,stroke:2.6})}</button></span>`);
   const rawChip = (f.qRaw || f.q || '').trim();
   if (rawChip) add('q', `${t('search.prefix')}: ${esc(rawChip)}`);
   if (f.cat) add('cat', esc(catNameById(f.cat) || f.cat));
@@ -1213,6 +1217,23 @@ function activeChipsHTML(f) {
   return chips.join('');
 }
 
+/* готовые пресеты фильтров (быстрые чипы: с доставкой / ниже рынка / проверенные…) */
+function presetChipsHTML(f) {
+  const P = ({
+    ru: { below: 'Ниже рынка', verified: 'Проверенные' },
+    en: { below: 'Below market', verified: 'Verified' },
+    ky: { below: 'Рыноктон арзан', verified: 'Ырасталган' },
+  })[LANG] || { below: 'Ниже рынка', verified: 'Проверенные' };
+  const chip = (key, label, active, ico) =>
+    `<button class="preset-chip ${active ? 'on' : ''}" data-preset="${key}">${icon(ico, { size: 14 })} ${label}</button>`;
+  return `
+    ${chip('delivery', t('filters.delivery'), f.delivery, 'delivery')}
+    ${chip('condition:new', t('cond.new'), f.condition === 'new', 'sparkle')}
+    ${chip('belowMarket', P.below, f.belowMarket, 'pricedown')}
+    ${chip('verifiedSeller', P.verified, f.verifiedSeller, 'shield')}
+    ${chip('sort:cheap', t('sort.cheap'), f.sort === 'cheap', 'chart')}`;
+}
+
 function renderSearch() {
   app.innerHTML = `
     <div class="search-layout">
@@ -1222,6 +1243,7 @@ function renderSearch() {
           <h1 id="resultsTitle"></h1>
           <span class="results-count" id="resultsCount"></span>
         </div>
+        <div class="preset-row" id="presetRow">${presetChipsHTML(state.filters)}</div>
         <div class="results-bar">
           <button class="filters-open-btn" data-action="open-filters">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 6h18M7 12h10M10 18h4"/></svg>
@@ -4910,6 +4932,18 @@ document.addEventListener('click', async e => {
   // фото в чате: клик → полный размер (лайтбокс)
   const msgPhoto = e.target.closest('[data-msg-photo]');
   if (msgPhoto) { openModal(`<img class="lightbox-img" src="${esc(msgPhoto.dataset.msgPhoto)}" alt="">`); return; }
+  // готовые пресеты фильтров (быстрые чипы)
+  const preset = e.target.closest('[data-preset]');
+  if (preset) {
+    const [key, val] = preset.dataset.preset.split(':');
+    const f = state.filters;
+    if (key === 'condition') f.condition = f.condition === val ? 'any' : val;
+    else if (key === 'sort') f.sort = f.sort === val ? 'smart' : val;
+    else f[key] = !f[key];
+    state.page = 1;
+    renderSearch();
+    return;
+  }
 
   /* действия */
   const actBtn = e.target.closest('[data-action]');

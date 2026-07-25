@@ -3041,3 +3041,18 @@ a.seller-card { display: flex; gap: 12px; align-items: center; text-decoration: 
   margin: -6px 0 13px;
 }
 .reco-why svg { flex-shrink: 0; }
+
+/* готовые пресеты фильтров (быстрые чипы) */
+.preset-row { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; margin: 0 0 11px; padding-bottom: 1px; -webkit-overflow-scrolling: touch; }
+.preset-row::-webkit-scrollbar { display: none; }
+.preset-chip {
+  display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0;
+  font-size: var(--fs-sm); font-weight: var(--w-semibold);
+  color: var(--text-2); background: var(--card);
+  border: 1px solid var(--line); padding: 7px 13px; border-radius: var(--radius-pill);
+  transition: color var(--dur-1) var(--ease), background var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease), transform var(--dur-1) var(--ease);
+}
+.preset-chip svg { flex-shrink: 0; }
+.preset-chip:active { transform: scale(0.95); }
+.preset-chip.on { color: var(--accent-dark); background: var(--accent-soft); border-color: var(--accent); }
+.achip button { display: inline-flex; align-items: center; }
