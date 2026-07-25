@@ -10,7 +10,7 @@
    а не для скорости.
    ============================================================ */
 
-const VERSION = 115;                    // бампается вместе с BUILD в index.html
+const VERSION = 116;                    // бампается вместе с BUILD в index.html
 const CACHE = 'bazar-v' + VERSION;
 
 /* Оболочка = всё, что перечислено в index.html. Узкий список не годится:
@@ -20,8 +20,12 @@ const CACHE = 'bazar-v' + VERSION;
    Версия подставляется из VERSION — при деплое бампается ОДНО число, иначе
    воркер будет тянуть в кеш файлы прошлой сборки. */
 const V = '?v=' + VERSION;
-const SHELL = ['./', './index.html', './manifest.webmanifest'].concat([
-  'css/styles.css',
+const SHELL = ['./', './index.html', './manifest.webmanifest',
+  // самохостируемый шрифт (без версии в query) — офлайн + одинаково на iOS/Android
+  './fonts/manrope-latin.woff2', './fonts/manrope-latin-ext.woff2',
+  './fonts/manrope-cyrillic.woff2', './fonts/manrope-cyrillic-ext.woff2',
+].concat([
+  'css/styles.css', 'css/fonts.css', 'js/icons.js',
   'js/catalog/auto-world.js', 'js/catalog/auto-china.js',
   'js/catalog/tech-mobile.js', 'js/catalog/tech-compute.js', 'js/catalog/index.js',
   'js/data.js', 'js/generate.js', 'js/nlu.js', 'js/i18n.js', 'js/attributes.js',

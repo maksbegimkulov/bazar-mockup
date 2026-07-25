@@ -475,11 +475,11 @@ function sellerTrust(listings, ss, sample) {
 /* карточка доверия для страницы продавца */
 function sellerTrustHTML(tr) {
   const meta = {
-    high: { icon: '🛡', cls: 'trust-high', label: t('trust.high') },
-    ok: { icon: '👍', cls: 'trust-ok', label: t('trust.ok') },
-    new: { icon: '🆕', cls: 'trust-new', label: t('trust.newSeller') },
-    low: { icon: 'ℹ️', cls: 'trust-low', label: t('trust.low') },
-    caution: { icon: '⚠️', cls: 'trust-caution', label: t('trust.caution') },
+    high: { icon: icon('shield', { size: 22 }), cls: 'trust-high', label: t('trust.high') },
+    ok: { icon: icon('thumb', { size: 22 }), cls: 'trust-ok', label: t('trust.ok') },
+    new: { icon: icon('sparkle', { size: 22 }), cls: 'trust-new', label: t('trust.newSeller') },
+    low: { icon: icon('info', { size: 22 }), cls: 'trust-low', label: t('trust.low') },
+    caution: { icon: icon('warning', { size: 22 }), cls: 'trust-caution', label: t('trust.caution') },
   }[tr.level];
   const chip = (txt, ok) => `<span class="trust-chip ${ok ? 'good' : 'bad'}">${ok ? '✓' : '!'} ${esc(txt)}</span>`;
   const chips = [...tr.pros.map(p => chip(p, true)), ...tr.cons.map(c => chip(c, false))].join('');
@@ -786,7 +786,7 @@ function cardHTML(l) {
       <button class="fav-btn ${isFav ? 'active' : ''}" data-fav="${l.id}" title="${t('item.fav')}" aria-label="${t('item.fav')}">${HEART_SVG}</button>
     </div>
     <div class="card-body">
-      <div class="card-price">${priceHTML(l)}${(l.floor || l.hasFloor) ? `<span class="card-bargain">🤝 ${t('tag.bargain')}</span>` : ''}</div>
+      <div class="card-price">${priceHTML(l)}${(l.floor || l.hasFloor) ? `<span class="card-bargain">${icon('handshake',{size:13})} ${t('tag.bargain')}</span>` : ''}</div>
       <div class="card-title">${esc(l.title)}</div>
       ${(() => { const s = attrSubtitle(l.category, l.subcategory, getAttrs(l)); return s ? `<div class="card-attrs">${esc(s)}</div>` : ''; })()}
       <div class="card-meta">${esc(l.city)}${l.district ? ', ' + esc(l.district) : ''} · ${postedLabel(l)}${l.isVip ? ` · <span class="promoted">${t('card.promoted')}</span>` : ''}</div>
@@ -794,9 +794,10 @@ function cardHTML(l) {
   </a>`;
 }
 
-function emptyHTML(emoji, title, text, btn = '') {
+function emptyHTML(iconName, title, text, btn = '') {
+  const ic = (typeof icon === 'function') ? icon(iconName, { size: 48, stroke: 1.6 }) : '';
   return `<div class="empty" style="grid-column:1/-1">
-    <div class="empty-emoji">${emoji}</div>
+    <div class="empty-icon">${ic}</div>
     <h3>${title}</h3>
     <p>${text}</p>
     ${btn}
@@ -819,11 +820,9 @@ function renderHome() {
     const count = all.filter(l => l.category === c.id).length;
     return `
     <a class="cat-tile" href="#/search?cat=${c.id}" data-link>
-      <span class="cat-tile-emoji">${c.emoji}</span>
-      <span>
-        <div class="cat-tile-name">${catName(c)}</div>
-        <div class="cat-tile-count">${nLabel(count)}</div>
-      </span>
+      <span class="cat-tile-icon" data-cat="${c.id}">${icon(c.id, { size: 25 })}</span>
+      <span class="cat-tile-name">${catName(c)}</span>
+      <span class="cat-tile-count">${nLabel(count)}</span>
     </a>`;
   }).join('');
 
@@ -832,37 +831,41 @@ function renderHome() {
   const viewed = state.viewed.map(getListing).filter(Boolean)
     .filter(l => !state.reported.has(l.id) && !isSold(l)).slice(0, 4);
 
+  const h = HERO_COPY[LANG] || HERO_COPY.ru;
+  const exChips = h.examples.map(q =>
+    `<a class="hero-ex" href="#/search?q=${encodeURIComponent(q)}" data-link>${esc(q)}</a>`).join('');
+
   app.innerHTML = `
+    <section class="home-hero">
+      <h1 class="hero-title">${h.title}</h1>
+      <p class="hero-sub">${h.sub}</p>
+      <button class="hero-search" data-action="focus-search" aria-label="${t('search.ph')}">
+        <span class="hero-search-ico">${icon('sparkle', { size: 20 })}</span>
+        <span class="hero-search-ph">${h.searchPh}</span>
+        <span class="hero-search-go">${icon('search', { size: 19, stroke: 2.2 })}</span>
+      </button>
+      <div class="hero-examples">${exChips}</div>
+    </section>
     <section>
       <div class="section-title"><h2>${t('home.cats')}</h2></div>
       <div class="cat-grid">${tiles}</div>
     </section>
-    <div class="home-ai-row">
-      <div class="ai-banner">
-        <span class="ai-banner-icon">✨</span>
-        <div class="ai-banner-text">
-          <div class="ai-banner-title">${t('ai.banner.title')}</div>
-          <div class="ai-banner-sub">${t('ai.banner.sub')}</div>
-        </div>
-        <button class="btn btn-primary" data-action="focus-search">${t('ai.banner.btn')}</button>
-      </div>
-      <a class="ai-banner sell-banner" href="#/sell" data-link>
-        <span class="ai-banner-icon sell-banner-icon">📷</span>
-        <div class="ai-banner-text">
-          <div class="ai-banner-title">${t('sell.cta')}</div>
-          <div class="ai-banner-sub">${t('sell.ctaSub')}</div>
-        </div>
-        <span class="btn btn-secondary sell-banner-btn">${t('nav.post')}</span>
-      </a>
-    </div>
+    <a class="sell-cta" href="#/sell" data-link>
+      <span class="sell-cta-ico">${icon('camera', { size: 24 })}</span>
+      <span class="sell-cta-text">
+        <span class="sell-cta-title">${t('sell.cta')}</span>
+        <span class="sell-cta-sub">${t('sell.ctaSub')}</span>
+      </span>
+      <span class="sell-cta-arrow">${icon('chevron', { size: 18, stroke: 2.2 })}</span>
+    </a>
     ${viewed.length ? `
     <section>
-      <div class="section-title"><h2>👀 ${t('home.viewed')}</h2></div>
+      <div class="section-title"><h2>${t('home.viewed')}</h2></div>
       <div class="grid">${viewed.map(cardHTML).join('')}</div>
     </section>` : ''}
     ${vip.length ? `
     <section>
-      <div class="section-title"><h2>⭐ ${t('home.vip')}</h2><a href="#/search?reset=1" data-link>${t('home.seeAll')}</a></div>
+      <div class="section-title"><h2>${t('home.vip')}</h2><a href="#/search?reset=1" data-link>${t('home.seeAll')}</a></div>
       <div class="grid">${vip.map(cardHTML).join('')}</div>
     </section>` : ''}
     <section>
@@ -871,6 +874,29 @@ function renderHome() {
       <div class="show-more"><a class="btn btn-secondary btn-lg" href="#/search?reset=1" data-link>${t('home.allBtn')}</a></div>
     </section>`;
 }
+
+/* Хиро главной: заголовок + примеры умных запросов (учат «пиши как говоришь»).
+   Локализовано по LANG без правки i18n.js (парити словаря не трогаем). */
+const HERO_COPY = {
+  ru: {
+    title: 'Найдите что угодно.<br>Просто опишите словами.',
+    sub: 'BAZAR понимает товар, бюджет, город и характеристики.',
+    searchPh: 'Что вы ищете?',
+    examples: ['айфон 15 про до 60000', 'камри 2015 автомат', '2-комнатная в Джале', 'игровой ноутбук', 'диван с доставкой'],
+  },
+  en: {
+    title: 'Find anything.<br>Just describe it.',
+    sub: 'BAZAR understands the item, budget, city and specs.',
+    searchPh: 'What are you looking for?',
+    examples: ['iphone 15 pro under 60000', 'camry 2015 automatic', '2-room in Djal', 'gaming laptop', 'sofa with delivery'],
+  },
+  ky: {
+    title: 'Каалаган нерсени табыңыз.<br>Жөн эле сөз менен жазыңыз.',
+    sub: 'BAZAR товарды, бюджетти, шаарды жана мүнөздөмөлөрдү түшүнөт.',
+    searchPh: 'Эмне издеп жатасыз?',
+    examples: ['айфон 15 про 60000 чейин', 'камри 2015 автомат', 'Жалда 2 бөлмө', 'оюн ноутбугу', 'диван жеткирүү менен'],
+  },
+};
 
 /* ---------------- поиск ---------------- */
 
@@ -1020,7 +1046,7 @@ function filterAttrsHTML(f) {
 function filterPanelHTML(f) {
   const cat = catById(f.cat);
   const catOptions = [`<option value="">${t('filters.allCats')}</option>`]
-    .concat(CATEGORIES.map(c => `<option value="${c.id}" ${f.cat === c.id ? 'selected' : ''}>${c.emoji} ${catName(c)}</option>`))
+    .concat(CATEGORIES.map(c => `<option value="${c.id}" ${f.cat === c.id ? 'selected' : ''}>${catName(c)}</option>`))
     .join('');
   const subOptions = cat
     ? [`<option value="">${t('filters.allSubs')}</option>`]
@@ -1154,8 +1180,8 @@ function renderSearch() {
             <option value="expensive">${t('sort.exp')}</option>
             <option value="popular">${t('sort.popular')}</option>
           </select>
-          <button class="save-search-btn ${state.saved.some(s => JSON.stringify(s.f) === JSON.stringify(state.filters)) ? 'on' : ''}" id="saveSearchBtn" data-action="save-search">🔔 ${state.saved.some(s => JSON.stringify(s.f) === JSON.stringify(state.filters)) ? t('saved.savedShort') : t('saved.save')}</button>
-          <a class="map-open-btn" href="${buildMapHash(state.filters)}" data-link title="${t('map.open')}">🗺 ${t('map.open')}</a>
+          <button class="save-search-btn ${state.saved.some(s => JSON.stringify(s.f) === JSON.stringify(state.filters)) ? 'on' : ''}" id="saveSearchBtn" data-action="save-search">${icon('bell',{size:15})} ${state.saved.some(s => JSON.stringify(s.f) === JSON.stringify(state.filters)) ? t('saved.savedShort') : t('saved.save')}</button>
+          <a class="map-open-btn" href="${buildMapHash(state.filters)}" data-link title="${t('map.open')}">${icon('location',{size:15})} ${t('map.open')}</a>
           <div class="view-toggle">
             <button data-view="grid" title="${t('view.grid')}" aria-label="${t('view.grid')}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></button>
             <button data-view="list" title="${t('view.list')}" aria-label="${t('view.list')}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
@@ -1350,7 +1376,7 @@ function updateResults() {
   grid.className = 'grid' + (state.view === 'list' ? ' list-view' : '');
   grid.innerHTML = shown.length
     ? shown.map(cardHTML).join('')
-    : emptyHTML('🔍', t('empty.search.t'), t('empty.search.p'), emptyRecoveryHTML(f));
+    : emptyHTML('search', t('empty.search.t'), t('empty.search.p'), emptyRecoveryHTML(f));
   state._renderedCount = shown.length; // сколько карточек уже в DOM (для инкрем. дозагрузки)
 
   updateShowMore(res.length, shown.length);
@@ -1468,7 +1494,7 @@ function emptyRecoveryHTML(f) {
   }
 
   // 3. подписка на новые объявления по этому запросу
-  opts.push(`<button class="btn btn-outline" data-action="save-search">🔔 ${t('saved.save')}</button>`);
+  opts.push(`<button class="btn btn-outline" data-action="save-search">${icon('bell',{size:15})} ${t('saved.save')}</button>`);
   // 4. полный сброс — последним и без акцента
   opts.push(`<button class="btn btn-ghost" data-action="reset-filters">${t('empty.reset')}</button>`);
   return `<div class="empty-actions">${opts.join('')}</div>`;
@@ -1551,7 +1577,7 @@ function priceVerdict(l) {
 function renderItem(id) {
   const l = getListing(id);
   if (!l) {
-    app.innerHTML = emptyHTML('🤷', t('item.404.t'), t('item.404.p'),
+    app.innerHTML = emptyHTML('info', t('item.404.t'), t('item.404.p'),
       `<a class="btn btn-primary" href="#/" data-link>${t('item.404.btn')}</a>`);
     return;
   }
@@ -1653,7 +1679,7 @@ function renderItem(id) {
       </div>
     </a>
     <details class="safety-note"${riskMed || riskHigh ? ' open' : ''}>
-      <summary class="sn-head"><span>🛡️ <b>${t('safety.tipsT')}</b></span><span class="sn-chev" aria-hidden="true">⌄</span></summary>
+      <summary class="sn-head"><span class="sn-ico">${icon('shield',{size:15})} <b>${t('safety.tipsT')}</b></span><span class="sn-chev" aria-hidden="true">⌄</span></summary>
       <ul class="sn-list">${safetyTips(l.category).map(x => `<li>${esc(x)}</li>`).join('')}</ul>
     </details>`;
 
@@ -1988,7 +2014,7 @@ function renderFavorites() {
     <div class="grid">
       ${live.length
         ? live.map(cardWithMeta).join('')
-        : (gone.length ? '' : emptyHTML('💔', t('favs.empty.t'), t('favs.empty.p'),
+        : (gone.length ? '' : emptyHTML('heart', t('favs.empty.t'), t('favs.empty.p'),
             `<a class="btn btn-primary" href="#/search?reset=1" data-link>${t('favs.empty.btn')}</a>`))}
     </div>
     ${gone.length ? `
@@ -2214,7 +2240,7 @@ function renderSellDraft() {
         <label class="flabel">${t('form.cat')}</label>
         <select class="fselect" id="sCat">
           <option value="">${t('form.chooseCat')}</option>
-          ${CATEGORIES.map(c => `<option value="${c.id}" ${category === c.id ? 'selected' : ''}>${c.emoji} ${catName(c)}</option>`).join('')}
+          ${CATEGORIES.map(c => `<option value="${c.id}" ${category === c.id ? 'selected' : ''}>${catName(c)}</option>`).join('')}
         </select>
       </div>
       <div class="fgroup" id="sSubWrap" ${category ? '' : 'hidden'}>
@@ -2539,7 +2565,7 @@ function renderPost(params) {
   // ссылка на правку чужого/удалённого объявления не должна открывать пустую
   // форму «нового объявления» — иначе юзер думает, что правит, а создаёт дубль
   if (editId && !editing) {
-    app.innerHTML = emptyHTML('🤷', t('post.editGone.t'), t('post.editGone.p'),
+    app.innerHTML = emptyHTML('info', t('post.editGone.t'), t('post.editGone.p'),
       `<a class="btn btn-primary" href="#/profile" data-link>${t('post.editGone.btn')}</a>`);
     return;
   }
@@ -2556,7 +2582,7 @@ function renderPost(params) {
   const cat = catById(selCat);
 
   const catOptions = [`<option value="">${t('form.chooseCat')}</option>`]
-    .concat(CATEGORIES.map(c => `<option value="${c.id}" ${selCat === c.id ? 'selected' : ''}>${c.emoji} ${catName(c)}</option>`)).join('');
+    .concat(CATEGORIES.map(c => `<option value="${c.id}" ${selCat === c.id ? 'selected' : ''}>${catName(c)}</option>`)).join('');
   const cityOptions = [`<option value="">${t('form.chooseCity')}</option>`]
     .concat(CITIES.map(c => `<option value="${esc(c)}" ${f.city === c ? 'selected' : ''}>${esc(c)}</option>`)).join('');
 
@@ -3250,7 +3276,7 @@ function renderSeller(rawKey) {
   const key = decodeURIComponent(rawKey || '');
   const listings = allListings().filter(l => sellerKey(l) === key);
   const sample = listings[0];
-  if (!sample) { app.innerHTML = `<div class="form-page">${emptyHTML('🧑', t('seller.notFound'), '')}</div>`; return; }
+  if (!sample) { app.innerHTML = `<div class="form-page">${emptyHTML('info', t('seller.notFound'), '')}</div>`; return; }
   const active = listings.filter(l => !isSold(l));
   const ss = sellerStats(sample);
   const name = sample.sellerName || t('seller.anon');
@@ -3266,7 +3292,7 @@ function renderSeller(rawKey) {
     </div>
     ${sellerTrustHTML(sellerTrust(listings, ss, sample))}
     <div class="section-title"><h2>${t('seller.allAds')} <span class="muted">${active.length}</span></h2></div>
-    ${active.length ? `<div class="grid">${active.map(cardHTML).join('')}</div>` : emptyHTML('📭', t('seller.noListings'), '')}`;
+    ${active.length ? `<div class="grid">${active.map(cardHTML).join('')}</div>` : emptyHTML('box', t('seller.noListings'), '')}`;
 }
 
 /* ---- сравнение (как у Auto.ru): таблица характеристик бок о бок ---- */
@@ -3345,7 +3371,7 @@ function renderMap() {
 
 function renderCompare() {
   const items = [...state.compare].map(getListing).filter(Boolean).filter(l => !state.reported.has(l.id));
-  if (items.length < 1) { app.innerHTML = `<div class="form-page">${emptyHTML('⚖️', t('cmp.empty'), t('cmp.emptyP'), `<a class="btn btn-primary" href="#/search" data-link>${t('cmp.browse')}</a>`)}</div>`; return; }
+  if (items.length < 1) { app.innerHTML = `<div class="form-page">${emptyHTML('scale', t('cmp.empty'), t('cmp.emptyP'), `<a class="btn btn-primary" href="#/search" data-link>${t('cmp.browse')}</a>`)}</div>`; return; }
   const first = items[0];
   const schema = (typeof attrSchema === 'function') ? attrSchema(first.category, first.subcategory) : null;
 
@@ -3514,9 +3540,9 @@ function renderProfile() {
       <div class="setting-row">
         <span class="setting-label">${t('profile.theme')}</span>
         <div class="seg" id="themeSeg">
-          <button class="seg-btn ${THEME === 'light' ? 'active' : ''}" data-set-theme="light"><span class="seg-emoji">☀️</span> ${t('theme.light')}</button>
-          <button class="seg-btn ${THEME === 'dark' ? 'active' : ''}" data-set-theme="dark"><span class="seg-emoji">🌙</span> ${t('theme.dark')}</button>
-          <button class="seg-btn ${THEME === 'system' ? 'active' : ''}" data-set-theme="system"><span class="seg-emoji">🌗</span> ${t('theme.system')}</button>
+          <button class="seg-btn ${THEME === 'light' ? 'active' : ''}" data-set-theme="light"><span class="seg-emoji">${icon('sun',{size:16})}</span> ${t('theme.light')}</button>
+          <button class="seg-btn ${THEME === 'dark' ? 'active' : ''}" data-set-theme="dark"><span class="seg-emoji">${icon('moon',{size:16})}</span> ${t('theme.dark')}</button>
+          <button class="seg-btn ${THEME === 'system' ? 'active' : ''}" data-set-theme="system"><span class="seg-emoji">${icon('auto',{size:16})}</span> ${t('theme.system')}</button>
         </div>
       </div>
     </div>`;
@@ -3557,7 +3583,7 @@ function renderProfile() {
         <a class="btn btn-primary" href="#/post" data-link>${t('post.btnShort')}</a>
       </div>
       ${my.length ? sellerAnalyticsHTML(my) : ''}
-      ${my.length ? rows : emptyHTML('📦', t('profile.empty.t'), t('profile.empty.p'),
+      ${my.length ? rows : emptyHTML('box', t('profile.empty.t'), t('profile.empty.p'),
         `<a class="btn btn-primary" href="#/post" data-link>${t('post.btn')}</a>`)}
       ${savedSearchesHTML()}
     ` : savedSearchesHTML()}
@@ -3807,7 +3833,7 @@ function msgHTML(m, otherReadAt) {
   if (r.level === 'critical') {       // фишинг кода из СМС — захват аккаунта
     warn = `<div class="chat-scam-warn critical"><span class="csw-ico">⛔</span><span><b>${t('scam.otpWho')}</b> ${t('scam.otp')}</span></div>`;
   } else if (r.level === 'high' || r.level === 'med') {  // реальная схема оплаты
-    warn = `<div class="chat-scam-warn"><span class="csw-ico">🛡️</span><span><b>${t('scam.who')}</b> ${t('scam.warn')}</span></div>`;
+    warn = `<div class="chat-scam-warn"><span class="csw-ico">${icon('shield',{size:18})}</span><span><b>${t('scam.who')}</b> ${t('scam.warn')}</span></div>`;
   } // low/none (просто «вотсап» и т.п.) — НЕ тревожим, верхний баннер уже напоминает
   // ✓ отправлено · ✓✓ прочитано собеседником (только под МОИМИ сообщениями)
   const status = m.from === 'me'
@@ -3863,7 +3889,7 @@ function renderChats(activeId) {
   if (!chats.length) {
     app.innerHTML = `
       <div class="page-head"><h1>${t('chats.title')}</h1></div>
-      ${emptyHTML('💬', t('chats.empty.t'), t('chats.empty.p'),
+      ${emptyHTML('message', t('chats.empty.t'), t('chats.empty.p'),
         `<a class="btn btn-primary" href="#/search?reset=1" data-link>${t('favs.empty.btn')}</a>`)}`;
     return;
   }
@@ -3905,7 +3931,7 @@ function renderChats(activeId) {
           : `<div class="s" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis">${esc(chTitle(active))}</div>`}
       </div>
     </div>
-    ${phishBannerDismissed() ? '' : `<div class="chat-phish-banner"><span>🛡️ ${t('safety.chatBanner')}</span><button class="cpb-x" data-action="dismiss-phish" aria-label="${t('safety.dismiss')}">✕</button></div>`}
+    ${phishBannerDismissed() ? '' : `<div class="chat-phish-banner"><span>${icon('shield',{size:15})} ${t('safety.chatBanner')}</span><button class="cpb-x" data-action="dismiss-phish" aria-label="${t('safety.dismiss')}">✕</button></div>`}
     <div class="chat-msgs" id="chatMsgs">
       ${active.messages.length
         ? active.messages.map(m => msgHTML(m, active.otherReadAt)).join('')
@@ -4248,13 +4274,13 @@ function showSuggest() {
     let rows = '';
     if (hist.length) {
       rows += head(t('sug.recent')) + hist.map(h =>
-        `<div class="sug-row"><button data-sug-q="${esc(h)}"><span class="sug-ico">🕐</span><span class="sug-hist">${esc(h)}</span></button>` +
+        `<div class="sug-row"><button data-sug-q="${esc(h)}"><span class="sug-ico">${icon('clock',{size:15})}</span><span class="sug-hist">${esc(h)}</span></button>` +
         `<button class="sug-del" data-hist-del="${esc(h)}" aria-label="${t('sug.del')}">✕</button></div>`).join('');
     }
     const pops = POPULAR_QUERIES.filter(p => !hist.some(h => h.toLowerCase() === p.toLowerCase())).slice(0, Math.max(0, 6 - hist.length));
     if (pops.length) {
       rows += head(t('sug.popular')) + pops.map(p =>
-        `<button data-sug-q="${esc(p)}"><span class="sug-ico">🔥</span>${esc(p)}</button>`).join('');
+        `<button data-sug-q="${esc(p)}"><span class="sug-ico">${icon('fire',{size:15})}</span>${esc(p)}</button>`).join('');
     }
     if (!rows) { hideSuggest(); return; }
     box.innerHTML = rows;
@@ -4268,13 +4294,13 @@ function showSuggest() {
     if (catRows.length >= 3) break;
     if (c.name.toLowerCase().includes(q) || catName(c).toLowerCase().includes(q)) {
       const n = applyFilters({ ...defaultFilters(), cat: c.id, _skipSort: true }).length;
-      catRows.push(`<button data-sug-cat="${c.id}">${c.emoji}&nbsp; <b>${esc(catName(c))}</b><span class="sug-cat">${nLabel(n)}</span></button>`);
+      catRows.push(`<button data-sug-cat="${c.id}"><span class="sug-ico">${icon(c.id,{size:17})}</span> <b>${esc(catName(c))}</b><span class="sug-cat">${nLabel(n)}</span></button>`);
     }
     for (const sub of c.subs) {
       if (catRows.length >= 3) break;
       if (sub.toLowerCase().includes(q) || subName(sub).toLowerCase().includes(q)) {
         const n = applyFilters({ ...defaultFilters(), cat: c.id, sub, _skipSort: true }).length;
-        catRows.push(`<button data-sug-cat="${c.id}" data-sug-sub="${esc(sub)}">${c.emoji}&nbsp; <b>${esc(subName(sub))}</b><span class="sug-cat">${nLabel(n)}</span></button>`);
+        catRows.push(`<button data-sug-cat="${c.id}" data-sug-sub="${esc(sub)}"><span class="sug-ico">${icon(c.id,{size:17})}</span> <b>${esc(subName(sub))}</b><span class="sug-cat">${nLabel(n)}</span></button>`);
       }
     }
   }
@@ -4282,7 +4308,7 @@ function showSuggest() {
   // 2. марки и модели из каталога
   const brandRows = suggestCatalogRows(q).map(r =>
     `<button data-sug-brand="${esc(r.brand)}" data-sug-model="${esc(r.model || '')}" data-sug-sub2="${esc(r.sub)}">
-      <span class="sug-ico">🏷️</span><b>${esc(r.label)}</b><span class="sug-cat">${nLabel(r.n)}</span></button>`);
+      <span class="sug-ico">${icon('tag',{size:15})}</span><b>${esc(r.label)}</b><span class="sug-cat">${nLabel(r.n)}</span></button>`);
 
   // 3. конкретные объявления
   const tokens = prepQueryTokens(raw);
@@ -4390,7 +4416,7 @@ async function refreshNotifCount() {
 
 /* ---------------- Центр уведомлений ---------------- */
 
-const NOTIF_ICON = { message: '💬', offer: '🤝', price_drop: '📉', saved_search: '🔔', moderation: '🛡️' };
+const NOTIF_ICON = { message: 'message', offer: 'handshake', price_drop: 'pricedown', saved_search: 'bell', moderation: 'shield' };
 
 /* относительное время по метке (переиспользует логику postedLabel) */
 function notifTime(ts) { return postedLabel({ createdAt: ts }); }
@@ -4412,8 +4438,8 @@ async function renderNotifications() {
     <details class="notif-settings"><summary>⚙️ ${t('notif.settings')}</summary>
       <div class="notif-prefs">${Object.keys(NOTIF_ICON).map(k => {
         const on = notifPrefs()[k];
-        return `<label class="notif-pref"><span>${NOTIF_ICON[k]} ${t('notif.kind.' + k)}</span>
-          <input type="checkbox" data-notif-pref="${k}" ${on ? 'checked' : ''}></label>`;
+        return `<label class="notif-pref"><span class="notif-pref-lbl">${icon(NOTIF_ICON[k], { size: 18 })} ${t('notif.kind.' + k)}</span>
+          <input type="checkbox" data-notif-pref="${k}" ${on ? 'checked' : ''}><span class="fcheck-box">${icon('check', { size: 13, stroke: 3 })}</span></label>`;
       }).join('')}</div>
     </details>
   </div>`;
@@ -4425,13 +4451,13 @@ async function renderNotifications() {
   const box = $('#notifList');
   if (!box) return;
   if (!shown.length) {
-    box.innerHTML = emptyHTML('🔔', t('notif.empty.t'), t('notif.empty.p'));
+    box.innerHTML = emptyHTML('bell', t('notif.empty.t'), t('notif.empty.p'));
   } else {
     box.innerHTML = shown.map(n => {
       const unread = !n.read_at;
       const link = n.link && n.link.startsWith('#') ? n.link : '';
       return `<div class="notif-row ${unread ? 'unread' : ''}" data-action="notif-open" data-id="${n.id}" data-link="${esc(link)}">
-        <span class="notif-ico">${NOTIF_ICON[n.kind] || '🔔'}</span>
+        <span class="notif-ico">${icon(NOTIF_ICON[n.kind] || 'bell', { size: 20 })}</span>
         <div class="notif-body">
           <div class="notif-t">${esc(n.title || '')}</div>
           ${n.body ? `<div class="notif-p">${esc(n.body)}</div>` : ''}
@@ -4915,7 +4941,7 @@ document.addEventListener('click', async e => {
       case 'toggle-sold': toggleSold(id); break;
       case 'save-search': {
         if (saveCurrentSearch()) showToast(t('saved.saved'), 'success');
-        const b = $('#saveSearchBtn'); if (b) { b.classList.add('on'); b.innerHTML = '🔔 ' + t('saved.savedShort'); }
+        const b = $('#saveSearchBtn'); if (b) { b.classList.add('on'); b.innerHTML = icon('bell',{size:15}) + ' ' + t('saved.savedShort'); }
         break;
       }
       case 'open-saved': openSavedSearch(id); break;

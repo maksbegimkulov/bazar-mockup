@@ -818,7 +818,10 @@ function applyTheme() {
   }
   meta.content = dark ? '#1a1f26' : '#ffffff';
   const themeBtn = document.getElementById('themeBtn');
-  if (themeBtn) themeBtn.textContent = THEME === 'light' ? '☀️' : THEME === 'dark' ? '🌙' : '🌗';
+  if (themeBtn) {
+    const nm = THEME === 'light' ? 'sun' : THEME === 'dark' ? 'moon' : 'auto';
+    themeBtn.innerHTML = (typeof icon === 'function') ? icon(nm, { size: 19 }) : '';
+  }
 }
 
 function setTheme(mode) {

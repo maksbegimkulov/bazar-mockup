@@ -362,12 +362,18 @@ const SUB_EMOJI = {
   'Велосипеды': '🚲', 'Тренажёры': '🏋️', 'Музыка': '🎸', 'Туризм и отдых': '⛺',
 };
 
-/* SVG-заглушка вместо фото: градиент + эмодзи подкатегории */
+/* SVG-заглушка вместо фото: градиент + фирменная SVG-иконка подкатегории.
+   Иконка (а не эмодзи) → рендерится одинаково на iOS/Android. */
 function photoURL(catId, photoSeed, sub) {
   const cat = CATEGORIES.find(c => c.id === catId) || CATEGORIES[0];
-  const emoji = (sub && SUB_EMOJI[sub]) || cat.emoji;
   const g = PHOTO_GRADIENTS[(photoSeed + cat.grad) % PHOTO_GRADIENTS.length];
-  const rot = ((photoSeed * 7) % 24) - 12;
+  const rot = ((photoSeed * 7) % 18) - 9;
+  // пути иконки заданы в системе 24×24 → масштабируем в центр 640×480 (~180px)
+  const paths = (typeof iconPaths === 'function') ? iconPaths((sub && hasIcon && hasIcon(sub)) ? sub : catId) : '';
+  const S = 7.5, ox = 320 - 12 * S, oy = 240 - 12 * S;
+  const glyph = paths
+    ? `<g transform="rotate(${rot} 320 240) translate(${ox} ${oy}) scale(${S})" fill="none" stroke="rgba(255,255,255,0.62)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">${paths}</g>`
+    : '';
   const svg =
     `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480" viewBox="0 0 640 480">` +
     `<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">` +
@@ -375,7 +381,7 @@ function photoURL(catId, photoSeed, sub) {
     `</linearGradient></defs>` +
     `<rect width="640" height="480" fill="url(#g)"/>` +
     `<circle cx="${120 + (photoSeed * 53) % 400}" cy="${80 + (photoSeed * 31) % 320}" r="130" fill="rgba(255,255,255,0.12)"/>` +
-    `<text x="320" y="265" font-size="150" text-anchor="middle" transform="rotate(${rot} 320 240)">${emoji}</text>` +
+    glyph +
     `</svg>`;
   return 'data:image/svg+xml,' + encodeURIComponent(svg);
 }
