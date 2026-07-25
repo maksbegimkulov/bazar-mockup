@@ -10,7 +10,7 @@
    а не для скорости.
    ============================================================ */
 
-const VERSION = 131;                    // бампается вместе с BUILD в index.html
+const VERSION = 132;                    // бампается вместе с BUILD в index.html
 const CACHE = 'bazar-v' + VERSION;
 
 /* Оболочка = всё, что перечислено в index.html. Узкий список не годится:
@@ -25,7 +25,7 @@ const SHELL = ['./', './index.html', './manifest.webmanifest',
   './fonts/manrope-latin.woff2', './fonts/manrope-latin-ext.woff2',
   './fonts/manrope-cyrillic.woff2', './fonts/manrope-cyrillic-ext.woff2',
 ].concat([
-  'css/styles.css', 'css/fonts.css', 'js/icons.js', 'js/select.js', 'js/install.js',
+  'css/styles.css', 'css/fonts.css', 'js/icons.js', 'js/select.js', 'js/install.js', 'js/analytics.js',
   'js/catalog/auto-world.js', 'js/catalog/auto-china.js',
   'js/catalog/tech-mobile.js', 'js/catalog/tech-compute.js', 'js/catalog/index.js',
   'js/data.js', 'js/generate.js', 'js/nlu.js', 'js/i18n.js', 'js/attributes.js',

@@ -1674,6 +1674,7 @@ function renderItem(id) {
 
   // история просмотров для блока «Вы недавно смотрели»
   if (!isMine) {
+    if (window.track) track('item_view', { id: l.id, cat: l.category });
     state.viewed = [l.id, ...state.viewed.filter(x => x !== l.id)].slice(0, 12);
     lsSave(LS.viewed, state.viewed);
     // облачное объявление → честный серверный счётчик (без накрутки обновлением:
@@ -2028,6 +2029,7 @@ function toggleFav(id) {
     showToast(t('toast.favDel'));
   } else {
     state.favorites.add(id);
+    if (window.track) track('favorite', { id: id });
     // запоминаем цену на момент добавления — потом покажем, подешевело или нет
     state.favMeta[id] = { ...(state.favMeta[id] || {}), price: l ? l.price : 0,
       title: l ? l.title : '', ts: Date.now() };
@@ -2533,7 +2535,7 @@ function renderSellDraft() {
         const mapped = dbToListing(row, { [currentUser().id]: currentUser().name });
         state.dbListings.unshift(mapped);
         state.sell = { step: 'pick' };
-        showToast(t('toast.published'), 'success');
+        if (window.track) track('sell_publish'); showToast(t('toast.published'), 'success');
         location.hash = '#/item/' + mapped.id;
         return;
       } catch (err) {
@@ -2562,7 +2564,7 @@ function renderSellDraft() {
     state.myListings.unshift(listing);
     try { lsSave(LS.my, state.myListings); } catch (e2) {}
     state.sell = { step: 'pick' };
-    showToast(t('toast.published'), 'success');
+    if (window.track) track('sell_publish'); showToast(t('toast.published'), 'success');
     location.hash = '#/item/' + listing.id;
   });
 }
@@ -3310,7 +3312,7 @@ function renderPost(params) {
         const mapped = dbToListing(row, { [currentUser().id]: currentUser().name });
         state.dbListings.unshift(mapped);
         clearPostDraft(); state._postPhotos = null;
-        showToast(t('toast.published'), 'success');
+        if (window.track) track('sell_publish'); showToast(t('toast.published'), 'success');
         location.hash = '#/item/' + mapped.id;
         return;
       } catch (err) {
@@ -3327,7 +3329,7 @@ function renderPost(params) {
     state.myListings.unshift(listing);
     lsSave(LS.my, state.myListings);
     clearPostDraft();
-    showToast(t('toast.published'), 'success');
+    if (window.track) track('sell_publish'); showToast(t('toast.published'), 'success');
     location.hash = '#/item/' + listing.id;
   });
 }
@@ -3722,6 +3724,9 @@ function renderProfile() {
         </div>
       </div>
       ${(window.bzInstall && window.bzInstall.rowHTML()) ? `<div class="setting-row setting-row-full">${window.bzInstall.rowHTML()}</div>` : ''}
+      <div class="setting-row setting-row-full">
+        <a class="profile-link" href="#/analytics" data-link>${icon('chart', { size: 17 })} <span>${({ ru: 'Аналитика платформы', en: 'Platform analytics', ky: 'Платформа аналитикасы' })[LANG] || 'Аналитика платформы'}</span> ${icon('chevron', { size: 16 })}</a>
+      </div>
     </div>`;
 
   const u = currentUser();
@@ -4399,7 +4404,7 @@ function doHeaderSearch() {
   input.blur(); // iOS не убирает клавиатуру сам
   const raw = input.value.trim();
   hideSuggest();
-  if (raw) addSearchHistory(raw);
+  if (raw) { addSearchHistory(raw); if (window.track) track('search', { q: raw }); }
 
   // новый запрос → сбрасываем состояние ИИ-фолбэка (спросим заново при пустоте)
   state._aiApplied = false;
@@ -4740,6 +4745,8 @@ function router() {
     if (requireAuth('#/chats')) renderChats(null);
   } else if (path.startsWith('/notifications')) {
     if (requireAuth('#/notifications')) renderNotifications();
+  } else if (path.startsWith('/analytics')) {
+    if (typeof renderAnalytics === 'function') renderAnalytics(); else renderHome();
   } else if (path.startsWith('/profile')) {
     renderProfile();
   } else {
@@ -5073,6 +5080,7 @@ document.addEventListener('click', async e => {
       case 'fav-collect': { openFavCollectModal(id); break; }
       case 'fav-coll-create': { favCollCreate(id); break; }
       case 'pwa-install': { if (window.bzInstall) window.bzInstall.prompt(); break; }
+      case 'analytics-reset': { if (typeof analyticsReset === 'function') analyticsReset(); break; }
       case 'not-interested': {
         state.hidden.add(id);
         lsSave(LS.hidden, [...state.hidden]);
@@ -5110,8 +5118,8 @@ document.addEventListener('click', async e => {
       case 'show-more': state.page++; appendMoreResults(); break;
       case 'gallery-prev': galleryGo(-1); break;
       case 'gallery-next': galleryGo(1); break;
-      case 'show-phone': showPhoneModal(id); break;
-      case 'write-seller': { closeModal(); openChatForListing(id); break; }
+      case 'show-phone': { if (window.track) track('contact_call', { id: id }); showPhoneModal(id); break; }
+      case 'write-seller': { if (window.track) track('contact_write', { id: id }); closeModal(); openChatForListing(id); break; }
       case 'offer-price': openOfferModal(id); break;
       case 'offer-submit': submitOffer(id); break;
       case 'offer-deal': offerToChat(id, +actBtn.dataset.price); break;

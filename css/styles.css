@@ -3098,3 +3098,23 @@ a.seller-card { display: flex; gap: 12px; align-items: center; text-decoration: 
 .ib-x:active { transform: scale(0.9); }
 .setting-row-full { display: block; }
 .install-row-btn { justify-content: center; width: 100%; }
+
+/* аналитика платформы (владельцу) */
+.an-sub { color: var(--text-3); font-size: var(--fs-sm); margin: -4px 0 16px; }
+.an-stat-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 16px; }
+.an-stat { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; text-align: center; box-shadow: var(--shadow); }
+.an-stat-n { display: block; font-size: var(--fs-2xl); font-weight: var(--w-extra); letter-spacing: -0.02em; }
+.an-stat-l { display: block; color: var(--text-3); font-size: var(--fs-xs); margin-top: 2px; }
+.an-bars { display: flex; flex-direction: column; gap: 10px; }
+.an-bar-row { display: grid; grid-template-columns: 1fr 2fr auto; align-items: center; gap: 10px; }
+.an-bar-lbl { font-size: var(--fs-sm); color: var(--text-2); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.an-bar-track { height: 10px; background: var(--stripe-a); border-radius: 999px; overflow: hidden; }
+.an-bar-fill { display: block; height: 100%; border-radius: 999px; background: var(--accent); transition: width var(--dur-3) var(--ease); }
+.an-bar-fill.b-ai { background: var(--ai); } .an-bar-fill.b-ok { background: var(--ok); } .an-bar-fill.b-accent { background: var(--accent); }
+.an-bar-val { font-weight: var(--w-bold); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; min-width: 24px; text-align: right; }
+.an-days { display: flex; align-items: flex-end; gap: 8px; height: 120px; }
+.an-day { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 4px; height: 100%; }
+.an-day-bar { width: 60%; max-width: 34px; background: var(--accent-grad); border-radius: 6px 6px 0 0; transition: height var(--dur-3) var(--ease); }
+.an-day-lbl { color: var(--text-3); font-size: var(--fs-2xs); } .an-day-n { font-size: var(--fs-xs); font-weight: var(--w-semibold); }
+.profile-link { display: flex; align-items: center; gap: 10px; width: 100%; padding: 12px 0; color: var(--text); font-weight: var(--w-semibold); }
+.profile-link span { flex: 1; } .profile-link svg { flex-shrink: 0; color: var(--text-3); }
