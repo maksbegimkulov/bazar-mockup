@@ -509,7 +509,7 @@ function sellerTrustHTML(tr) {
     low: { icon: icon('info', { size: 22 }), cls: 'trust-low', label: t('trust.low') },
     caution: { icon: icon('warning', { size: 22 }), cls: 'trust-caution', label: t('trust.caution') },
   }[tr.level];
-  const chip = (txt, ok) => `<span class="trust-chip ${ok ? 'good' : 'bad'}">${ok ? '✓' : '!'} ${esc(txt)}</span>`;
+  const chip = (txt, ok) => `<span class="trust-chip ${ok ? 'good' : 'bad'}">${ok ? icon('check', { size: 12, stroke: 3 }) : '!'} ${esc(txt)}</span>`;
   const chips = [...tr.pros.map(p => chip(p, true)), ...tr.cons.map(c => chip(c, false))].join('');
   return `
     <div class="trust-card ${meta.cls}">
@@ -4250,7 +4250,7 @@ function setCity(c) {
 function openLangModal() {
   const rows = LANG_ORDER.map(lg =>
     `<button class="${LANG === lg ? 'active' : ''}" data-set-lang="${lg}">
-       <span>${LANG_NAMES[lg]}</span>${LANG === lg ? '<span class="lang-check">✓</span>' : ''}
+       <span>${LANG_NAMES[lg]}</span>${LANG === lg ? `<span class="lang-check">${icon('check', { size: 15, stroke: 3 })}</span>` : ''}
      </button>`).join('');
   openModal(`<h3>${t('lang.modal')}</h3><div class="city-list lang-list">${rows}</div>`);
 }
@@ -4450,7 +4450,7 @@ function showSuggest() {
     if (hist.length) {
       rows += head(t('sug.recent')) + hist.map(h =>
         `<div class="sug-row"><button data-sug-q="${esc(h)}"><span class="sug-ico">${icon('clock',{size:15})}</span><span class="sug-hist">${esc(h)}</span></button>` +
-        `<button class="sug-del" data-hist-del="${esc(h)}" aria-label="${t('sug.del')}">✕</button></div>`).join('');
+        `<button class="sug-del" data-hist-del="${esc(h)}" aria-label="${t('sug.del')}">${icon('close', { size: 13, stroke: 2.4 })}</button></div>`).join('');
     }
     const pops = POPULAR_QUERIES.filter(p => !hist.some(h => h.toLowerCase() === p.toLowerCase())).slice(0, Math.max(0, 6 - hist.length));
     if (pops.length) {

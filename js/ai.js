@@ -29,7 +29,7 @@ function aiItemHTML(id) {
   const photos = getPhotos(l);
   return `
   <a class="ai-item" href="#/item/${l.id}" data-link>
-    ${photos.length ? `<img src="${esc(photos[0])}" alt="">` : '<div class="thumb-fallback" style="width:56px;height:44px">📷</div>'}
+    ${photos.length ? `<img src="${esc(photos[0])}" alt="">` : `<div class="thumb-fallback" style="width:56px;height:44px">${icon('image', { size: 20, stroke: 1.6 })}</div>`}
     <span class="ai-item-info">
       <span class="ai-item-title">${esc(l.title)}</span>
       <span class="ai-item-meta">${l.negotiable ? t('price.negotiable') : fmtNum(l.price) + ' ' + t('som') + esc(l.priceSuffix)} · ${esc(l.city)}</span>
@@ -49,7 +49,7 @@ function aiPickHTML(pick) {
   <a class="ai-pick ai-pick-${pick.kind}" href="#/item/${l.id}" data-link>
     <span class="ai-pick-badge">${DEC_ICON[pick.kind] ? icon(DEC_ICON[pick.kind], { size: 14 }) : ''} ${esc(pick.label)}</span>
     <span class="ai-pick-body">
-      ${photos.length ? `<img src="${esc(photos[0])}" alt="">` : '<span class="thumb-fallback" style="width:52px;height:52px">📷</span>'}
+      ${photos.length ? `<img src="${esc(photos[0])}" alt="">` : `<span class="thumb-fallback" style="width:52px;height:52px">${icon('image', { size: 20, stroke: 1.6 })}</span>`}
       <span class="ai-pick-info">
         <span class="ai-pick-title">${esc(l.title)}</span>
         <span class="ai-pick-price">${l.negotiable ? t('price.negotiable') : fmtNum(l.price) + ' ' + t('som') + esc(l.priceSuffix)}</span>
@@ -224,7 +224,7 @@ function aiDecision(res, raw, f) {
   const reasonFor = l => {
     const r = ratio.get(l.id);
     if (r != null && r >= 0.75 && r <= 0.92) return t('dec.r.belowMarket').replace('{p}', Math.round((1 - r) * 100));
-    if (l.sellerRating >= 4.6) return `★ ${l.sellerRating}`;
+    if (l.sellerRating >= 4.6) return `${icon('starfill', { size: 12 })} ${l.sellerRating}`;
     if (l.hasDelivery) return t('ai.q.deliv');
     if (l.condition === 'new') return t('ai.q.new');
     if (r != null && r <= 1.12) return t('dec.r.inMarket');
