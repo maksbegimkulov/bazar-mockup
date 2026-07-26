@@ -176,7 +176,20 @@ main#app > .chats-layout { animation: none; }
   background: var(--card);
   border-bottom: 1px solid var(--line);
   padding-top: env(safe-area-inset-top); /* не подлезать под чёлку/статус-бар в установленной PWA */
+  /* авто-скрытие: прячется при скролле вниз, всплывает при скролле вверх */
+  transition: transform 0.34s cubic-bezier(0.22, 0.61, 0.36, 1), box-shadow 0.3s var(--ease), background 0.3s var(--ease), border-color 0.3s var(--ease);
+  will-change: transform;
 }
+body.header-hidden .header { transform: translateY(calc(-100% - 2px)); }
+/* когда хедер «плавает» (проскроллили) — матовое стекло + мягкая парящая тень */
+body.scrolled .header {
+  background: color-mix(in srgb, var(--card) 80%, transparent);
+  -webkit-backdrop-filter: saturate(1.6) blur(14px);
+  backdrop-filter: saturate(1.6) blur(14px);
+  box-shadow: 0 8px 26px -16px rgba(0, 0, 0, 0.34);
+  border-bottom-color: transparent;
+}
+@media (prefers-reduced-motion: reduce) { .header { transition: box-shadow 0.2s var(--ease), background 0.2s var(--ease); } body.header-hidden .header { transform: none; } }
 
 .header-inner {
   display: flex;

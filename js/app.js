@@ -5071,10 +5071,13 @@ function router() {
   const restorable = path === '/' || path === '' || path.startsWith('/search') || path.startsWith('/favorites');
   if (restorable && saved != null) {
     delete state._scroll[key];
-    requestAnimationFrame(() => window.scrollTo(0, saved));
+    requestAnimationFrame(() => { window.scrollTo(0, saved); _lastScrollY = saved; });
   } else {
     window.scrollTo(0, 0);
   }
+  // новый экран — хедер показан; базу направления синхронизируем с целевой позицией
+  document.body.classList.remove('header-hidden');
+  _lastScrollY = (restorable && saved != null) ? saved : 0;
 }
 
 /* ---------------- глобальные обработчики ---------------- */
@@ -5705,7 +5708,29 @@ onMediaChange('(min-width: 921px)', e => {
 });
 
 // подсказки поиска прячем при скролле страницы (нативный паттерн)
-window.addEventListener('scroll', hideSuggest, { passive: true });
+// авто-скрытие хедера: прячется при скролле ВНИЗ, всплывает при малейшем скролле
+// ВВЕРХ (как в топовых площадках). У самого верха, при фокусе поиска и открытых
+// модалках/шите — всегда показан.
+let _lastScrollY = 0, _hdrRAF = false;
+function updateHeaderOnScroll() {
+  const y = window.scrollY;
+  const b = document.body;
+  b.classList.toggle('scrolled', y > 4);                       // «плавающее» стекло
+  const searchFocused = document.activeElement && document.activeElement.id === 'searchInput';
+  const locked = b.classList.contains('search-open') || !$('#modalBackdrop').hidden || !!document.querySelector('#filtersPanel.open');
+  if (y <= 8 || searchFocused || locked) {
+    b.classList.remove('header-hidden');
+  } else {
+    const dy = y - _lastScrollY;
+    if (dy > 6 && y > 100) b.classList.add('header-hidden');    // вниз — прячем (после ~100px)
+    else if (dy < -6) b.classList.remove('header-hidden');      // чуть вверх — сразу показываем
+  }
+  _lastScrollY = y;
+}
+window.addEventListener('scroll', () => {
+  hideSuggest();
+  if (!_hdrRAF) { _hdrRAF = true; requestAnimationFrame(() => { updateHeaderOnScroll(); _hdrRAF = false; }); }
+}, { passive: true });
 
 applyStaticChrome();   // перевести шапку/навигацию/панель ИИ (i18n.js)
 applyTheme();          // синхронизировать иконку темы
