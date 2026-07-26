@@ -3215,6 +3215,9 @@ body.route-home .searchbar { display: none; }
 body.route-home .header-actions { margin-left: auto; }
 body.route-home.search-open .searchbar { display: flex; }
 body.route-home.search-open .hero-search { display: none; }
+/* на главной геройский поиск уезжает при прокрутке — тогда показываем шапочный,
+   чтобы поиск был доступен в любом месте (не пустой плавающий хедер) */
+body.route-home.scrolled .searchbar { display: flex; }
 
 /* чип-категория в строке разделов на поиске (когда категория не выбрана):
    пилюля с SVG-иконкой раздела → вход в категорию в один тап */
