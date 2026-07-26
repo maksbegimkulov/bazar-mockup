@@ -180,14 +180,25 @@ main#app > .chats-layout { animation: none; }
   transition: transform 0.34s cubic-bezier(0.22, 0.61, 0.36, 1), box-shadow 0.3s var(--ease), background 0.3s var(--ease), border-color 0.3s var(--ease);
   will-change: transform;
 }
-body.header-hidden .header { transform: translateY(calc(-100% - 2px)); }
-/* когда хедер «плавает» (проскроллили) — матовое стекло + мягкая парящая тень */
+/* когда хедер «плавает» (проскроллили) — матовое стекло + мягкая парящая тень (везде) */
 body.scrolled .header {
   background: color-mix(in srgb, var(--card) 80%, transparent);
   -webkit-backdrop-filter: saturate(1.6) blur(14px);
   backdrop-filter: saturate(1.6) blur(14px);
   box-shadow: 0 8px 26px -16px rgba(0, 0, 0, 0.34);
   border-bottom-color: transparent;
+}
+/* авто-скрытие и «только поиск» — только на МОБИЛЕ (на десктопе места хватает,
+   хедер держится всегда, поиск и так доступен) */
+@media (max-width: 920px) {
+  body.header-hidden .header { transform: translateY(calc(-100% - 2px)); }
+  /* при прокрутке плавающий хедер = ОДНА строка ПОИСКА (доступен в любом месте);
+     логотип/город/язык-валюта-тема показываются только у самого верха */
+  body.scrolled .logo,
+  body.scrolled .city-btn,
+  body.scrolled .header-actions { display: none; }
+  body.scrolled .header-inner { padding-top: 8px; padding-bottom: 8px; gap: 0; }
+  body.scrolled .searchbar { margin: 0; }
 }
 @media (prefers-reduced-motion: reduce) { .header { transition: box-shadow 0.2s var(--ease), background 0.2s var(--ease); } body.header-hidden .header { transform: none; } }
 
