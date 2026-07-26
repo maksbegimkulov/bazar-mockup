@@ -96,8 +96,12 @@ function usdToSom(usd) { return Math.round((+usd || 0) * curRate()); } // в ц�
 function curSym() { return CUR === 'usd' ? '$' : t('som'); }
 /* число суммы (хранится в СОМАХ) в текущей валюте — БЕЗ единицы (для диапазонов) */
 function curNum(som) { return CUR === 'usd' ? fmtNum(Math.round(somToUsd(som))) : fmtNum(Math.round(+som || 0)); }
-/* сумма с единицей: «43 750 сом», «500 $», с суффиксом «/мес»/«/м²» если есть */
-function fmtMoney(som, suffix) { return `${curNum(som)} ${curSym()}${suffix || ''}`; }
+/* сумма с единицей: «43 750 сом» (суффикс) / «$500» (префикс, как принято для USD),
+   с ценовым суффиксом «/мес»/«/м²» если есть */
+function fmtMoney(som, suffix) {
+  suffix = suffix || '';
+  return CUR === 'usd' ? `$${curNum(som)}${suffix}` : `${curNum(som)} ${t('som')}${suffix}`;
+}
 /* число ввода пользователя (в текущей валюте) → в сомы для хранения/фильтра */
 function inputToSom(v) { const n = +v || 0; return CUR === 'usd' ? usdToSom(n) : Math.round(n); }
 /* сумма в сомах → число для поля ввода в текущей валюте */
@@ -120,10 +124,13 @@ async function refreshRate() {
 }
 /* переключить валюту интерфейса и перерисовать текущий экран */
 function setCurrency(c) {
-  if (c !== 'usd' && c !== 'kgs') return;
+  if ((c !== 'usd' && c !== 'kgs') || c === CUR) return; // тот же — ничего не делаем
   CUR = c; lsSave('bazar_cur', c);
   const btn = document.getElementById('curBtn'); if (btn) btn.textContent = CUR === 'usd' ? '$' : t('som');
+  // сохраняем позицию прокрутки — переключение не должно кидать наверх
+  const y = window.scrollY;
   if (typeof router === 'function') router();
+  requestAnimationFrame(() => window.scrollTo(0, y));
 }
 
 /* «5 объявлений» — счётчик с учётом языка (listingsWord в i18n.js) */
@@ -153,7 +160,13 @@ function postedLabel(l) {
 
 function priceHTML(l) {
   if (l.negotiable || l.price === 0) return t('price.negotiable');
-  return `${curNum(l.price)} <span class="suffix">${curSym()}${esc(l.priceSuffix)}</span>`;
+  // $ — компактный префикс перед числом (аккуратно, не «висит ниже цифр»);
+  // сом — суффикс после числа, как принято в KG
+  if (CUR === 'usd') {
+    const sfx = l.priceSuffix ? `<span class="suffix">${esc(l.priceSuffix)}</span>` : '';
+    return `<span class="cur-pre">$</span>${curNum(l.price)}${sfx}`;
+  }
+  return `${curNum(l.price)} <span class="suffix">${t('som')}${esc(l.priceSuffix)}</span>`;
 }
 
 function getPhotos(l) {
@@ -1104,19 +1117,19 @@ const HERO_COPY = {
     title: 'Найдите что угодно.<br>Просто опишите словами.',
     sub: 'BAZAR понимает товар, бюджет, город и характеристики.',
     searchPh: 'Что вы ищете?',
-    examples: ['айфон 15 про до 60000', 'камри 2015 автомат', '2-комнатная в Джале', 'игровой ноутбук', 'диван с доставкой'],
+    examples: ['айфон 15 про до 60000', 'камри 2015 автомат', '2-комнатная в Джале'],
   },
   en: {
     title: 'Find anything.<br>Just describe it.',
     sub: 'BAZAR understands the item, budget, city and specs.',
     searchPh: 'What are you looking for?',
-    examples: ['iphone 15 pro under 60000', 'camry 2015 automatic', '2-room in Djal', 'gaming laptop', 'sofa with delivery'],
+    examples: ['iphone 15 pro under 60000', 'camry 2015 automatic', '2-room in Djal'],
   },
   ky: {
     title: 'Каалаган нерсени табыңыз.<br>Жөн эле сөз менен жазыңыз.',
     sub: 'BAZAR товарды, бюджетти, шаарды жана мүнөздөмөлөрдү түшүнөт.',
     searchPh: 'Эмне издеп жатасыз?',
-    examples: ['айфон 15 про 60000 чейин', 'камри 2015 автомат', 'Жалда 2 бөлмө', 'оюн ноутбугу', 'диван жеткирүү менен'],
+    examples: ['айфон 15 про 60000 чейин', 'камри 2015 автомат', 'Жалда 2 бөлмө'],
   },
 };
 
@@ -4982,9 +4995,19 @@ function router() {
     // обработчиком ссылок и живёт один переход
     if (hasQuery && (qs !== state._appliedQS || (params.get('reset') && state._navClick))) {
       const f = defaultFilters();
+      // q может быть «умным» («айфон 15 про до 60000») → прогоняем через NLU, как
+      // doHeaderSearch, чтобы извлечь бренд/модель/цену/город. Иначе deep-link и
+      // чипы примеров искали бы «до 60000» как текст и не фильтровали по цене.
+      if (params.get('q')) {
+        const rawQ = params.get('q');
+        const parsed = parseSearchQuery(rawQ);
+        Object.assign(f, parsed.filters);
+        f.q = parsed.q;
+        f.qRaw = rawQ;
+      }
+      // явные параметры URL перекрывают разобранные из q
       if (params.get('cat')) f.cat = params.get('cat');
       if (params.get('sub')) f.sub = params.get('sub');
-      if (params.get('q')) f.q = params.get('q');
       if (params.get('city')) f.city = params.get('city');
       if (params.get('cond')) f.condition = params.get('cond');
       if (params.get('pmin')) f.priceMin = params.get('pmin');
