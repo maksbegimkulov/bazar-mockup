@@ -397,6 +397,8 @@ body.scrolled .header {
 .btn-outline { background: var(--card); border: 1.5px solid var(--line-2); color: var(--text); }
 .btn-danger-soft { background: var(--danger-soft); color: var(--danger); }
 .btn-block { width: 100%; }
+.item-incity { max-width: 100%; }
+.item-incity .incity-lbl { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .btn-lg { padding: 14px 24px; font-size: 15.5px; }
 .btn-sm { padding: 8px 13px; font-size: 13px; }
 .post-btn { margin-left: 6px; }
@@ -1954,7 +1956,7 @@ body.scrolled .header {
 .map-label { font-size: 17px; font-weight: 800; fill: var(--text); paint-order: stroke; stroke: var(--card); stroke-width: 4px; }
 .map-pulse { fill: var(--accent); opacity: 0.25; animation: mapPulse 2s ease-out infinite; transform-origin: center; transform-box: fill-box; }
 @keyframes mapPulse { 0% { transform: scale(0.5); opacity: 0.4; } 100% { transform: scale(1.4); opacity: 0; } }
-.map-caption { color: var(--text-2); font-size: 13px; margin: 12px 0; }
+.map-caption { color: var(--text-2); font-size: 13px; margin: 12px 0; min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
 
 .kg-map .region { fill: var(--map-land); stroke: var(--map-border); stroke-width: 1.2; fill-rule: evenodd; stroke-linejoin: round; vector-effect: non-scaling-stroke; transition: fill .15s ease; }
 .kg-map .lake { fill: var(--map-lake); stroke: var(--map-lake-border); stroke-width: 1; vector-effect: non-scaling-stroke; }
@@ -2604,8 +2606,9 @@ a.seller-card { display: flex; gap: 12px; align-items: center; text-decoration: 
     .item-contactbar { background: var(--card); }
   }
   @keyframes cb-in { from { transform: translateY(100%); } to { transform: translateY(0); } }
-  .item-contactbar .btn { flex: 1; min-height: 46px; margin: 0; }
+  .item-contactbar .btn { flex: 1; min-width: 0; min-height: 46px; margin: 0; }
   .item-contactbar .cb-fav {
+    position: static; top: auto; right: auto; order: 2;
     flex: 0 0 46px; width: 46px; height: 46px;
     border: 1px solid var(--line); border-radius: var(--radius);
     font-size: 19px; background: var(--bg);
@@ -2972,7 +2975,7 @@ a.seller-card { display: flex; gap: 12px; align-items: center; text-decoration: 
   .buy-actions .contact-dup { display: none; }
 }
 .buy-meta { display: flex; flex-wrap: wrap; gap: 3px 12px; align-items: center; }
-.buy-meta span { display: inline-flex; align-items: center; gap: 5px; }
+.buy-meta span { display: inline-flex; align-items: center; gap: 5px; min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
 .buy-meta svg { flex-shrink: 0; opacity: 0.8; }
 .buy-mini-actions { align-items: center; }
 .buy-mini-actions button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; }

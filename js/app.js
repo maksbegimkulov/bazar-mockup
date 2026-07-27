@@ -2035,7 +2035,7 @@ function renderItem(id) {
       <h2>${t('item.location')}</h2>
       <div class="map-wrap">${kgMapSVG(l.city)}</div>
       <div class="map-caption">${icon('location',{size:14})} ${esc(l.city)}${l.district ? ', ' + esc(l.district) : ''} · ${t('item.mapNote')}</div>
-      <a class="btn btn-secondary" href="${buildSearchHash({ ...defaultFilters(), city: l.city })}" data-link>${t('item.inCity')} ${esc(l.city)}</a>
+      <a class="btn btn-secondary item-incity" href="${buildSearchHash({ ...defaultFilters(), city: l.city })}" data-link><span class="incity-lbl">${t('item.inCity')} ${esc(l.city)}</span></a>
     </div>`;
 
   app.innerHTML = `
