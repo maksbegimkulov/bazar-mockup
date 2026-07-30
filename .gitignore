@@ -7,3 +7,4 @@ server/.wrangler/
 supabase/.branches/
 supabase/.temp/
 tests/node_modules/
+.claude/
