@@ -576,5 +576,441 @@ await test('чужие уведомления не читаются', async () =
   eq(d.length, 0, 'третий видит чужие уведомления');
 });
 
+/* ══════════════════════════ живой запрос ══════════════════════════ */
+group('Сохранённые поиски: матчер');
+
+// Конкретный запрос третьего лица: Camry XV70 до 2 млн в Бишкеке.
+const SS_NARROW = 'ss-narrow-' + Math.random().toString(36).slice(2, 8);
+const SS_WIDE   = 'ss-wide-'   + Math.random().toString(36).slice(2, 8);
+let ssNarrowId = null, ssWideId = null, ssListingId = null;
+
+await test('конкретный запрос ловит новое объявление и уведомляет', async () => {
+  const s = await mustPass(C.client.from('saved_searches').insert({
+    user_id: C.id, name: SS_NARROW,
+    query: { cat: 'transport', sub: 'Легковые авто', city: 'Бишкек', priceMax: '2000000',
+             attrs: { brand: 'Toyota', model: 'Camry' } },
+  }).select().single(), 'сохранение конкретного поиска');
+  ssNarrowId = s.id;
+
+  const before = +sql(`select count(*) from notifications where user_id='${C.id}' and kind='saved_search'`);
+  const l = await mustPass(A.client.from('listings').insert({
+    ...baseListing({ title: 'Toyota Camry 70, 2020, 2.5 — свежая' }), owner_id: A.id,
+  }).select().single(), 'публикация подходящего объявления');
+  ssListingId = l.id;
+
+  eq(+sql(`select count(*) from saved_search_hits where search_id='${ssNarrowId}' and listing_id='${l.id}'`),
+     1, 'совпадение записано');
+  const after = +sql(`select count(*) from notifications where user_id='${C.id}' and kind='saved_search'`);
+  eq(after - before, 1, 'уведомление о новом по запросу');
+});
+
+await test('уведомление ведёт на само объявление', async () => {
+  const link = sql(`select link from notifications where user_id='${C.id}' and kind='saved_search'
+                    order by created_at desc limit 1`);
+  eq(link, '#/item/' + ssListingId, 'ссылка уведомления');
+});
+
+await test('объявление мимо фильтра не попадает в поиск', async () => {
+  const before = +sql(`select count(*) from saved_search_hits where search_id='${ssNarrowId}'`);
+  await mustPass(A.client.from('listings').insert({
+    ...baseListing({ title: 'Honda Fit, 2015', price: 700000,
+                     attrs: { brand: 'Honda', model: 'Fit', year: '2015' } }), owner_id: A.id,
+  }).select().single(), 'публикация другого авто');
+  eq(+sql(`select count(*) from saved_search_hits where search_id='${ssNarrowId}'`), before,
+     'чужая марка попала в поиск');
+});
+
+await test('своё объявление в свой же поиск не попадает', async () => {
+  const own = await mustPass(A.client.from('saved_searches').insert({
+    user_id: A.id, name: 'ss-own-' + Math.random().toString(36).slice(2, 8),
+    query: { cat: 'transport', sub: 'Легковые авто', attrs: { brand: 'Toyota' } },
+  }).select().single(), 'поиск продавца');
+  await mustPass(A.client.from('listings').insert({
+    ...baseListing({ title: 'Toyota Camry 70, 2018' }), owner_id: A.id,
+  }).select().single(), 'своё объявление');
+  eq(+sql(`select count(*) from saved_search_hits where search_id='${own.id}'`), 0,
+     'продавец получил уведомление о самом себе');
+});
+
+await test('широкий запрос копится, но не уведомляет', async () => {
+  const s = await mustPass(C.client.from('saved_searches').insert({
+    user_id: C.id, name: SS_WIDE, query: { cat: 'transport', sub: 'Легковые авто' },
+  }).select().single(), 'сохранение широкого поиска');
+  ssWideId = s.id;
+
+  const before = +sql(`select count(*) from notifications where user_id='${C.id}' and kind='saved_search'`);
+  await mustPass(A.client.from('listings').insert({
+    ...baseListing({ title: 'Lexus ES 250, 2021', price: 3300000,
+                     attrs: { brand: 'Lexus', model: 'ES' } }), owner_id: A.id,
+  }).select().single(), 'публикация в широкую подкатегорию');
+
+  ok(+sql(`select count(*) from saved_search_hits where search_id='${ssWideId}'`) > 0,
+     'широкий поиск ничего не насчитал');
+  eq(+sql(`select count(*) from notifications where user_id='${C.id}' and kind='saved_search'`), before,
+     'широкий запрос прислал уведомление');
+});
+
+await test('второе уведомление по тому же поиску за сутки не приходит', async () => {
+  const before = +sql(`select count(*) from notifications where user_id='${C.id}' and kind='saved_search'`);
+  const l = await mustPass(A.client.from('listings').insert({
+    ...baseListing({ title: 'Toyota Camry 70, 2019, чёрная', price: 1600000 }), owner_id: A.id,
+  }).select().single(), 'ещё одно подходящее объявление');
+  eq(+sql(`select count(*) from saved_search_hits where search_id='${ssNarrowId}' and listing_id='${l.id}'`),
+     1, 'совпадение записано');
+  eq(+sql(`select count(*) from notifications where user_id='${C.id}' and kind='saved_search'`), before,
+     'второе уведомление за сутки');
+});
+
+await test('черновик молчит, публикация — нет', async () => {
+  const before = +sql(`select count(*) from saved_search_hits where search_id='${ssWideId}'`);
+  const l = await mustPass(A.client.from('listings').insert({
+    ...baseListing({ title: 'Toyota Corolla, 2017', status: 'draft' }), owner_id: A.id,
+  }).select().single(), 'черновик');
+  eq(+sql(`select count(*) from saved_search_hits where search_id='${ssWideId}'`), before, 'черновик засчитан');
+
+  await mustPass(A.client.from('listings').update({ status: 'active' }).eq('id', l.id).select().single(),
+    'публикация черновика');
+  eq(+sql(`select count(*) from saved_search_hits where search_id='${ssWideId}'`), before + 1,
+     'опубликованный черновик не засчитан');
+
+  // снял и вернул — это не новое объявление
+  await mustPass(A.client.from('listings').update({ status: 'archived' }).eq('id', l.id).select().single(), 'снятие');
+  await mustPass(A.client.from('listings').update({ status: 'active' }).eq('id', l.id).select().single(), 'возврат');
+  eq(+sql(`select count(*) from saved_search_hits where search_id='${ssWideId}'`), before + 1,
+     'снял-вернул задвоило совпадение');
+});
+
+await test('совпадение нельзя подделать с клиента', async () => {
+  await mustFail(C.client.from('saved_search_hits').insert({
+    search_id: ssNarrowId, listing_id: ssListingId, user_id: C.id, score: 1.0,
+  }), 'ручная вставка совпадения');
+  // и обнулить себе потолок уведомлений — тоже
+  await mustFail(C.client.from('saved_search_hits').update({ notified_at: null })
+    .eq('search_id', ssNarrowId), 'ручной сброс отметки доставки');
+});
+
+await test('чужие совпадения не видны', async () => {
+  const d = await mustPass(B.client.from('saved_search_hits').select('*'), 'чтение совпадений');
+  ok(d.every(h => h.user_id === B.id), 'видны чужие совпадения');
+});
+
+await test('бейдж «+N новых» считает сервер', async () => {
+  const counts = await mustPass(C.client.rpc('rpc_saved_search_new_counts'), 'счётчики поисков');
+  ok((counts?.[ssNarrowId] || 0) >= 1, 'по конкретному поиску нет новых');
+
+  // открыли поиск → счётчик обнулился
+  await mustPass(C.client.from('saved_searches').update({ last_seen_at: new Date().toISOString() })
+    .eq('id', ssNarrowId), 'отметка просмотра');
+  const after = await mustPass(C.client.rpc('rpc_saved_search_new_counts'), 'счётчики после просмотра');
+  ok(!after?.[ssNarrowId], 'счётчик не обнулился после открытия поиска');
+});
+
+await test('гость счётчиков не получает и сводку не запускает', async () => {
+  const counts = await mustPass(guest.rpc('rpc_saved_search_new_counts'), 'счётчики гостю');
+  eq(counts, {}, 'гостю вернули не пустой объект');
+  await mustFail(guest.rpc('rpc_flush_saved_search_digest'), 'сводка от имени гостя');
+});
+
+await test('ночная тишина считается по Бишкеку', async () => {
+  eq(sql(`select bazar_quiet_hours('2026-08-13 21:00:00+00')`), 't', '03:00 по Бишкеку — тишина');
+  eq(sql(`select bazar_quiet_hours('2026-08-14 03:30:00+00')`), 'f', '09:30 по Бишкеку — можно');
+  eq(sql(`select bazar_quiet_hours('2026-08-14 16:30:00+00')`), 't', '22:30 по Бишкеку — тишина');
+});
+
+await test('сводка забирает накопленное одним уведомлением', async () => {
+  // Сводка сознательно молчит ночью — в это окно проверять нечего, и делать
+  // вид, что проверили, нельзя.
+  if (sql('select bazar_quiet_hours()') === 't') {
+    process.stdout.write('      (ночное окно по Бишкеку — сводка не проверяется)\n');
+    return;
+  }
+  // Отматываем сутки: потолок «одно уведомление в сутки на поиск» тут не
+  // проверяется, он уже проверен выше.
+  sql(`update saved_search_hits set notified_at = null where search_id='${ssNarrowId}'`);
+  sql(`update notifications set created_at = created_at - interval '2 days'
+        where user_id='${C.id}' and kind='saved_search'`);
+
+  const before = +sql(`select count(*) from notifications where user_id='${C.id}' and kind='saved_search'`);
+  const sent = await mustPass(C.client.rpc('rpc_flush_saved_search_digest'), 'сводка');
+  eq(sent, 1, 'сводка отправила не одно уведомление');
+  eq(+sql(`select count(*) from notifications where user_id='${C.id}' and kind='saved_search'`), before + 1,
+     'уведомление сводки не создалось');
+  eq(+sql(`select count(*) from saved_search_hits where search_id='${ssNarrowId}' and notified_at is null`), 0,
+     'часть пачки осталась неотправленной');
+  eq(await mustPass(C.client.rpc('rpc_flush_saved_search_digest'), 'повторная сводка'), 0,
+     'повторная сводка снова отправила');
+});
+
+/* ══════════════════════════ честная цена ══════════════════════════ */
+group('Честная цена');
+
+// Свой угол рынка: марка и модель, которых нет ни в сидах, ни в других
+// группах. Иначе выборку двигали бы чужие Camry, и «медиана 1 175 000»
+// держалась бы ровно до следующего теста.
+const PB = 'Testo', PM = 'PriceProbe-' + Math.random().toString(36).slice(2, 8);
+const PEERS = [1000000, 1050000, 1100000, 1150000, 1200000, 1250000, 1300000, 1400000];
+const P_MEDIAN = 1175000, P_P10 = 1035000;
+
+// Рынок засеваем через psql: у объявлений свой потолок «10 в час на человека»,
+// и восемь фикстур съели бы его целиком. Правила показа проверяются ниже
+// настоящим клиентом и гостем, а не этим сидом.
+const seedPeer = (price, year) => sql(
+  `insert into listings (owner_id, title, description, price, category, subcategory, city, condition, photos, attrs, status)
+   values ('${A.id}', 'Testo PriceProbe ${year} за ${price}', 'Фикстура рынка', ${price},
+           'transport', 'Легковые авто', 'Бишкек', 'used', array['a.jpg'],
+           jsonb_build_object('brand','${PB}','model','${PM}','year','${year}'), 'active')`);
+
+PEERS.forEach(p => seedPeer(p, 2020));
+
+const draft = (price, attrs = { brand: PB, model: PM, year: '2020' }, sub = 'Легковые авто') =>
+  mustPass(B.client.rpc('rpc_price_verdict_draft',
+    { p_subcategory: sub, p_price: price, p_attrs: attrs }), 'вердикт для черновика');
+
+await test('рынок считается по модели, а не по всей подкатегории', async () => {
+  const st = await draft(P_MEDIAN);
+  eq(st.n, PEERS.length, 'в выборку попали чужие объявления');
+  eq(st.basis, 'model', 'сравнили не с моделью');
+  eq(+st.median, P_MEDIAN, 'медиана');
+  eq(+st.p10, P_P10, 'дешёвый край рынка');
+});
+
+await test('вердикт зависит от разброса и размера выборки', async () => {
+  eq((await draft(P_MEDIAN)).verdict, 'fair', 'цена на медиане');
+  // порог на восьми объявлениях — 40%/√8 = 14.1%, и дальше одного отклонения
+  eq(+(await draft(P_MEDIAN)).threshold.toFixed(4), 0.1414, 'порог по размеру выборки');
+  eq((await draft(1120000)).verdict, 'fair', '−5% при таком разбросе ещё не скидка');
+  eq((await draft(1000000)).verdict, 'good', '−15% ниже рынка');
+  eq((await draft(1400000)).verdict, 'high', '+19% выше рынка');
+});
+
+await test('приманку отличают от просто дешёвого', async () => {
+  eq((await draft(600000)).verdict, 'low', 'вдвое ниже дешёвого края — не предупредили');
+  // ровно та же цена в −49% от медианы, но выше p10·0.65 — это ещё не обман
+  eq((await draft(700000)).verdict, 'good', 'честного продавца пометили обманщиком');
+});
+
+await test('год сужает круг сравнения', async () => {
+  [380000, 400000, 420000, 440000, 460000, 480000].forEach(p => seedPeer(p, 2010));
+  eq(+(await draft(P_MEDIAN)).median, P_MEDIAN, 'десятилетние машины попали в выборку свежих');
+  const old = await draft(P_MEDIAN, { brand: PB, model: PM, year: '2010' });
+  ok(+old.median < 500000, 'выборка по году не сузилась');
+  eq(old.verdict, 'high', 'цена свежей машины за десятилетнюю — не «дорого»');
+});
+
+await test('узкий круг заменяется широким, а не складывается с ним', async () => {
+  // Ровесников 2035 года всего трое — этого мало, сравнение уходит на круг по
+  // модели. Он обязан заменить узкий: если круги сложить, три машины попадут
+  // в выборку дважды, n завысится, а медиана уедет к ним.
+  const YB = 'Testo', YM = 'YearProbe-' + Math.random().toString(36).slice(2, 8);
+  const seed = (price, year) => sql(
+    `insert into listings (owner_id, title, description, price, category, subcategory, city, condition, photos, attrs, status)
+     values ('${A.id}', 'Testo YearProbe ${year}', 'Фикстура рынка', ${price},
+             'transport', 'Легковые авто', 'Бишкек', 'used', array['a.jpg'],
+             jsonb_build_object('brand','${YB}','model','${YM}','year','${year}'), 'active')`);
+  [800000, 820000, 840000].forEach(p => seed(p, 2035));
+  [300000, 320000, 340000, 360000, 380000, 400000].forEach(p => seed(p, 2005));
+
+  const wide = await draft(500000, { brand: YB, model: YM, year: '2035' });
+  eq(wide.n, 9, 'ровесники посчитаны дважды');
+  eq(+wide.median, 380000, 'медиана уехала к задвоенным');
+
+  // а когда ровесников хватает, широкий круг не подмешивается
+  const narrow = await draft(500000, { brand: YB, model: YM, year: '2005' });
+  eq(narrow.n, 6, 'к ровесникам подмешался круг по модели');
+  eq(+narrow.median, 350000, 'медиана ровесников');
+});
+
+await test('на пустом рынке вердикта нет', async () => {
+  const st = await draft(1000000, {}, 'Такой подкатегории нет');
+  eq(st.n, 0, 'выборка не пуста');
+  eq(st.verdict, null, 'вердикт выдали без данных');
+});
+
+let probeId = null;
+await test('вердикт по объявлению не считает его самого', async () => {
+  const l = await mustPass(B.client.from('listings').insert({
+    ...baseListing({ title: 'Testo PriceProbe 2020 — продаю', price: 1000000,
+                     attrs: { brand: PB, model: PM, year: '2020' } }), owner_id: B.id,
+  }).select().single(), 'публикация объявления для вердикта');
+  probeId = l.id;
+
+  const st = await mustPass(B.client.rpc('rpc_price_verdict', { p_listing_id: probeId }),
+    'вердикт по объявлению');
+  eq(st.n, PEERS.length, 'себя посчитали в собственную выборку');
+  eq(st.verdict, 'good', 'вердикт по объявлению');
+});
+
+await test('гость видит вердикт, но не сырые цены', async () => {
+  const st = await mustPass(guest.rpc('rpc_price_verdict', { p_listing_id: probeId }),
+    'вердикт гостю');
+  eq(st.n, PEERS.length, 'гостю посчитали другой рынок');
+  // Из сырой выборки собирается прайс-лист конкурента строка за строкой.
+  await mustFail(guest.rpc('bazar_price_peers',
+    { p_subcategory: 'Легковые авто', p_brand: PB, p_model: PM, p_year: null, p_exclude: null }),
+    'выборка цен гостю');
+  await mustFail(B.client.rpc('bazar_price_peers',
+    { p_subcategory: 'Легковые авто', p_brand: PB, p_model: PM, p_year: null, p_exclude: null }),
+    'выборка цен пользователю');
+});
+
+await test('по снятому и чужому черновику вердикта нет', async () => {
+  await mustPass(B.client.from('listings').update({ status: 'archived' }).eq('id', probeId),
+    'снятие объявления');
+  const st = await mustPass(guest.rpc('rpc_price_verdict', { p_listing_id: probeId }),
+    'вердикт по снятому');
+  eq(st.verdict, null, 'по снятому объявлению отдали вердикт');
+  eq(st.n, 0, 'по снятому объявлению отдали размер выборки');
+
+  // «нашлось / не нашлось» не должно отличаться — иначе по вердикту можно
+  // перебирать чужие черновики
+  const ghost = await mustPass(guest.rpc('rpc_price_verdict',
+    { p_listing_id: '00000000-0000-0000-0000-000000000000' }), 'вердикт по несуществующему');
+  eq(ghost, st, 'несуществующее объявление отличается от снятого');
+});
+
+await test('черновики и снятое рынок не двигают', async () => {
+  const before = (await draft(P_MEDIAN)).n;
+  sql(`insert into listings (owner_id, title, description, price, category, subcategory, city,
+                             condition, photos, attrs, status)
+       values ('${A.id}', 'Testo PriceProbe черновик', 'Фикстура', 111,
+               'transport', 'Легковые авто', 'Бишкек', 'used', array['a.jpg'],
+               jsonb_build_object('brand','${PB}','model','${PM}','year','2020'), 'draft')`);
+  eq((await draft(P_MEDIAN)).n, before, 'черновик попал в рынок');
+  eq(+(await draft(P_MEDIAN)).median, P_MEDIAN, 'черновик сдвинул медиану');
+});
+
+/* ══════════════════════════ автоответ продавца ══════════════════════════ */
+group('Автоответ продавца');
+
+// Свои продавец и покупатель: правила действуют на все чаты человека, и
+// подсаженные продавцу A они поменяли бы поведение группы «Чаты».
+const S = await makeUser('autoseller');
+const Q = await makeUser('autobuyer');
+
+const newChat = async ref => (await mustPass(Q.client.from('chats').insert({
+  buyer_id: Q.id, seller_id: S.id, listing_ref: ref, listing_title: 'Товар',
+}).select().single(), 'создание чата ' + ref)).id;
+
+const ask = (chat, text) => mustPass(Q.client.from('messages')
+  .insert({ chat_id: chat, sender_id: Q.id, text }).select().single(), 'вопрос «' + text + '»');
+
+// Список тем — по алфавиту, а не по времени: несколько вставок укладываются в
+// одну секунду, и сортировка по created_at выродилась бы в сортировку по
+// случайному uuid. Повтор темы такой список всё равно покажет.
+const autos = chat => sql(`select coalesce(string_agg(auto_topic, ',' order by auto_topic), '')
+                             from messages where chat_id = '${chat}' and is_auto`);
+
+await test('правила видит и заводит только их владелец', async () => {
+  await mustPass(S.client.from('auto_reply_rules').insert([
+    { user_id: S.id, topic: 'available', reply: 'Да, ещё продаю' },
+    { user_id: S.id, topic: 'price', reply: 'Цена в объявлении, 45 000 сом' },
+    { user_id: S.id, topic: 'where', reply: 'Бишкек, 6 мкр, после 18:00' },
+    { user_id: S.id, topic: 'bargain', reply: 'Небольшой торг при осмотре' },
+  ]).select(), 'продавец заводит правила');
+
+  eq((await mustPass(S.client.from('auto_reply_rules').select('*'), 'свои правила')).length, 4,
+    'продавец не видит собственные правила');
+  eq((await mustPass(C.client.from('auto_reply_rules').select('*'), 'чужие правила')).length, 0,
+    'правила продавца видны постороннему');
+  await mustFail(C.client.from('auto_reply_rules')
+    .insert({ user_id: S.id, topic: 'delivery', reply: 'подделка' }).select().single(),
+    'правило от чужого имени');
+});
+
+await test('ответ уходит сразу, подписан и не гасит непрочитанное', async () => {
+  const c = await newChat('auto-1');
+  await ask(c, 'Здравствуйте, актуально?');
+
+  const msgs = await mustPass(Q.client.from('messages').select('*').eq('chat_id', c), 'чтение диалога');
+  eq(msgs.length, 2, 'в диалоге не два сообщения');
+  const a = msgs.find(m => m.is_auto);
+  ok(a, 'автоответ не пришёл');
+  eq(a.text, 'Да, ещё продаю', 'ответили не по теме');
+  eq(a.sender_id, S.id, 'автоответ отправлен не от имени продавца');
+  eq(a.auto_topic, 'available', 'тема не записана');
+
+  // Вставка от имени продавца сдвинула бы ему отметку прочтения — и вопрос
+  // покупателя исчез бы из непрочитанного потому, что ответил бот.
+  eq(sql(`select coalesce(seller_last_read_at::text, '') from chats where id = '${c}'`), '',
+    'автоответ погасил продавцу непрочитанное');
+});
+
+await test('в вопросе выигрывает конкретный признак', async () => {
+  const c = await newChat('auto-2');
+  await ask(c, 'Уступите в цене?');
+  eq(autos(c), 'bargain', 'торг разобрали как вопрос о цене');
+
+  const d = await newChat('auto-3');
+  await ask(d, 'Сколько стоит доставка?');
+  eq(autos(d), '', 'на вопрос о доставке ответили ценой (правила доставки нет)');
+});
+
+await test('одна тема — один ответ, не больше трёх на диалог', async () => {
+  const c = await newChat('auto-4');
+  await ask(c, 'Актуально?');
+  await ask(c, 'Ещё актуально??');
+  eq(autos(c), 'available', 'на ту же тему ответили дважды');
+
+  await ask(c, 'Сколько стоит?');
+  await ask(c, 'Где посмотреть?');
+  eq(autos(c), 'available,price,where', 'три темы не отработали');
+
+  await ask(c, 'Торг будет?');
+  eq(autos(c), 'available,price,where', 'потолок в три автоответа не сработал');
+});
+
+await test('пока продавец отвечает сам, бот молчит', async () => {
+  const c = await newChat('auto-5');
+  await mustPass(S.client.from('messages')
+    .insert({ chat_id: c, sender_id: S.id, text: 'Здравствуйте, слушаю' }).select().single(),
+    'продавец пишет сам');
+  await ask(c, 'Актуально?');
+  eq(autos(c), '', 'бот перебил живого продавца');
+});
+
+await test('приветствие только на первое сообщение', async () => {
+  await mustPass(S.client.from('auto_reply_rules')
+    .insert({ user_id: S.id, topic: 'greeting', reply: 'Здравствуйте! Отвечу в течение часа' }).select(),
+    'правило приветствия');
+
+  const c = await newChat('auto-6');
+  await ask(c, 'Добрый день');
+  eq(autos(c), 'greeting', 'на первое нераспознанное не поздоровались');
+
+  const d = await newChat('auto-7');
+  await ask(d, 'Актуально?');
+  await ask(d, 'Ясно, спасибо');
+  eq(autos(d), 'available', 'поздоровались посреди разговора');
+});
+
+await test('выключенное правило молчит, но текст остаётся', async () => {
+  await mustPass(S.client.from('auto_reply_rules').update({ enabled: false })
+    .eq('user_id', S.id).eq('topic', 'available').select(), 'выключение правила');
+
+  const c = await newChat('auto-8');
+  await ask(c, 'Актуально?');
+  eq(autos(c), '', 'выключенное правило сработало');
+
+  const r = await mustPass(S.client.from('auto_reply_rules').select('reply')
+    .eq('topic', 'available').single(), 'чтение выключенного правила');
+  eq(r.reply, 'Да, ещё продаю', 'выключение стёрло текст ответа');
+
+  await mustPass(S.client.from('auto_reply_rules').update({ enabled: true })
+    .eq('user_id', S.id).eq('topic', 'available').select(), 'включение обратно');
+});
+
+await test('автоответ не тратит почасовую квоту покупателя', async () => {
+  const spent = () => +sql(`select coalesce(sum(count), 0) from rate_limits
+                              where subject = 'message_send' and actor = '${Q.id}'`);
+  const before = spent();
+  const c = await newChat('auto-9');
+  await ask(c, 'Актуально?');
+  await ask(c, 'Где посмотреть?');
+  eq(autos(c), 'available,where', 'автоответы не пришли');
+  // Лимит считается по auth.uid(), а это покупатель: без исключения чужой бот
+  // отъедал бы его квоту и в пределе запретил бы ему писать.
+  eq(spent() - before, 2, 'автоответ съел квоту покупателя');
+});
+
 /* ══════════════════════════ итог ══════════════════════════ */
 process.exit(summary() ? 1 : 0);

@@ -39,6 +39,10 @@ state.chats = lsLoad(LS.chats, {});
 state.view = lsLoad(LS.view, 'grid');
 state.viewed = lsLoad(LS.viewed, []); // недавно просмотренные id
 state.saved = lsLoad(LS.saved, []);   // сохранённые поиски [{id,name,f,seen,ts}]
+state.savedCounts = {};               // id поиска → сколько новых насчитал сервер
+state.priceStats = {};                // id объявления → ответ сервера о рынке (null = данных мало)
+state.autoReply = null;               // тема → {reply, enabled}; null = ещё не спрашивали сервер
+state.autoReplyOff = false;           // база этого не умеет — панель не показываем вовсе
 state.compare = new Set(lsLoad(LS.compare, [])); // id для сравнения
 state.soldIds = new Set(lsLoad(LS.sold, []));    // отмеченные продано/архив (мок/демо)
 state.reported = new Set(lsLoad(LS.reported, [])); // id с жалобой юзера — прячем у него
@@ -286,7 +290,8 @@ async function loadCloudData() {
       for (const c of chats) {
         const msgs = await dbMessages(c.id);
         const otherId = c.buyer_id === me ? c.seller_id : c.buyer_id;
-        const messages = msgs.map(m => ({ from: m.sender_id === me ? 'me' : 'them', text: m.text, ts: new Date(m.created_at).getTime(), id: m.id }));
+        const messages = msgs.map(m => ({ from: m.sender_id === me ? 'me' : 'them', text: m.text,
+          ts: new Date(m.created_at).getTime(), id: m.id, isAuto: !!m.is_auto }));
         const old = state.chats[c.id];
         if (old && Array.isArray(old.messages)) {
           old.messages.forEach(m => {
@@ -382,20 +387,67 @@ async function syncSavedFromCloud() {
   if (typeof BZ === 'undefined' || !BZ.available()) return;
   const cloud = await BZ.savedSearches.list();
   if (!Array.isArray(cloud)) return;
-  const localNames = new Set(state.saved.map(s => s.name));
+  const byName = new Map(cloud.map(c => [c.name, c]));
   let changed = false;
   for (const c of cloud) {
-    if (!localNames.has(c.name)) {
+    if (!state.saved.some(s => s.name === c.name)) {
       state.saved.unshift({ id: c.id, name: c.name, f: c.query || {}, seen: 0, seenIds: [],
         ts: Date.now(), cloud: true, notify: c.notify !== false });
       changed = true;
     }
   }
-  const cloudNames = new Set(cloud.map(c => c.name));
   for (const s of state.saved) {
-    if (!cloudNames.has(s.name)) BZ.savedSearches.add(s.name, s.f, s.notify !== false);
+    const c = byName.get(s.name);
+    if (c) {
+      // Поиск, сохранённый до входа, живёт под локальным id. Забираем серверный:
+      // ссылка «N новых по запросу» ведёт именно на него.
+      if (s.id !== c.id) { s.id = c.id; changed = true; }
+      if (!s.cloud) { s.cloud = true; changed = true; }
+    } else {
+      BZ.savedSearches.add(s.name, s.f, s.notify !== false).then(id => {
+        if (id && s.id !== id) { s.id = id; s.cloud = true; lsSave(LS.saved, state.saved); }
+      });
+    }
   }
   if (changed) { state.saved = state.saved.slice(0, 30); lsSave(LS.saved, state.saved); }
+  await refreshSavedCounts();
+}
+
+/* «+N новых» считает сервер: у него есть все объявления, у клиента — только
+   загруженная страница. Гость и офлайн остаются на локальном подсчёте.
+
+   Оба вызова прижаты по времени: syncSavedFromCloud дёргается на каждое живое
+   событие в ленте, а это чужие объявления — к бейджам сохранённых поисков они
+   отношения не имеют. */
+let _savedCountsAt = 0, _savedFlushAt = 0;
+async function refreshSavedCounts() {
+  if (typeof BZ === 'undefined' || !BZ.available()) return;
+  const now = Date.now();
+  if (now - _savedCountsAt < 60000) return;
+  _savedCountsAt = now;
+
+  const counts = await BZ.savedSearches.newCounts();
+  if (!counts || typeof counts !== 'object') return;
+  state.savedCounts = counts;
+  paintSavedBadges();
+
+  // Накопленное за ночь и упёршееся в потолок уходит одним уведомлением —
+  // ровно в тот момент, когда человек и так открыл приложение. Раз в четверть
+  // часа: чаще нечего отправлять, потолки всё равно держат паузу.
+  if (now - _savedFlushAt > 900000) { _savedFlushAt = now; BZ.savedSearches.flushDigest(); }
+}
+
+/* Перерисовываем только сами бейджи: полный ререндер сбросил бы скролл и
+   раскрытые блоки на странице, где человек в этот момент читает. */
+function paintSavedBadges() {
+  document.querySelectorAll('.saved-open[data-id]').forEach(btn => {
+    const s = state.saved.find(x => x.id === btn.dataset.id);
+    const el = s && btn.querySelector('.saved-new, .saved-none');
+    if (!el) return;
+    const n = savedNewCount(s);
+    el.className = n ? 'saved-new' : 'saved-none';
+    el.textContent = n ? `+${n} ${t('saved.new')}` : t('saved.noNew');
+  });
 }
 
 /* мягкая синхронизация открытого диалога: дорисовать новые сообщения без ререндера */
@@ -677,11 +729,22 @@ function saveCurrentSearch() {
   lsSave(LS.saved, state.saved);
   // залогинен → в облако (уведомления о новых объявлениях приходят с сервера)
   if (typeof BZ !== 'undefined' && BZ.available() && typeof isAuthed === 'function' && isAuthed()) {
-    BZ.savedSearches.add(name, f, true);
+    const local = state.saved[0];
+    BZ.savedSearches.add(name, f, true).then(id => {
+      if (!id) return;
+      local.id = id;              // серверный id: по нему придёт ссылка из уведомления
+      local.cloud = true;
+      lsSave(LS.saved, state.saved);
+    });
   }
   return true;
 }
 function savedNewCount(s) {
+  // Сервер считает по всей базе и продолжает считать, пока приложение закрыто —
+  // ради этого сохранённый поиск и существует. Его ответ главнее локального.
+  if (s.cloud && Object.prototype.hasOwnProperty.call(state.savedCounts, s.id)) {
+    return state.savedCounts[s.id] || 0;
+  }
   // по снапшоту id: удаления не маскируют новинки (разница счётчиков это скрывала)
   if (Array.isArray(s.seenIds)) {
     const seen = new Set(s.seenIds);
@@ -698,11 +761,27 @@ function removeSaved(id) {
 }
 function openSavedSearch(id) {
   const s = state.saved.find(x => x.id === id);
-  if (!s) return;
+  if (!s) {
+    // Пришли по ссылке из уведомления раньше, чем подтянулся список (холодный
+    // старт). Дозагружаем и открываем — иначе человек ткнул в уведомление и
+    // попал в пустоту.
+    if (typeof BZ !== 'undefined' && BZ.available()) {
+      syncSavedFromCloud().then(() => {
+        if (state.saved.some(x => x.id === id)) openSavedSearch(id);
+        else location.hash = '#/search';
+      });
+    } else {
+      location.hash = '#/search';
+    }
+    return;
+  }
   const cur = applyFilters(s.f); // отметили просмотренным → бейдж сбрасывается
   s.seen = cur.length;
   s.seenIds = cur.map(l => l.id).slice(0, 3000);
   lsSave(LS.saved, state.saved);
+  // то же самое на сервере: метка времени вместо снимка id
+  if (s.cloud && typeof BZ !== 'undefined' && BZ.available()) BZ.savedSearches.touch(s.id);
+  state.savedCounts[s.id] = 0;
   // мерж с дефолтами: старые сохранённые снимки могут не знать новых полей фильтра
   state.filters = { ...defaultFilters(), ...JSON.parse(JSON.stringify(s.f)) };
   state.page = 1;
@@ -1604,7 +1683,30 @@ function updateShowMore(totalLen, shownLen) {
   if (!wrap) return;
   wrap.innerHTML = totalLen > shownLen
     ? `<button class="btn btn-outline btn-lg" data-action="show-more">${t('more.show')} ${Math.min(PAGE_SIZE, totalLen - shownLen)} ${t('more.of')} ${fmtNum(totalLen - shownLen)}</button>`
-    : '';
+    : savedOfferHTML(totalLen);
+}
+
+/* Конец списка — единственный момент, когда предложение сохранить поиск не
+   мешает: человек досмотрел всё, что есть, и не нашёл. Показываем, только если
+   поиск чем-то ограничен (иначе это подписка на всю доску) и ещё не сохранён.
+   Кнопка та же, что и колокольчик в строке поиска, — второй сущности нет. */
+function savedOfferHTML(totalLen) {
+  // На пустой и на короткой выдаче «сохранить поиск» уже предлагает блок
+  // «мало результатов» (emptyRecoveryHTML, 1…4 объявления) — второе такое же
+  // предложение подряд читается как навязчивость.
+  if (totalLen <= 4) return '';
+  const f = state.filters;
+  const narrowed = !!(f.q || f.cat || f.sub || f.priceMin || f.priceMax ||
+                      f.condition !== 'any' || (f.attrs && Object.keys(f.attrs).length));
+  if (!narrowed) return '';
+  if (state.saved.some(s => JSON.stringify(s.f) === JSON.stringify(f))) return '';
+  return `<div class="saved-offer">
+    <div class="saved-offer-txt">
+      <b>${t('saved.offerT')}</b>
+      <span>${t('saved.offerP')}</span>
+    </div>
+    <button class="btn btn-primary" data-action="save-search">${icon('bell',{size:15})} ${t('saved.offerBtn')}</button>
+  </div>`;
 }
 
 /* «показать ещё»: ДОБАВЛЯЕМ только новую порцию карточек, не перерисовывая всю
@@ -1861,9 +1963,39 @@ function clearFilter(key) {
 
 /* ---------------- страница объявления ---------------- */
 
-/* сравнение с рынком: медиана цен той же подкатегории */
+/* Оформление вердикта — одно на оба источника (сервер и офлайн-расчёт), чтобы
+   одна и та же цена не описывалась в разных местах разными словами. */
+function verdictShape(l, { cls, median, lo, hi, byModel }) {
+  const unit = `${curSym()}${esc(l.priceSuffix)}`; // «сом/мес» у аренды, «$/мес» в USD-режиме
+  const range = `${curNum(lo)}–${curNum(hi)} ${unit}`; // диапазон похожих (p10–p90, без крайних выбросов)
+  const avg = `${t('verdict.avg')} ${curNum(median)} ${unit} · ${byModel ? t('verdict.byModel') : t('verdict.bySub')}`;
+  const out = { median, lo, hi, range, byModel, cls };
+  if (cls === 'danger') return { ...out, label: t('verdict.low'), hint: t('verdict.lowHint'), danger: true };
+  if (cls === 'good') return { ...out, label: t('verdict.good'), hint: `${t('verdict.goodHint')} (${range})` };
+  if (cls === 'fair') return { ...out, label: t('verdict.fair'), hint: avg };
+  return { ...out, label: t('verdict.high'), hint: avg };
+}
+
+/* Ответ сервера (rpc_price_verdict) → та же форма, что у офлайн-расчёта. */
+function verdictFromStats(l, st) {
+  if (!st || !st.verdict) return null;
+  return verdictShape(l, {
+    cls: st.verdict === 'low' ? 'danger' : st.verdict,
+    median: Math.round(+st.median), lo: Math.round(+st.p10), hi: Math.round(+st.p90),
+    byModel: st.basis === 'model',
+  });
+}
+
+/* сравнение с рынком: медиана цен той же подкатегории
+   Для облачных объявлений главный источник — сервер (он видит всю базу, а не
+   ту страницу, что успела приехать в браузер); здесь тот же расчёт для
+   демо-каталога и для случая, когда сервер недоступен. Формулы держим
+   одинаковыми, иначе одна цена получала бы два разных вердикта. */
 function priceVerdict(l) {
   if (!l.price || l.negotiable) return null;
+  // сервер уже отвечал по этому объявлению — верим ему; храним сырой ответ,
+  // а не готовую фразу: смена языка и валюты должна менять и текст вердикта
+  if (Object.prototype.hasOwnProperty.call(state.priceStats, l.id)) return verdictFromStats(l, state.priceStats[l.id]);
   const la = getAttrs(l);
   const sameModel = !!(la.brand && la.model);
   const yr = +la.year || null;
@@ -1889,21 +2021,64 @@ function priceVerdict(l) {
   }
   if (peers.length < 6) return null;
   const prices = peers.map(x => x.price).sort((a, b) => a - b);
-  const mid = prices.length >> 1;
-  const median = prices.length % 2 ? prices[mid] : Math.round((prices[mid - 1] + prices[mid]) / 2);
-  const at = q => prices[Math.min(prices.length - 1, Math.max(0, Math.floor(q * prices.length)))];
-  const lo = at(0.1), hi = at(0.9); // диапазон похожих (p10–p90, без крайних выбросов)
-  const r = l.price / median;
-  const unit = `${curSym()}${esc(l.priceSuffix)}`; // «сом/мес» у аренды, «$/мес» в USD-режиме
-  const range = `${curNum(lo)}–${curNum(hi)} ${unit}`;
-  const basis = byModel ? t('verdict.byModel') : t('verdict.bySub');
-  const avg = `${t('verdict.avg')} ${curNum(median)} ${unit} · ${basis}`;
-  const out = { median, lo, hi, range, byModel };
-  // ≤45% медианы — не «выгодно», а тревога: заниженная цена частая приманка мошенника
-  if (r <= 0.45) return { ...out, cls: 'danger', label: t('verdict.low'), hint: t('verdict.lowHint'), danger: true };
-  if (r <= 0.87) return { ...out, cls: 'good', label: t('verdict.good'), hint: `${t('verdict.goodHint')} (${range})` };
-  if (r <= 1.12) return { ...out, cls: 'fair', label: t('verdict.fair'), hint: avg };
-  return { ...out, cls: 'high', label: t('verdict.high'), hint: avg };
+  // percentile_cont, как на сервере: линейная интерполяция по индексу q·(n−1)
+  const at = (arr, q) => {
+    const i = (arr.length - 1) * q, lo = Math.floor(i), hi = Math.ceil(i);
+    return lo === hi ? arr[lo] : arr[lo] + (arr[hi] - arr[lo]) * (i - lo);
+  };
+  const median = Math.round(at(prices, 0.5));
+  const lo = Math.round(at(prices, 0.1)), hi = Math.round(at(prices, 0.9));
+  const mad = at(peers.map(x => Math.abs(x.price - median)).sort((a, b) => a - b), 0.5);
+  const dev = (l.price - median) / median;
+  const thr = Math.max(0.07, 0.40 / Math.sqrt(prices.length)); // поправка на размер выборки
+  // Насколько плотно вообще стоят цены: −10% у одинаковых телефонов — заметная
+  // скидка, у квартир — шум. Разброс берём с той стороны, где стоит цена: цены
+  // скошены вправо, и общая мера делает верхнюю половину рынка неоправданно
+  // «далёкой». 1.2816 приводит полуразмах p10/p90 к масштабу σ, 1.4826 — MAD.
+  const side = (l.price < median && median > lo) ? (median - lo) / 1.2816
+             : (l.price >= median && hi > median) ? (hi - median) / 1.2816
+             : (mad > 0 ? 1.4826 * mad : 0);
+  const z = side > 0 ? (l.price - median) / side : null;
+  // Приманка — не просто «сильно ниже медианы»: на широком рынке половина
+  // медианы это обычная дешёвая студия. Нужны оба признака: ниже середины
+  // рынка И ниже даже его дешёвого края.
+  const bait = lo > 0 ? (l.price <= median * 0.60 && l.price <= lo * 0.65) : (l.price <= median * 0.45);
+  let cls = 'fair';
+  if (bait) cls = 'danger';
+  else if (dev <= -thr && (z === null || z <= -1)) cls = 'good';
+  else if (dev >= thr && (z === null || z >= 1)) cls = 'high';
+  return verdictShape(l, { cls, median, lo, hi, byModel });
+}
+
+/* Вердикт с сервера приходит уже после отрисовки страницы — подменяем на
+   месте, а не перерисовываем карточку: перерисовка сбрасывает открытую
+   галерею и дёргает экран под пальцем. */
+function paintItemVerdict(v) {
+  const card = document.querySelector('.buy-card');
+  if (!card) return;
+  const cur = card.querySelector('.price-verdict');
+  if (!v) { if (cur) cur.remove(); return; }
+  const html = `<div class="price-verdict ${v.cls}" title="${esc(v.hint)}">${v.label} · ${esc(v.hint)}</div>`;
+  if (cur) cur.outerHTML = html;
+  else {
+    const price = card.querySelector('.buy-price');
+    if (price) price.insertAdjacentHTML('afterend', html);
+  }
+}
+
+/* Честная цена по всей базе. Локальный расчёт видит только загруженные
+   страницы: «ниже рынка» на живой базе легко превращается в «ниже того, что
+   лежало на первой странице». Спрашиваем сервер и, если он ответил, дальше
+   верим ему — в том числе в фильтре «ниже рынка». */
+async function refreshItemVerdict(l) {
+  if (!isCloudListing(l) || typeof BZ === 'undefined' || !BZ.available()) return;
+  if (!l.price || l.negotiable) return;
+  const st = await BZ.priceVerdict(l.id);
+  if (!st) return;                                   // сети нет — остаётся локальная оценка
+  state.priceStats[l.id] = st;
+  // за время запроса человек мог уйти на другое объявление — тогда только
+  // запоминаем ответ, чужую карточку не трогаем
+  if (parseHash().path === '/item/' + l.id) paintItemVerdict(verdictFromStats(l, st));
 }
 
 function renderItem(id) {
@@ -2065,6 +2240,10 @@ function renderItem(id) {
 
   // всегда обновляем (иначе стрелки листают фото предыдущего объявления)
   window._itemPhotos = photos.length > 1 ? photos : [];
+
+  // цену сверяем с рынком по всей базе — страница уже нарисована, вердикт
+  // приезжает следом и подменяется на месте
+  if (!isMine) refreshItemVerdict(l);
 
   // свайп по фото: не перехватываем вертикальный скролл (passive + проверка доминанты dx)
   if (photos.length > 1) {
@@ -3219,6 +3398,9 @@ function renderPost(params) {
       delete curAttrs.storage; delete curAttrs.color;
       renderPostAttrs();
     }
+    // марка, модель и год меняют круг сравнения: Camry 2012 сверяют не со
+    // всеми Camry, а с ровесниками
+    if (key === 'brand' || key === 'model' || key === 'year') updatePriceHint();
   });
 
   $('#photoPicker').addEventListener('click', e => {
@@ -3259,18 +3441,46 @@ function renderPost(params) {
     if (!box) return;
     const sub = $('#pSub') ? $('#pSub').value : '';
     const st = (sub && typeof subPriceStats === 'function') ? subPriceStats(sub) : null;
-    if (!st || $('#pNegotiable').checked) { box.hidden = true; return; }
+    if ($('#pNegotiable').checked) { box.hidden = true; askServerPriceHint.skip(); return; }
     const val = inputToSom($('#pPrice').value); // ввод в валюте → сомы для сравнения с рынком
-    let verdict = '';
-    if (val > 0) {
-      const r = val / st.median;
-      if (r <= 0.6) verdict = `<span class="ph-v low">${t('form.priceLow')}</span>`;
-      else if (r <= 1.15) verdict = `<span class="ph-v ok">${t('form.priceOk')}</span>`;
-      else verdict = `<span class="ph-v high">${t('form.priceHigh')}</span>`;
+    if (st) {
+      let verdict = '';
+      if (val > 0) {
+        const r = val / st.median;
+        if (r <= 0.6) verdict = `<span class="ph-v low">${t('form.priceLow')}</span>`;
+        else if (r <= 1.15) verdict = `<span class="ph-v ok">${t('form.priceOk')}</span>`;
+        else verdict = `<span class="ph-v high">${t('form.priceHigh')}</span>`;
+      }
+      box.innerHTML = `${icon('chart',{size:15})} ${t('form.priceMarket')} ${curNum(st.min)}–${curNum(st.max)} ${curSym()} · ${t('form.priceMedian')} ${fmtMoney(st.median)} ${verdict}`;
+      box.hidden = false;
     }
-    box.innerHTML = `${icon('chart',{size:15})} ${t('form.priceMarket')} ${curNum(st.min)}–${curNum(st.max)} ${curSym()} · ${t('form.priceMedian')} ${fmtMoney(st.median)} ${verdict}`;
-    box.hidden = false;
+    askServerPriceHint(sub, val);
   }
+
+  /* Та же вилка, но по всей базе и по этой марке с моделью, а не по всей
+     подкатегории демо-каталога. Спрашиваем не на каждую цифру, а через паузу
+     после ввода: иначе на «45000» уходит пять запросов и цифры прыгают под
+     пальцем. Ответ на устаревший ввод отбрасываем по номеру запроса. */
+  let hintTimer = null, hintSeq = 0;
+  function askServerPriceHint(sub, val) {
+    askServerPriceHint.skip();
+    if (!sub || typeof BZ === 'undefined' || !BZ.available()) return;
+    const seq = ++hintSeq;
+    hintTimer = setTimeout(async () => {
+      const st = await BZ.priceVerdictDraft(sub, val, curAttrs);
+      const box = $('#pPriceHint');
+      if (seq !== hintSeq || !box || !st || !st.median) return; // ответ устарел или рынка нет
+      const band = `${t('form.priceMarket')} ${curNum(+st.p10)}–${curNum(+st.p90)} ${curSym()} · ${t('form.priceMedian')} ${fmtMoney(+st.median)}`;
+      const V = { low: `<span class="ph-v low">${t('form.priceWarn')}</span>`,
+                  good: `<span class="ph-v low">${t('form.priceLow')}</span>`,
+                  fair: `<span class="ph-v ok">${t('form.priceOk')}</span>`,
+                  high: `<span class="ph-v high">${t('form.priceHigh')}</span>` };
+      box.innerHTML = `${icon('chart',{size:15})} ${band} ${V[st.verdict] || ''}`;
+      box.hidden = false;
+    }, 450);
+  }
+  askServerPriceHint.skip = () => { if (hintTimer) { clearTimeout(hintTimer); hintTimer = null; } hintSeq++; };
+
   $('#pPrice').addEventListener('input', updatePriceHint);
   updatePriceHint();
 
@@ -3900,6 +4110,95 @@ function savedSearchesHTML() {
   </div>`;
 }
 
+/* ---- быстрые ответы продавца ----
+   Правила живут на сервере (auto_reply_rules), поэтому панель имеет смысл
+   только у вошедшего продавца с облачными объявлениями: локальные «мок»-
+   объявления диалогов в базе не заводят, отвечать там нечему.
+   Порядок тем — как разговор идёт в жизни: сначала «актуально», потом деньги,
+   потом встреча. Приветствие последнее: это не вопрос, а ответ на всё
+   остальное. */
+const AUTO_TOPICS = ['available', 'price', 'bargain', 'where', 'delivery', 'condition', 'greeting'];
+
+function autoReplyHTML(cloudCount) {
+  // Пока сервер не ответил (state.autoReply === null) — панели нет. Показать
+  // её раньше ответа значит пообещать то, чего база может не уметь: на старой
+  // схеме поля откроются, а сохранение упадёт.
+  if (!currentUser() || !BZ.available() || !state.autoReply) return '';
+  const rules = state.autoReply;
+  const set = AUTO_TOPICS.filter(k => rules[k]);
+  if (!cloudCount && !set.length) return '';
+  const on = set.some(k => rules[k].enabled);
+  const rows = AUTO_TOPICS.map(k => `
+    <label class="ar-row">
+      <span class="ar-q">${esc(t('auto.q.' + k))}</span>
+      <input class="finput ar-input" data-auto-topic="${k}" maxlength="500"
+             placeholder="${esc(t('auto.ph.' + k))}" value="${esc(rules[k] ? rules[k].reply : '')}">
+      <span class="ar-ok">${icon('check', { size: 13, stroke: 3 })} ${t('auto.saved')}</span>
+    </label>`).join('');
+  return `<div class="panel ar-panel">
+    <h2>${icon('message', { size: 18 })} ${t('auto.title')}</h2>
+    <p class="ar-sub">${t('auto.sub')}</p>
+    <div class="ar-list">${rows}</div>
+    <p class="ar-note">${t('auto.empty')} ${t('auto.note')}</p>
+    <label class="notif-pref ar-master ${set.length ? '' : 'is-idle'}">
+      <span class="notif-pref-lbl">${icon('sparkle', { size: 18 })} ${t('auto.on')}</span>
+      <input type="checkbox" id="arMaster" ${on ? 'checked' : ''} ${set.length ? '' : 'disabled'}>
+      <span class="fcheck-box">${icon('check', { size: 13, stroke: 3 })}</span>
+    </label>
+  </div>`;
+}
+
+/* Спрашиваем сервер один раз за сессию. Не ответил — значит база этого ещё не
+   умеет (или нет сети): функции просто нет, и показывать её нельзя. Молчаливый
+   отказ лучше полей, которые не сохраняются. */
+async function loadAutoReply() {
+  if (state.autoReply || state.autoReplyOff || !currentUser() || !BZ.available()) return;
+  const list = await BZ.autoReply.list();
+  if (!list) { state.autoReplyOff = true; return; }
+  state.autoReply = {};
+  list.forEach(r => { state.autoReply[r.topic] = { reply: r.reply, enabled: !!r.enabled }; });
+  // Перерисовка выбьет курсор, если продавец уже начал печатать в поле.
+  const busy = document.activeElement && document.activeElement.matches('.ar-input');
+  if (!busy && parseHash().path.startsWith('/profile')) renderProfile();
+}
+
+/* Сохраняем по уходу из поля (change), а не по кнопке: одно правило — одна
+   строка, отдельная «Сохранить» здесь только мешала бы. */
+async function saveAutoRule(input) {
+  const topic = input.dataset.autoTopic;
+  const rules = state.autoReply || (state.autoReply = {});
+  const prev = rules[topic];
+  const val = input.value.trim().slice(0, 500);
+  if (val === (prev ? prev.reply : '')) return;
+  const row = input.closest('.ar-row');
+  row.classList.remove('is-saved');
+  const enabled = prev ? prev.enabled : true;
+  const ok = val ? await BZ.autoReply.save(topic, val, enabled) : await BZ.autoReply.remove(topic);
+  if (!ok) { showToast(t('auto.failed')); return; }
+  if (val) rules[topic] = { reply: val, enabled }; else delete rules[topic];
+  row.classList.add('is-saved');
+  setTimeout(() => row.classList.remove('is-saved'), 1800);
+  const master = document.getElementById('arMaster');
+  if (master) {
+    master.disabled = !AUTO_TOPICS.some(k => rules[k]);
+    master.checked = AUTO_TOPICS.some(k => rules[k] && rules[k].enabled);
+    master.closest('.ar-master').classList.toggle('is-idle', master.disabled);
+  }
+}
+
+/* Выключатель не стирает тексты: уехал на неделю — выключил, вернулся —
+   включил. Флаг per-topic, но дёргать семь галочек по одной незачем. */
+async function toggleAutoReplies(on) {
+  const rules = state.autoReply || {};
+  const topics = AUTO_TOPICS.filter(k => rules[k]);
+  if (!topics.length) return;
+  const res = await Promise.all(topics.map(k => BZ.autoReply.save(k, rules[k].reply, on)));
+  if (res.some(x => !x)) { showToast(t('auto.failed')); }
+  topics.forEach((k, i) => { if (res[i]) rules[k].enabled = on; });
+  const master = document.getElementById('arMaster');
+  if (master) master.checked = topics.some(k => rules[k].enabled);
+}
+
 /* плавающая панель сравнения (поверх любого экрана, когда что-то выбрано) */
 function compareBarHTML() {
   const n = state.compare.size;
@@ -4045,9 +4344,18 @@ function renderProfile() {
       ${my.length ? sellerAnalyticsHTML(my) : ''}
       ${my.length ? rows : emptyHTML('box', t('profile.empty.t'), t('profile.empty.p'),
         `<a class="btn btn-primary" href="#/post" data-link>${t('post.btn')}</a>`)}
+      ${autoReplyHTML(myDb.length)}
       ${savedSearchesHTML()}
     ` : savedSearchesHTML()}
     ${settingsHTML}`;
+
+  app.querySelectorAll('[data-auto-topic]').forEach(inp => {
+    inp.addEventListener('change', () => saveAutoRule(inp));
+    inp.addEventListener('keydown', e => { if (e.key === 'Enter') inp.blur(); });
+  });
+  const master = document.getElementById('arMaster');
+  if (master) master.addEventListener('change', () => toggleAutoReplies(master.checked));
+  loadAutoReply();
 }
 
 function deleteMyListing(id) {
@@ -4312,7 +4620,10 @@ function msgHTML(m, otherReadAt) {
   const status = m.from === 'me' ? `<span class="msg-status ${read ? 'read' : ''}">${checkSvg}</span>` : '';
   const photoHTML = m.photo ? `<img class="msg-photo" src="${esc(m.photo)}" alt="" data-msg-photo="${esc(m.photo)}">` : '';
   const textHTML = m.text ? maskUnsafe(m.text) : '';
-  return `<div class="msg ${m.from}${m.photo ? ' has-photo' : ''}">${photoHTML}${textHTML}<time>${msgTime(m.ts)}${status}</time></div>${warn}`;
+  // Готовый ответ продавца подписан всегда: человек должен понимать, что перед
+  // ним заготовка, а не живой собеседник, который уже всё подтвердил.
+  const auto = m.isAuto ? `<span class="msg-auto">${t('chat.autoMark')}</span>` : '';
+  return `<div class="msg ${m.from}${m.photo ? ' has-photo' : ''}${m.isAuto ? ' is-auto' : ''}">${photoHTML}${textHTML}<time>${auto}${msgTime(m.ts)}${status}</time></div>${warn}`;
 }
 
 /* дописать сообщение в открытый диалог без полного ререндера (фокус и клавиатура живут) */
@@ -4338,13 +4649,16 @@ let _chatSub = null; // отписка от realtime текущего откры
 function onRealtimeMsg(chatKey, m) {
   const chat = state.chats[chatKey];
   if (!chat || !currentUser()) return;
-  if (m.sender_id === currentUser().id) return;        // своё уже показали оптимистично
+  // Своё уже показали оптимистично — кроме автоответа: его отправил не клиент,
+  // а правило на сервере, и продавец должен увидеть его в своей же переписке.
+  const mine = m.sender_id === currentUser().id;
+  if (mine && !m.is_auto) return;
   if (chat.messages.some(x => x.id === m.id)) return;   // дедуп
-  const msg = { from: 'them', text: m.text, ts: new Date(m.created_at).getTime(), id: m.id };
+  const msg = { from: mine ? 'me' : 'them', text: m.text, ts: new Date(m.created_at).getTime(), id: m.id, isAuto: !!m.is_auto };
   chat.messages.push(msg);
   chat.updatedAt = Date.now();
   const here = location.hash === '#/chats/' + chatKey;
-  chat.unread = !here;
+  chat.unread = !here && !mine;                         // свой автоответ непрочитанным не делает
   if (here) {
     if (!appendChatMsg(chatKey, msg)) renderChats(chatKey);
     markChatRead(chatKey); // диалог открыт — сразу прочитано
@@ -5029,6 +5343,9 @@ function router() {
     renderItem(path.slice('/item/'.length));
   } else if (path.startsWith('/seller/')) {
     renderSeller(path.slice('/seller/'.length));
+  } else if (path.startsWith('/saved/')) {
+    // адрес сохранённого поиска: по нему ведёт уведомление «N новых по запросу»
+    openSavedSearch(decodeURIComponent(path.slice('/saved/'.length)));
   } else if (path.startsWith('/compare')) {
     renderCompare();
   } else if (path.startsWith('/map')) {
@@ -5521,6 +5838,9 @@ document.addEventListener('click', async e => {
       case 'save-search': {
         if (saveCurrentSearch()) showToast(t('saved.saved'), 'success');
         const b = $('#saveSearchBtn'); if (b) { b.classList.add('on'); b.setAttribute('title', t('saved.savedShort')); }
+        // предложение в конце списка своё дело сделало — убираем, чтобы не
+        // предлагать сохранить уже сохранённое
+        const offer = document.querySelector('.saved-offer'); if (offer) offer.remove();
         break;
       }
       case 'open-saved': openSavedSearch(id); break;
@@ -5742,7 +6062,11 @@ refreshRate();         // подтянуть свежий курс (кэш 6ч, 
 
 // авторизация резолвится асинхронно (Supabase) — когда сессия подтянулась
 // или сменилась (вход/выход/возврат из OAuth): перерисовываем + тянем облачные данные
-authOnChange(() => { router(); loadCloudData(); startMyChatsLive(); });
+authOnChange(() => {
+  state.autoReply = null;   // правила чужие: сменился человек — спрашиваем заново
+  state.autoReplyOff = false;
+  router(); loadCloudData(); startMyChatsLive();
+});
 
 // realtime: новые объявления появляются в ленте у всех (и у гостей) без перезагрузки
 startListingsLive();

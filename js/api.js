@@ -275,6 +275,44 @@ const BZ = (() => {
   }
   const trackView = id => rpc('rpc_track_view', { p_listing_id: id, p_fingerprint: fingerprint() })();
 
+  /* ---------- честная цена ---------- */
+
+  /* Сравнение с рынком считает сервер — по всей базе, а не по той странице,
+     что успела приехать в браузер. Наружу уходят только агрегаты (медиана,
+     края вилки, размер выборки): по сырым ценам пиров конкурент собрал бы
+     чужой прайс-лист строка за строкой. */
+  const priceVerdict = id => rpc('rpc_price_verdict', { p_listing_id: id })();
+
+  /* Та же оценка для ещё не опубликованного объявления: продавец видит рынок,
+     пока набирает цену, и не узнаёт про «дорого» уже от покупателя. */
+  const priceVerdictDraft = (sub, price, attrs) => rpc('rpc_price_verdict_draft', {
+    p_subcategory: sub || '', p_price: Number(price) || 0, p_attrs: attrs || {},
+  })();
+
+  /* ---------- быстрые ответы продавца ---------- */
+
+  /* Тексты пишет продавец, и уходят они дословно. Правил нет — автоответа нет:
+     отдельного выключателя не нужно, пустой список и есть «выключено». */
+  const autoReply = {
+    async list() {
+      const s = db(), me = uid(); if (!s || !me) return null;
+      const { data, error } = await s.from('auto_reply_rules').select('*');
+      return error ? fail('autoReply.list', error) : (good(), data || []);
+    },
+    async save(topic, reply, enabled = true) {
+      const s = db(), me = uid(); if (!s || !me) return false;
+      const { error } = await s.from('auto_reply_rules')
+        .upsert({ user_id: me, topic, reply, enabled, updated_at: new Date().toISOString() },
+                { onConflict: 'user_id,topic' });
+      return error ? (fail('autoReply.save', error), false) : (good(), true);
+    },
+    async remove(topic) {
+      const s = db(), me = uid(); if (!s || !me) return false;
+      const { error } = await s.from('auto_reply_rules').delete().eq('user_id', me).eq('topic', topic);
+      return error ? (fail('autoReply.remove', error), false) : (good(), true);
+    },
+  };
+
   /* ---------- торг ---------- */
 
   /* Сравнение с минимальной ценой делает сервер. Раньше floor приезжал в
@@ -317,16 +355,41 @@ const BZ = (() => {
       const { data, error } = await s.from('saved_searches').select('*').order('created_at', { ascending: false });
       return error ? fail('savedSearches.list', error) : (good(), data || []);
     },
+    // Возвращает id серверной записи: по нему приходит ссылка из уведомления
+    // «N новых по запросу», и локальная копия обязана знать этот же id.
     async add(name, query, notify = true) {
-      const s = db(), me = uid(); if (!s || !me) return false;
-      const { error } = await s.from('saved_searches').upsert(
-        { user_id: me, name, query, notify }, { onConflict: 'user_id,name' });
-      return error ? (fail('savedSearches.add', error), false) : true;
+      const s = db(), me = uid(); if (!s || !me) return null;
+      const { data, error } = await s.from('saved_searches').upsert(
+        { user_id: me, name, query, notify }, { onConflict: 'user_id,name' })
+        .select('id').maybeSingle();
+      return error ? (fail('savedSearches.add', error), null) : (good(), data?.id || null);
     },
     async remove(id) {
       const s = db(), me = uid(); if (!s || !me) return false;
       const { error } = await s.from('saved_searches').delete().eq('id', id).eq('user_id', me);
       return error ? (fail('savedSearches.remove', error), false) : true;
+    },
+    // «+N новых» по всем поискам разом: { "<id>": N }. Клиент раньше считал это
+    // сам, прогоняя фильтр по всему списку объявлений — на живой базе так уже
+    // нельзя.
+    async newCounts() {
+      const s = db(); if (!s || !uid()) return null;
+      const { data, error } = await s.rpc('rpc_saved_search_new_counts');
+      return error ? fail('savedSearches.newCounts', error) : (good(), data || {});
+    },
+    // Открыли поиск — счётчик обнуляем отметкой времени, а не снимком id.
+    async touch(id) {
+      const s = db(), me = uid(); if (!s || !me) return false;
+      const { error } = await s.from('saved_searches')
+        .update({ last_seen_at: new Date().toISOString() }).eq('id', id).eq('user_id', me);
+      return !error;
+    },
+    // То, что не ушло сразу (ночь, потолок уведомлений), забираем одним
+    // сообщением при открытии приложения. Возвращает число отправленных.
+    async flushDigest() {
+      const s = db(); if (!s || !uid()) return 0;
+      const { data, error } = await s.rpc('rpc_flush_saved_search_digest');
+      return error ? (fail('savedSearches.flushDigest', error), 0) : (good(), data || 0);
     },
   };
 
@@ -394,6 +457,7 @@ const BZ = (() => {
     photoUrl, uploadPhotos, removePhotos,
     search, attrCounts, getListing,
     createListing, updateListing, deleteListing, bump, markSold, trackView,
+    priceVerdict, priceVerdictDraft, autoReply,
     makeOffer, favorites, savedSearches, report, reviews, notifications,
     _fromRow: fromRow,
   };

@@ -186,6 +186,34 @@ created_at timestamptz default now()
 ```
 RLS: только своё. Уникальность `(user_id, name)`.
 
+## saved_search_hits
+
+```
+search_id uuid references saved_searches(id) on delete cascade
+listing_id uuid references listings(id) on delete cascade
+user_id uuid references auth.users(id) on delete cascade   -- владелец поиска
+score numeric(3,2) not null      -- конкретность запроса, 0.50…1.00
+created_at timestamptz not null default now()
+notified_at timestamptz          -- NULL = уведомление ещё не уходило
+primary key (search_id, listing_id)
+```
+Что нашли сохранённые поиски (файл `875_saved_search_match.sql`). Пишет только
+триггер `tg_match_saved_searches` — RLS даёт владельцу `select` и больше ничего,
+иначе потолок уведомлений обнулялся бы вручную. Ключ `(search_id, listing_id)`
+делает совпадение однократным: снятое и заново опубликованное объявление второй
+строки не создаёт.
+
+Отправка уведомления отделена от совпадения: совпадение записывается всегда
+(из него растёт «+N новых»), а уведомление уходит при `score >=
+bazar_saved_search_push_min()` (0.75), не чаще раза в сутки на поиск, не больше
+трёх в сутки на человека и не в 22:00–09:00 по Бишкеку. Остальное забирает
+`rpc_flush_saved_search_digest()` одним уведомлением на поиск.
+
+Семантику «подходит ли объявление» задаёт **только** `bazar_search_where` из
+`500_search.sql` — матчер собирает то же условие через
+`bazar_saved_search_where(query)`. Своей копии фильтров здесь нет и быть не
+должно: разойдясь с выдачей, уведомление начинает врать.
+
 ## listing_views
 
 ```
@@ -298,6 +326,97 @@ primary key (subject, actor, window_start)
 
 Лимиты: объявления 10/час, сообщения 60/час, жалобы 20/час, предложения 30/час.
 
+## Честная цена (таблиц нет)
+
+Файл `510_price_stats.sql`. Своего хранилища нет — всё считается по `listings`
+на лету:
+
+```
+bazar_price_peers(sub, brand, model, year, exclude)  -- цены похожих, три круга
+bazar_price_stats(sub, brand, model, year, exclude)  -- { n, basis, median, mad, p10, p90 }
+bazar_price_verdict(price, stats)                    -- + { verdict, deviation, threshold, z }
+```
+
+Круги выборки идут от узкого к широкому: марка+модель и год ±3 → марка+модель →
+вся подкатегория. Переход на следующий круг — только когда на текущем меньше
+шести цен: Camry 2012 сравнивают с ровесниками, а не со всеми Camry.
+
+Меньше шести цен — вердикта нет вообще (`{ n }` и `verdict: null`). Пустой ответ
+честнее натянутого: «дешевле рынка» по трём объявлениям читается как обещание.
+
+Порог «дёшево/дорого» не фиксированный процент, а два условия сразу:
+отклонение от медианы больше `max(7%, 40%/√n)` **и** дальше одного робастного
+отклонения (`1.4826·MAD`). Первое — поправка на размер выборки, второе — на
+разброс цен: −10% у одинаковых телефонов заметная скидка, у квартир шум.
+
+Вердикт `low` (приманка) требует, чтобы цена была ниже и середины рынка
+(`0.60·median`), и его дешёвого края (`0.65·p10`). Одного процента от медианы
+мало: на широком рынке половина медианы — обычная дешёвая студия, и пометить
+её подозрительной значит наказать честного продавца.
+
+В выборку входят только объявления, которые и так публично видны: `active`,
+непросроченные, от незабаненных продавцов. `rpc_price_verdict` по чужому
+черновику или снятому объявлению отдаёт пусто — иначе по «нашлось/не нашлось»
+можно было бы проверять чужие черновики. Гостю и пользователю доступны только
+две RPC; `bazar_price_peers` наружу не отдаётся — из сырых цен собирается
+прайс-лист конкурента строка за строкой.
+
+Клиент считает то же самое сам (`priceVerdict` в `js/app.js`) — но только для
+демо-каталога и когда сервера нет. Формулы обязаны совпадать: разойдясь, одна
+и та же цена получит два разных вердикта на карточке и в форме подачи.
+
+## Автоответ продавца
+
+Файл `885_auto_reply.sql` — идёт **после** `880_rate_limits.sql`, потому что
+пересоздаёт его триггер на `messages` (см. ниже).
+
+```
+auto_reply_rules
+user_id uuid not null references auth.users(id) on delete cascade
+topic text not null      -- greeting | available | price | bargain | where | delivery | condition
+reply text not null      -- 1..500 символов, уходит покупателю дословно
+enabled boolean not null default true
+updated_at timestamptz not null default now()
+primary key (user_id, topic)
+```
+
+Плюс две колонки на `messages`: `is_auto boolean not null default false` и
+`auto_topic text`.
+
+Пустая таблица = автоответа нет. Отдельного флага «включено» у продавца нет
+специально: два источника правды разошлись бы.
+
+`bazar_reply_topic(text)` определяет тему по словам, без всякой модели. Порядок
+проверок — часть правил: `bargain → delivery → where → condition → available →
+price`. Выигрывает более конкретный признак: «уступите в цене» — это торг, а не
+цена; «сколько стоит доставка» — доставка. Само по себе «есть» не значит ничего
+(«есть торг», «есть царапины»), поэтому в признаках наличия его нет. Ничего не
+совпало — NULL, и это нормально: на незнакомый вопрос лучше промолчать.
+
+Текст ответа пишет продавец. Ничего не генерируется: в переписке о деньгах
+обещание от чужого имени отдуваться будет продавцу.
+
+Триггер `z_trg_auto_reply` (`after insert on messages`, имя с `z_` держит его
+последним) молчит в шести случаях: сообщение само автоответное; писал не
+покупатель; продавец смотрит диалог прямо сейчас (< 2 минут); продавец писал сам
+в последние 15 минут; на эту тему в диалоге уже отвечено; автоответов в диалоге
+уже три. `greeting` уходит только на первое сообщение диалога — посреди
+разговора «здравствуйте, отвечу позже» выглядит издевательством.
+
+После вставки триггер возвращает `chats.seller_last_read_at` на прежнее
+значение: вставка от имени продавца сдвинула бы отметку прочтения, и вопрос
+покупателя пропал бы из непрочитанного ровно потому, что на него ответил бот.
+
+`trg_rate_limit_messages` пересоздан с `when (new.is_auto is not true)`. Лимит
+считается по `auth.uid()`, а в момент вставки автоответа это покупатель — чужой
+бот отъедал бы его квоту 60/час и в пределе показал бы «слишком много
+сообщений» за то, чего он не отправлял.
+
+RLS: продавец видит и правит только свои правила. `anon` — никаких прав.
+
+Клиент обязан помечать `is_auto` в переписке (`.msg-auto`, ключ
+`chat.autoMark`). Выдавать заготовку за живой ответ нельзя.
+
 ## Функции (RPC, вызываются клиентом)
 
 ```sql
@@ -331,6 +450,12 @@ rpc_bump_listing(p_listing_id uuid)    -- поднять своё, не чаще
 rpc_mark_sold(p_listing_id uuid, p_sold boolean)
 rpc_track_view(p_listing_id uuid, p_fingerprint text)
 rpc_unread_counts()  returns jsonb     -- { chats: N, notifications: M }
+
+-- Честная цена: сравнение с рынком по всей базе (см. раздел ниже).
+rpc_price_verdict(p_listing_id uuid)
+  returns jsonb        -- { n, basis, median, mad, p10, p90, verdict, deviation, threshold, z }
+rpc_price_verdict_draft(p_subcategory text, p_price numeric, p_attrs jsonb default '{}')
+  returns jsonb        -- то же для ещё не опубликованного объявления
 ```
 
 Все RPC — `security definer`, с `set search_path = public, pg_temp`, и каждая
@@ -343,28 +468,38 @@ rpc_unread_counts()  returns jsonb     -- { chats: N, notifications: M }
 100_extensions.sql        расширения, общие триггерные функции
 110_types.sql             перечислимые типы
 120_taxonomy.sql          categories / subcategories / cities
+125_seed_taxonomy.sql     наполнение справочников
 200_profiles.sql          profiles + вью + триггеры
 300_listings.sql          listings: колонки, ограничения, индексы, триггеры, RLS
+305_test_data.sql         listings.is_test_data — метка демо-строк
 310_listings_view.sql     public_listings
 400_storage.sql           бакет и политики
 500_search.sql            rpc_search_listings, rpc_attr_counts
+510_price_stats.sql       честная цена: медиана/MAD/вердикт + rpc_price_verdict
 600_personal.sql          favorites, saved_searches, listing_views
 700_moderation.sql        reports, moderation_log
 750_reviews.sql           reviews
 800_offers.sql            offers + rpc_make_offer
 850_chats.sql             chats/messages, непрочитанное
 870_notifications.sql     notifications
+875_saved_search_match.sql  saved_search_hits + матчер сохранённых поисков
 880_rate_limits.sql       rate_limits + check_rate_limit + триггеры
+885_auto_reply.sql        auto_reply_rules + разбор темы + триггер автоответа
 890_realtime.sql          публикация realtime
-900_seed_taxonomy.sql     наполнение справочников
 ```
 
 Имя файла = `supabase/migrations/<номер>_<имя>.sql`. Нумерация оставляет зазоры
 намеренно: между 300 и 400 можно вставить новое, не перенумеровывая всё.
 
+`DEPLOY_ALL.sql` — те же файлы, склеенные по порядку в один: на боевой базе нет
+ни psql, ни CLI, схема накатывается вставкой в SQL Editor. Собирается **только**
+скриптом `build-deploy-all.sql.sh` и пересобирается вместе с каждой новой
+миграцией: собранный руками, он тихо отстаёт (так и вышло — бандл три месяца жил
+без `510`, `875` и `885`, и накат на живую базу молча ставил старую схему).
+
 ## Дополнение: is_test_data
 
 `listings.is_test_data boolean not null default false` — признак демо-строки
-(файл `320_test_data.sql`). Витрину наполняют 6030 сгенерированных объявлений;
+(файл `305_test_data.sql`). Витрину наполняют 6030 сгенерированных объявлений;
 без флага их потом не отличить от настоящих. Чистка: `delete from listings
 where is_test_data;`
