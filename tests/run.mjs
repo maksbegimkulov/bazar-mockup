@@ -584,6 +584,21 @@ const SS_NARROW = 'ss-narrow-' + Math.random().toString(36).slice(2, 8);
 const SS_WIDE   = 'ss-wide-'   + Math.random().toString(36).slice(2, 8);
 let ssNarrowId = null, ssWideId = null, ssListingId = null;
 
+/* Матчер и сводка сознательно молчат ночью (22:00–09:00 по Бишкеку). Если
+   оставить это на настоящие часы, набор зелёный днём и красный ночью — причём
+   ночью он выглядит поломкой, хотя код прав, и половина группы просто не
+   проверяется. Поэтому на время группы приколачиваем один источник времени, а
+   саму тишину проверяем отдельно: ниже есть тест с приколоченной ночью и тест
+   на таблицу часов с явными метками времени. Определение забираем из базы и
+   возвращаем как было — руками его не переписываем, чтобы копия не разошлась
+   с миграцией. */
+const QUIET_DEF = sql(`select pg_get_functiondef('public.bazar_quiet_hours(timestamptz)'::regprocedure)`);
+const pinQuiet = v => sql(
+  `create or replace function public.bazar_quiet_hours(p_at timestamptz default now())
+   returns boolean language sql stable parallel safe as $pin$ select ${v} $pin$`);
+const unpinQuiet = () => sql(QUIET_DEF);
+pinQuiet(false);
+
 await test('конкретный запрос ловит новое объявление и уведомляет', async () => {
   const s = await mustPass(C.client.from('saved_searches').insert({
     user_id: C.id, name: SS_NARROW,
@@ -706,24 +721,14 @@ await test('бейдж «+N новых» считает сервер', async () 
 });
 
 await test('гость счётчиков не получает и сводку не запускает', async () => {
-  const counts = await mustPass(guest.rpc('rpc_saved_search_new_counts'), 'счётчики гостю');
-  eq(counts, {}, 'гостю вернули не пустой объект');
+  // Гостю обе функции просто не выданы (блок прав в 875): сохранённых поисков
+  // у него нет, а сводка без сессии означает «разобрать всех» — это работа
+  // расписания, не браузера. Клиент их без входа и не зовёт.
+  await mustFail(guest.rpc('rpc_saved_search_new_counts'), 'счётчики гостю');
   await mustFail(guest.rpc('rpc_flush_saved_search_digest'), 'сводка от имени гостя');
 });
 
-await test('ночная тишина считается по Бишкеку', async () => {
-  eq(sql(`select bazar_quiet_hours('2026-08-13 21:00:00+00')`), 't', '03:00 по Бишкеку — тишина');
-  eq(sql(`select bazar_quiet_hours('2026-08-14 03:30:00+00')`), 'f', '09:30 по Бишкеку — можно');
-  eq(sql(`select bazar_quiet_hours('2026-08-14 16:30:00+00')`), 't', '22:30 по Бишкеку — тишина');
-});
-
 await test('сводка забирает накопленное одним уведомлением', async () => {
-  // Сводка сознательно молчит ночью — в это окно проверять нечего, и делать
-  // вид, что проверили, нельзя.
-  if (sql('select bazar_quiet_hours()') === 't') {
-    process.stdout.write('      (ночное окно по Бишкеку — сводка не проверяется)\n');
-    return;
-  }
   // Отматываем сутки: потолок «одно уведомление в сутки на поиск» тут не
   // проверяется, он уже проверен выше.
   sql(`update saved_search_hits set notified_at = null where search_id='${ssNarrowId}'`);
@@ -739,6 +744,46 @@ await test('сводка забирает накопленное одним ув
      'часть пачки осталась неотправленной');
   eq(await mustPass(C.client.rpc('rpc_flush_saved_search_digest'), 'повторная сводка'), 0,
      'повторная сводка снова отправила');
+});
+
+await test('ночью совпадение копится, но не уведомляет', async () => {
+  // Отдельный поиск: у SS_NARROW суточный потолок уже выбран, и «уведомления
+  // нет» на нём доказывало бы потолок, а не тишину. Публикует B — у A свой
+  // часовой потолок на объявления, и он тут почти выбран.
+  const s = await mustPass(C.client.from('saved_searches').insert({
+    user_id: C.id, name: 'ss-night-' + Math.random().toString(36).slice(2, 8),
+    query: { cat: 'transport', sub: 'Легковые авто', city: 'Бишкек', priceMax: '2000000',
+             attrs: { brand: 'Toyota', model: 'Camry' } },
+  }).select().single(), 'ночной поиск');
+
+  pinQuiet(true);
+  try {
+    const before = +sql(`select count(*) from notifications where user_id='${C.id}' and kind='saved_search'`);
+    const l = await mustPass(B.client.from('listings').insert({
+      ...baseListing({ title: 'Toyota Camry 70, 2021, серебро', price: 1700000 }), owner_id: B.id,
+    }).select().single(), 'ночная публикация');
+
+    eq(+sql(`select count(*) from saved_search_hits where search_id='${s.id}' and listing_id='${l.id}'`),
+       1, 'ночью совпадение не записалось');
+    eq(+sql(`select count(*) from notifications where user_id='${C.id}' and kind='saved_search'`), before,
+       'ночью ушло уведомление');
+    // Сводка ночью тоже молчит: она и существует ради того, чтобы дождаться утра.
+    eq(await mustPass(C.client.rpc('rpc_flush_saved_search_digest'), 'сводка ночью'), 0,
+       'сводка отправила ночью');
+    eq(+sql(`select count(*) from saved_search_hits
+              where search_id='${s.id}' and notified_at is null`), 1, 'ночное совпадение помечено доставленным');
+  } finally {
+    pinQuiet(false);
+  }
+});
+
+await test('ночная тишина считается по Бишкеку', async () => {
+  unpinQuiet();   // дальше время настоящее: проверяем сам расчёт окна
+  eq(sql(`select bazar_quiet_hours('2026-08-13 21:00:00+00')`), 't', '03:00 по Бишкеку — тишина');
+  eq(sql(`select bazar_quiet_hours('2026-08-14 03:30:00+00')`), 'f', '09:30 по Бишкеку — можно');
+  eq(sql(`select bazar_quiet_hours('2026-08-14 16:30:00+00')`), 't', '22:30 по Бишкеку — тишина');
+  eq(sql(`select pg_get_functiondef('public.bazar_quiet_hours(timestamptz)'::regprocedure)`),
+     QUIET_DEF, 'исходное определение не вернулось на место');
 });
 
 /* ══════════════════════════ честная цена ══════════════════════════ */
