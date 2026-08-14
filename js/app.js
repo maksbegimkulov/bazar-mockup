@@ -4119,14 +4119,17 @@ function savedSearchesHTML() {
    остальное. */
 const AUTO_TOPICS = ['available', 'price', 'bargain', 'where', 'delivery', 'condition', 'greeting'];
 
-function autoReplyHTML(cloudCount) {
+function autoReplyHTML() {
   // Пока сервер не ответил (state.autoReply === null) — панели нет. Показать
   // её раньше ответа значит пообещать то, чего база может не уметь: на старой
   // схеме поля откроются, а сохранение упадёт.
+  // Раньше панель пряталась ещё и от того, у кого нет объявлений в облаке. Так
+  // продавец находил её только после первого вопроса от покупателя — то есть
+  // ровно после того момента, когда она была нужна. Заполнять ответы полезно
+  // до первого объявления, поэтому единственное условие — вход и живой сервер.
   if (!currentUser() || !BZ.available() || !state.autoReply) return '';
   const rules = state.autoReply;
   const set = AUTO_TOPICS.filter(k => rules[k]);
-  if (!cloudCount && !set.length) return '';
   const on = set.some(k => rules[k].enabled);
   const rows = AUTO_TOPICS.map(k => `
     <label class="ar-row">
@@ -4344,7 +4347,7 @@ function renderProfile() {
       ${my.length ? sellerAnalyticsHTML(my) : ''}
       ${my.length ? rows : emptyHTML('box', t('profile.empty.t'), t('profile.empty.p'),
         `<a class="btn btn-primary" href="#/post" data-link>${t('post.btn')}</a>`)}
-      ${autoReplyHTML(myDb.length)}
+      ${autoReplyHTML()}
       ${savedSearchesHTML()}
     ` : savedSearchesHTML()}
     ${settingsHTML}`;
