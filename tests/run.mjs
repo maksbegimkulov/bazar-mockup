@@ -11,6 +11,17 @@ import {
   group, test, eq, ok, notOk, mustFail, mustPass, summary,
   clientParse, serverSearch,
 } from './harness.mjs';
+import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
+// Прогнать один файл миграции заново — нужен группе «Права на функции».
+// fileURLToPath, а не .pathname: путь с кириллицей иначе приходит закодированным.
+const applyMigration = name => execFileSync('docker',
+  ['exec', '-i', 'supabase_db_bazar-mockup', 'psql', '-U', 'postgres', '-d', 'postgres',
+   '-v', 'ON_ERROR_STOP=1', '-q'],
+  { input: readFileSync(fileURLToPath(new URL('../supabase/migrations/' + name, import.meta.url))),
+    encoding: 'utf8' });
 
 const A = await makeUser('seller');
 const B = await makeUser('buyer');
@@ -784,6 +795,71 @@ await test('ночная тишина считается по Бишкеку', a
   eq(sql(`select bazar_quiet_hours('2026-08-14 16:30:00+00')`), 't', '22:30 по Бишкеку — тишина');
   eq(sql(`select pg_get_functiondef('public.bazar_quiet_hours(timestamptz)'::regprocedure)`),
      QUIET_DEF, 'исходное определение не вернулось на место');
+});
+
+/* ══════════════════════════ права на функции ══════════════════════════ */
+group('Права на функции');
+
+// Отдельная группа, потому что этот класс ошибок не виден ни одному тесту
+// поведения: функция работает правильно — просто позвать её может не тот.
+// На боевой Supabase шаблонные права проекта выдают execute напрямую ролям
+// anon и authenticated, и `revoke ... from public` в миграции их не снимал:
+// гость мог позвать и сырую выборку цен, и сводку (а сводка без сессии
+// означает «разобрать всех»). Здесь проверяется итог, а не намерение.
+// Внутренние: не положены никому снаружи — ни гостю, ни залогиненному.
+// Внутри definer-функций они работают правами владельца, клиент их не зовёт.
+const INNER = ['bazar_price_peers', 'bazar_price_stats', 'bazar_price_verdict', 'bazar_price_min_peers',
+  'bazar_saved_search_matches', 'bazar_saved_search_where', 'bazar_saved_search_score',
+  'bazar_saved_search_push_min', 'bazar_quiet_hours', 'bazar_norm_title', 'bazar_reply_topic',
+  'tg_match_saved_searches', 'tg_auto_reply'];
+// Личные: залогиненному да, гостю нет. Счётчики поисков — про его поиски,
+// сводка без сессии означает «разобрать всех», то есть чужие уведомления.
+const AUTH_ONLY = ['rpc_saved_search_new_counts', 'rpc_flush_saved_search_digest'];
+
+// Локальный стек создаёт функции от postgres и execute гостю не раздаёт, а
+// боевой раздаёт. Без этой подготовки тест проверял бы везение локальной
+// настройки, а не миграцию: сначала воспроизводим боевую щедрость ровно на
+// проверяемых функциях, потом заново прогоняем файлы, которые обязаны права
+// отобрать. Трогаем только этот список — соседние тесты не задеваются.
+sql(`do $sim$
+     declare r record;
+     begin
+       for r in select p.oid::regprocedure::text as sig
+                  from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                 where n.nspname = 'public'
+                   and p.proname in (${['bazar_price_peers', 'bazar_price_stats', 'bazar_price_verdict',
+                     'bazar_price_min_peers', 'bazar_saved_search_matches', 'bazar_saved_search_where',
+                     'bazar_saved_search_score', 'bazar_saved_search_push_min', 'bazar_quiet_hours',
+                     'bazar_norm_title', 'bazar_reply_topic', 'tg_match_saved_searches', 'tg_auto_reply',
+                     'rpc_saved_search_new_counts', 'rpc_flush_saved_search_digest']
+                     .map(s => `'${s}'`).join(',')})
+       loop
+         execute format('grant execute on function %s to anon, authenticated', r.sig);
+       end loop;
+     end $sim$;`);
+['510_price_stats.sql', '875_saved_search_match.sql', '885_auto_reply.sql'].forEach(applyMigration);
+
+const mayExec = (role, names) => sql(
+  `select coalesce(string_agg(p.proname, ', ' order by p.proname), '')
+     from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.proname in (${names.map(s => `'${s}'`).join(',')})
+      and exists (select 1 from pg_roles where rolname = '${role}')
+      and has_function_privilege('${role}', p.oid, 'execute')`);
+
+await test('внутренние функции не выдаются никому снаружи', async () => {
+  eq(mayExec('anon', INNER), '', 'гость может звать внутреннее');
+  eq(mayExec('authenticated', INNER), '', 'залогиненный может звать внутреннее');
+});
+
+await test('личные функции: залогиненному да, гостю нет', async () => {
+  eq(mayExec('anon', AUTH_ONLY), '', 'гостю досталось личное');
+  eq(mayExec('authenticated', AUTH_ONLY), AUTH_ONLY.slice().sort().join(', '),
+     'у залогиненного отобрали своё');
+});
+
+await test('вердикт по цене гостю открыт — это часть карточки', async () => {
+  eq(mayExec('anon', ['rpc_price_verdict', 'rpc_price_verdict_draft', 'rpc_search_listings']),
+     'rpc_price_verdict, rpc_price_verdict_draft, rpc_search_listings', 'у гостя отобрали нужное');
 });
 
 /* ══════════════════════════ честная цена ══════════════════════════ */

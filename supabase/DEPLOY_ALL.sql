@@ -3411,6 +3411,17 @@ begin
   ]
   loop
     execute format('revoke all on function %s from public', v_fn);
+    -- На Supabase «public» — это не «все». Шаблонные права проекта
+    -- (alter default privileges) выдают execute напрямую ролям anon и
+    -- authenticated, и revoke ... from public их не трогает. Проверено на
+    -- боевой: после наката гость мог позвать любой хелпер, включая сырую
+    -- выборку цен. Поэтому снимаем поимённо, а нужное выдаём обратно ниже.
+    if exists (select 1 from pg_roles where rolname = 'anon') then
+      execute format('revoke all on function %s from anon', v_fn);
+    end if;
+    if exists (select 1 from pg_roles where rolname = 'authenticated') then
+      execute format('revoke all on function %s from authenticated', v_fn);
+    end if;
   end loop;
 
   -- Вердикт по цене видит и гость: это часть карточки товара, а не личные
@@ -6125,6 +6136,16 @@ begin
   ]
   loop
     execute format('revoke all on function %s from public', v_fn);
+    -- «public» на Supabase — не «все»: шаблонные права проекта выдают execute
+    -- прямо ролям anon и authenticated, и revoke ... from public их не снимает.
+    -- Без этих двух строк сводку мог запустить кто угодно без сессии — а без
+    -- сессии она означает «разобрать всех», то есть чужие уведомления.
+    if exists (select 1 from pg_roles where rolname = 'anon') then
+      execute format('revoke all on function %s from anon', v_fn);
+    end if;
+    if exists (select 1 from pg_roles where rolname = 'authenticated') then
+      execute format('revoke all on function %s from authenticated', v_fn);
+    end if;
   end loop;
 
   -- Ролей Supabase на голом Postgres нет — миграция не обязана из-за этого
@@ -6582,6 +6603,42 @@ create trigger trg_rate_limit_messages
   for each row
   when (new.is_auto is not true)
   execute function public.tg_check_rate_limit('message_send', '60');
+
+
+-- ---------------------------------------------------------------------------
+-- Права на функции
+--
+-- Ни разбор темы, ни сам триггер снаружи звать незачем: тему спрашивают о
+-- конкретном сообщении внутри вставки, а не пачкой по чужим диалогам.
+--
+-- Одного `revoke ... from public` мало: на Supabase шаблонные права проекта
+-- выдают execute напрямую ролям anon и authenticated. Снимаем поимённо.
+-- Триггер от этого не ломается — права на триггерную функцию проверяются
+-- при создании триггера, а не на каждой строке.
+-- ---------------------------------------------------------------------------
+
+do $grants$
+declare
+  v_fn text;
+begin
+  foreach v_fn in array array[
+    'public.bazar_reply_topic(text)',
+    'public.tg_auto_reply()'
+  ]
+  loop
+    execute format('revoke all on function %s from public', v_fn);
+    if exists (select 1 from pg_roles where rolname = 'anon') then
+      execute format('revoke all on function %s from anon', v_fn);
+    end if;
+    if exists (select 1 from pg_roles where rolname = 'authenticated') then
+      execute format('revoke all on function %s from authenticated', v_fn);
+    end if;
+    if exists (select 1 from pg_roles where rolname = 'service_role') then
+      execute format('grant execute on function %s to service_role', v_fn);
+    end if;
+  end loop;
+end;
+$grants$;
 
 
 -- ═══ 890_realtime.sql ═══

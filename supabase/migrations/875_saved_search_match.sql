@@ -735,6 +735,16 @@ begin
   ]
   loop
     execute format('revoke all on function %s from public', v_fn);
+    -- «public» на Supabase — не «все»: шаблонные права проекта выдают execute
+    -- прямо ролям anon и authenticated, и revoke ... from public их не снимает.
+    -- Без этих двух строк сводку мог запустить кто угодно без сессии — а без
+    -- сессии она означает «разобрать всех», то есть чужие уведомления.
+    if exists (select 1 from pg_roles where rolname = 'anon') then
+      execute format('revoke all on function %s from anon', v_fn);
+    end if;
+    if exists (select 1 from pg_roles where rolname = 'authenticated') then
+      execute format('revoke all on function %s from authenticated', v_fn);
+    end if;
   end loop;
 
   -- Ролей Supabase на голом Postgres нет — миграция не обязана из-за этого

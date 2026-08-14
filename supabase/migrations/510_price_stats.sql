@@ -366,6 +366,17 @@ begin
   ]
   loop
     execute format('revoke all on function %s from public', v_fn);
+    -- На Supabase «public» — это не «все». Шаблонные права проекта
+    -- (alter default privileges) выдают execute напрямую ролям anon и
+    -- authenticated, и revoke ... from public их не трогает. Проверено на
+    -- боевой: после наката гость мог позвать любой хелпер, включая сырую
+    -- выборку цен. Поэтому снимаем поимённо, а нужное выдаём обратно ниже.
+    if exists (select 1 from pg_roles where rolname = 'anon') then
+      execute format('revoke all on function %s from anon', v_fn);
+    end if;
+    if exists (select 1 from pg_roles where rolname = 'authenticated') then
+      execute format('revoke all on function %s from authenticated', v_fn);
+    end if;
   end loop;
 
   -- Вердикт по цене видит и гость: это часть карточки товара, а не личные
